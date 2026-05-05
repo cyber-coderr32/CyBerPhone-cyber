@@ -1,0 +1,9 @@
+{
+  "name": "Remix: CyBerPhone",
+  "description": "Plataforma social de alta conexâo com marketplace profissional, lives e ecossistema de monetização.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "display-capture"
+  ]
+}

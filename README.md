@@ -1,11 +1,31 @@
-<div align="center">
+# CyberPhone - A Rede Social do Futuro
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+Este é o projeto **CyberPhone**, uma rede social moderna construída com React, TypeScript, Tailwind CSS e Firebase.
 
-  <h1>Built with AI Studio</h2>
+## Funcionalidades Principais
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+- **Feed Social:** Publicações de texto e imagem em tempo real.
+- **Chat em Tempo Real:** Conversas privadas e em grupo.
+- **E-commerce Integrado:** Loja virtual com suporte a produtos físicos e digitais.
+- **Sistema de Afiliados:** Ganhe comissões indicando produtos.
+- **Transmissões ao Vivo:** Suporte para lives com chat interativo.
+- **Painel Administrativo:** Gestão completa de usuários, conteúdos e finanças.
+- **Segurança:** Proteção de dados com Firebase Security Rules.
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## Tecnologias Utilizadas
 
-</div>
+- **Frontend:** React, Vite, TypeScript, Tailwind CSS, Framer Motion (motion/react).
+- **Backend/Database:** Firebase (Auth, Firestore, Storage).
+- **Imagens:** Cloudinary.
+- **Ícones:** Lucide React, Heroicons.
+
+## Como Executar Localmente
+
+1. Clone o repositório.
+2. Instale as dependências: `npm install`.
+3. Configure as variáveis de ambiente no arquivo `.env` (veja `.env.example`).
+4. Inicie o servidor de desenvolvimento: `npm run dev`.
+
+## Licença
+
+Este projeto é para fins educacionais e de demonstração.

@@ -1,0 +1,505 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Private user profile information (contains PII)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "documentId": { "type": "string" },
+        "birthDate": { "type": "number" },
+        "gender": { "type": "string", "enum": ["Masculino", "Feminino", "Personalizado"] },
+        "profilePicture": { "type": "string" },
+        "coverPhoto": { "type": "string" },
+        "followedUsers": { "type": "array", "items": { "type": "string" } },
+        "followers": { "type": "array", "items": { "type": "string" } },
+        "balance": { "type": "number" },
+        "bio": { "type": "string" },
+        "storeId": { "type": "string" },
+        "isAdmin": { "type": "boolean" },
+        "isVerified": { "type": "boolean" },
+        "isOnline": { "type": "boolean" },
+        "lastSeen": { "type": "number" },
+        "country": { "type": "string" },
+        "isMonetized": { "type": "boolean" },
+        "monetizationStatus": { "type": "string", "enum": ["INELIGIBLE", "ELIGIBLE", "PENDING", "APPROVED", "REJECTED", "SUSPENDED"] },
+        "monetizationTier": { "type": "number" },
+        "isPremium": { "type": "boolean" },
+        "premiumExpiry": { "type": "number" },
+        "academicRole": { "type": "string", "enum": ["PROFESSOR", "ALUNO", "OUTRO"] }
+      },
+      "required": ["id", "firstName", "lastName", "email"]
+    },
+    "PublicUser": {
+      "title": "PublicUser",
+      "description": "Public user profile information (no PII)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "firstName": { "type": "string" },
+        "lastName": { "type": "string" },
+        "profilePicture": { "type": "string" },
+        "followedUsers": { "type": "array", "items": { "type": "string" } },
+        "followers": { "type": "array", "items": { "type": "string" } },
+        "bio": { "type": "string" },
+        "storeId": { "type": "string" },
+        "isAdmin": { "type": "boolean" },
+        "isVerified": { "type": "boolean" },
+        "isOnline": { "type": "boolean" },
+        "lastSeen": { "type": "number" },
+        "country": { "type": "string" },
+        "academicRole": { "type": "string", "enum": ["PROFESSOR", "ALUNO", "OUTRO"] }
+      },
+      "required": ["id", "firstName", "lastName"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "Social media post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorProfilePic": { "type": "string" },
+        "type": { "type": "string", "enum": ["TEXT", "IMAGE", "LIVE", "REEL"] },
+        "timestamp": { "type": "number" },
+        "content": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "groupId": { "type": "string" },
+        "groupName": { "type": "string" },
+        "likes": { "type": "array", "items": { "type": "string" } },
+        "comments": { "type": "array", "items": { "$ref": "Comment" } },
+        "shares": { "type": "array", "items": { "type": "string" } },
+        "saves": { "type": "array", "items": { "type": "string" } },
+        "isPinned": { "type": "boolean" },
+        "isBoosted": { "type": "boolean" },
+        "boostExpires": { "type": "number" },
+        "disableComments": { "type": "boolean" },
+        "fontFamily": { "type": "string" },
+        "textColor": { "type": "string" },
+        "backgroundColor": { "type": "string" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "reel": {
+          "type": "object",
+          "properties": {
+            "videoUrl": { "type": "string" },
+            "description": { "type": "string" }
+          }
+        },
+        "liveStream": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "status": { "type": "string" }
+          }
+        }
+      },
+      "required": ["id", "userId", "type", "timestamp"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Post comment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "profilePic": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "userId", "userName", "text", "timestamp"]
+    },
+    "ChatConversation": {
+      "title": "ChatConversation",
+      "description": "Chat conversation between users or in a group",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["PRIVATE", "GROUP"] },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "messages": { "type": "array", "items": { "$ref": "Message" } },
+        "groupName": { "type": "string" },
+        "groupImage": { "type": "string" },
+        "adminId": { "type": "string" },
+        "isPublic": { "type": "boolean" },
+        "description": { "type": "string" },
+        "theme": { "type": "string" }
+      },
+      "required": ["id", "type", "participants"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "Chat message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "text": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "fileUrl": { "type": "string" },
+        "fileType": { "type": "string" },
+        "isDeleted": { "type": "boolean" },
+        "isEdited": { "type": "boolean" },
+        "isRead": { "type": "boolean" }
+      },
+      "required": ["id", "senderId", "timestamp"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "User story (WhatsApp style)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userProfilePic": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "text": { "type": "string" },
+        "backgroundColor": { "type": "string" },
+        "textColor": { "type": "string" },
+        "fontFamily": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "views": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "userId", "timestamp"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Support ticket for user assistance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "subject": { "type": "string" },
+        "category": { "type": "string", "enum": ["TECHNICAL", "BILLING", "ABUSE", "OTHER"] },
+        "status": { "type": "string", "enum": ["OPEN", "RESOLVED"] },
+        "messages": { "type": "array", "items": { "$ref": "SupportMessage" } },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "assignedAdminId": { "type": "string" }
+      },
+      "required": ["id", "userId", "subject", "category", "status", "createdAt", "updatedAt"]
+    },
+    "SupportMessage": {
+      "title": "SupportMessage",
+      "description": "Message within a support ticket",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderId": { "type": "string" },
+        "text": { "type": "string" },
+        "attachmentUrl": { "type": "string" },
+        "attachmentType": { "type": "string", "enum": ["image", "video"] },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "senderId", "text", "timestamp"]
+    },
+    "BlockRecord": {
+      "title": "BlockRecord",
+      "description": "Record of a block between two users",
+      "type": "object",
+      "properties": {
+        "blockerId": { "type": "string" },
+        "blockedId": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["blockerId", "blockedId", "timestamp"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "User notification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "recipientId": { "type": "string" },
+        "actorId": { "type": "string" },
+        "type": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "postId": { "type": "string" },
+        "saleId": { "type": "string" },
+        "isRead": { "type": "boolean" },
+        "groupName": { "type": "string" }
+      },
+      "required": ["id", "recipientId", "actorId", "type", "timestamp", "isRead"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Financial transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["DEPOSIT", "WITHDRAWAL", "PURCHASE", "SALE", "CHAT_FEE", "BOOST", "DROPSHIPPING_COST", "DONATION"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "status": { "type": "string", "enum": ["COMPLETED", "PENDING", "FAILED"] }
+      },
+      "required": ["id", "userId", "type", "amount", "timestamp", "status"]
+    },
+    "SystemLog": {
+      "title": "SystemLog",
+      "description": "Log of system actions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "adminId": { "type": "string" },
+        "action": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "action", "timestamp"]
+    },
+    "AdCampaign": {
+      "title": "AdCampaign",
+      "description": "Advertising campaign",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "professorId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "budget": { "type": "number" },
+        "dailyBudget": { "type": "number" },
+        "bidStrategy": { "type": "string", "enum": ["CPM", "CPC"] },
+        "bidAmount": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "imageUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "linkUrl": { "type": "string" },
+        "ctaText": { "type": "string" },
+        "timestamp": { "type": "number" },
+        "categories": { "type": "array", "items": { "type": "string" } },
+        "performance": {
+          "type": "object",
+          "properties": {
+            "impressions": { "type": "number" },
+            "clicks": { "type": "number" },
+            "spend": { "type": "number" }
+          }
+        }
+      },
+      "required": ["id", "professorId", "title", "budget", "isActive", "timestamp"]
+    },
+    "EarningRecord": {
+      "title": "EarningRecord",
+      "description": "Daily earnings record for creators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "date": { "type": "string" },
+        "adRevenue": { "type": "number" },
+        "donationsRevenue": { "type": "number" },
+        "subscriptionsRevenue": { "type": "number" },
+        "totalDaily": { "type": "number" },
+        "viewsCount": { "type": "number" }
+      },
+      "required": ["id", "creatorId", "date", "totalDaily"]
+    },
+    "UserSubscription": {
+      "title": "UserSubscription",
+      "description": "Premium subscription details",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "planId": { "type": "string", "enum": ["FREE", "PREMIUM_MONTHLY", "PREMIUM_YEARLY"] },
+        "status": { "type": "string", "enum": ["ACTIVE", "CANCELED", "EXPIRED"] },
+        "startDate": { "type": "number" },
+        "expiryDate": { "type": "number" },
+        "autoRenew": { "type": "boolean" }
+      },
+      "required": ["id", "userId", "planId", "status"]
+    },
+    "SuperChat": {
+      "title": "SuperChat",
+      "description": "Paid messages in live events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "chatId": { "type": "string" },
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "message": { "type": "string" },
+        "color": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "chatId", "userId", "amount", "timestamp"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Vendor store",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "professorId": { "type": "string" },
+        "name": { "type": "string" },
+        "productIds": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "professorId", "name"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store product",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "storeId": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "imageUrls": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["id", "storeId", "name", "price"]
+    },
+    "AffiliateSale": {
+      "title": "AffiliateSale",
+      "description": "Sales record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "productId": { "type": "string" },
+        "buyerId": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "affiliateUserId": { "type": "string" },
+        "storeId": { "type": "string" },
+        "commissionEarned": { "type": "number" },
+        "saleAmount": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "status": { "type": "string" },
+        "sellerEarnings": { "type": "number" },
+        "affiliateEarnings": { "type": "number" },
+        "fundsReleased": { "type": "boolean" }
+      },
+      "required": ["id", "productId", "buyerId", "sellerId", "saleAmount", "timestamp"]
+    },
+    "AffiliateLink": {
+      "title": "AffiliateLink",
+      "description": "Generated affiliate tracking links",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "productId": { "type": "string" },
+        "link": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["userId", "productId", "link", "sellerId", "timestamp"]
+    },
+    "Call": {
+      "title": "Call",
+      "description": "Real-time call signaling document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "callerId": { "type": "string" },
+        "callerName": { "type": "string" },
+        "callerProfilePic": { "type": "string" },
+        "receiverId": { "type": "string" },
+        "type": { "type": "string", "enum": ["VOICE", "VIDEO"] },
+        "status": { "type": "string", "enum": ["RINGING", "ACCEPTED", "REJECTED", "ENDED", "MISSED", "TIMED_OUT"] },
+        "timestamp": { "type": "number" },
+        "acceptedAt": { "type": "number" },
+        "endedAt": { "type": "number" }
+      },
+      "required": ["callerId", "receiverId", "type", "status", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/calls/{callId}": {
+      "schema": "Call",
+      "description": "Real-time call signaling"
+    },
+    "/earnings/{recordId}": {
+      "schema": "EarningRecord",
+      "description": "Historical earnings data"
+    },
+    "/subscriptions/{subId}": {
+      "schema": "UserSubscription",
+      "description": "User premium subscriptions"
+    },
+    "/super_chats/{chatId}": {
+      "schema": "SuperChat",
+      "description": "Live super chats"
+    },
+    "/profiles/{userId}": {
+      "schema": "User",
+      "description": "Private user profiles (PII)"
+    },
+    "/public_profiles/{userId}": {
+      "schema": "PublicUser",
+      "description": "Public user profiles (No PII)"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "Social media posts"
+    },
+    "/chats/{chatId}": {
+      "schema": "ChatConversation",
+      "description": "Chat conversations"
+    },
+    "/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/ads/{adId}": {
+      "schema": "AdCampaign",
+      "description": "Ad campaigns"
+    },
+    "/stores/{storeId}": {
+      "schema": "Store",
+      "description": "Stores"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Products"
+    },
+    "/sales/{saleId}": {
+      "schema": "AffiliateSale",
+      "description": "Sales records"
+    },
+    "/affiliate_links/{linkId}": {
+      "schema": "AffiliateLink",
+      "description": "Affiliate tracking links"
+    },
+    "/events/{eventId}": {
+      "schema": "CyberEvent",
+      "description": "Events"
+    },
+    "/stories/{storyId}": {
+      "schema": "Story",
+      "description": "Stories"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Transactions"
+    },
+    "/reports/{reportId}": {
+      "schema": "ContentReport",
+      "description": "Content reports"
+    },
+    "/tickets/{ticketId}": {
+      "schema": "SupportTicket",
+      "description": "Support tickets"
+    },
+    "/logs/{logId}": {
+      "schema": "SystemLog",
+      "description": "System logs"
+    },
+    "/blocks/{blockId}": {
+      "schema": "BlockRecord",
+      "description": "Mutual blocking records"
+    }
+  }
+}

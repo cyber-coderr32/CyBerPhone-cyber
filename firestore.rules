@@ -1,0 +1,264 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && (request.auth.token.email_verified == true || isAdmin());
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (request.auth.token.email == 'ac926815124@gmail.com' || request.auth.token.email == 'alfaajmc@gmail.com') ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isCallParty(data) {
+      return isSignedIn() && data != null && (
+        data.get('callerId', '') == request.auth.uid || 
+        data.get('receiverId', '') == request.auth.uid
+      );
+    }
+
+    function isValidCall(data) {
+      return data.get('callerId', '') is string && data.get('callerId', '').size() >= 1 &&
+             data.get('receiverId', '') is string && data.get('receiverId', '').size() >= 1 &&
+             data.get('type', '') in ['VOICE', 'VIDEO'] &&
+             data.get('status', '') in ['RINGING', 'ACCEPTED', 'REJECTED', 'ENDED', 'MISSED', 'TIMED_OUT'] &&
+             data.get('timestamp', 0) is number;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /profiles/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isVerified() && isOwner(userId) && (request.resource.data.get('isAdmin', false) == false || isAdmin());
+      allow update: if isAdmin() || (
+        isVerified() && (
+          (isOwner(userId) && (
+            // Owner can change fields. If balance is changed, it must NOT increase (spending is ok, self-funding is not)
+            (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance']) || 
+             request.resource.data.get('balance', 0) <= resource.data.get('balance', 0))
+          )) ||
+          (!isOwner(userId) && (
+            // Others can only increase specific fields (like balance when paying or followers)
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance', 'followers', 'monetizationGoals', 'monetizationStatus']) &&
+            request.resource.data.get('balance', 0) >= resource.data.get('balance', 0)
+          ))
+        )
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /public_profiles/{userId} {
+      allow read: if true;
+      allow write: if isAdmin() || (
+        isVerified() && (
+          (isOwner(userId) && (
+            (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance']) || 
+             request.resource.data.get('balance', 0) <= resource.data.get('balance', 0))
+          )) ||
+          (!isOwner(userId) && (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance', 'followers', 'monetizationGoals', 'monetizationStatus', 'followedUsers']) &&
+            request.resource.data.get('balance', 0) >= resource.data.get('balance', 0)
+          ))
+        )
+      );
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+      allow create: if isVerified() && request.resource.data.get('userId', '') == request.auth.uid;
+      allow update: if (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'comments', 'shares', 'saves', 'views'])) || 
+                    (isVerified() && resource.data.get('userId', '') == request.auth.uid);
+      allow delete: if (isVerified() && resource.data.get('userId', '') == request.auth.uid) || isAdmin();
+    }
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && (request.auth.uid in resource.data.participants || resource.data.get('isPublic', false) == true);
+      allow create: if isVerified();
+      allow update: if isVerified() && (request.auth.uid in resource.data.participants);
+      allow delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && resource.data.get('recipientId', '') == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.get('recipientId', '') == request.auth.uid;
+      allow create: if isSignedIn(); // System or Actor creates
+      allow update, delete: if isSignedIn() && resource.data.get('recipientId', '') == request.auth.uid;
+    }
+
+    match /sales/{saleId} {
+      allow get: if isSignedIn() && (
+        resource.data.get('buyerId', '') == request.auth.uid || 
+        resource.data.get('sellerId', '') == request.auth.uid || 
+        resource.data.get('affiliateUserId', '') == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.get('buyerId', '') == request.auth.uid || 
+        resource.data.get('sellerId', '') == request.auth.uid || 
+        resource.data.get('affiliateUserId', '') == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerified() && request.resource.data.get('buyerId', '') == request.auth.uid;
+      allow update: if isAdmin() || (isVerified() && (
+        resource.data.get('buyerId', '') == request.auth.uid || 
+        resource.data.get('sellerId', '') == request.auth.uid
+      ));
+    }
+
+    match /affiliate_links/{linkId} {
+      allow read: if isSignedIn() && (
+        resource.data.get('userId', '') == request.auth.uid || 
+        resource.data.get('sellerId', '') == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerified() && 
+                    request.resource.data.get('userId', '') == request.auth.uid &&
+                    request.resource.data.get('sellerId', '') is string &&
+                    request.resource.data.get('productId', '') is string;
+      allow update, delete: if isVerified() && resource.data.get('userId', '') == request.auth.uid;
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && (resource.data.get('userId', '') == request.auth.uid || isAdmin());
+      allow create: if isVerified() && (
+        request.resource.data.get('userId', '') == request.auth.uid || 
+        request.resource.data.get('type', '') == 'SALE'
+      );
+    }
+
+    match /stores/{storeId} {
+      allow read: if true;
+      allow create: if isVerified();
+      allow update, delete: if isAdmin() || (isVerified() && resource.data.get('professorId', '') == request.auth.uid);
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isVerified();
+      allow update: if isAdmin() || (isVerified() && (
+        (exists(/databases/$(database)/documents/stores/$(resource.data.get('storeId', ''))) &&
+         get(/databases/$(database)/documents/stores/$(resource.data.get('storeId', ''))).data.get('professorId', '') == request.auth.uid) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings', 'averageRating', 'ratingCount', 'soldCount']))
+      ));
+      allow delete: if isAdmin() || (
+        isVerified() && 
+        exists(/databases/$(database)/documents/stores/$(resource.data.get('storeId', ''))) &&
+        get(/databases/$(database)/documents/stores/$(resource.data.get('storeId', ''))).data.get('professorId', '') == request.auth.uid
+      );
+    }
+
+    match /system_logs/{logId} {
+      allow create: if isSignedIn();
+      allow read: if isAdmin();
+    }
+
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /uniqueness_registry/{id} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin() || (isVerified() && resource.data.get('userId', '') == request.auth.uid);
+    }
+
+    match /blocks/{blockId} {
+      allow get, list: if isSignedIn() && (resource.data.get('blockerId', '') == request.auth.uid || resource.data.get('blockedId', '') == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.get('blockerId', '') == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.get('blockerId', '') == request.auth.uid;
+    }
+
+    match /calls/{callId} {
+      allow get: if isSignedIn() && (isAdmin() || isCallParty(resource.data));
+      allow list: if isSignedIn() && (isAdmin() || (resource.data.get('callerId', '') == request.auth.uid || resource.data.get('receiverId', '') == request.auth.uid));
+      allow create: if isVerified() && isValidId(callId) && isValidCall(request.resource.data) && request.resource.data.get('callerId', '') == request.auth.uid;
+      allow update: if (isAdmin() || isCallParty(resource.data)) && 
+                    (
+                      isAdmin() || (
+                        isVerified() && 
+                        request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'acceptedAt', 'endedAt']) &&
+                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'endedAt']) &&
+                        request.resource.data.get('callerId', '') == resource.data.get('callerId', '') &&
+                        request.resource.data.get('receiverId', '') == resource.data.get('receiverId', '')
+                      )
+                    );
+      allow delete: if isAdmin();
+    }
+
+    match /tickets/{ticketId} {
+      allow read, update: if isAdmin() || (isVerified() && resource.data.get('userId', '') == request.auth.uid);
+      allow create: if isVerified();
+    }
+
+    match /earnings/{recordId} {
+      allow read: if isAdmin() || (isVerified() && resource.data.get('creatorId', '') == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /subscriptions/{subId} {
+      allow read: if isAdmin() || (isVerified() && resource.data.get('userId', '') == request.auth.uid);
+      allow write: if isAdmin();
+    }
+
+    match /super_chats/{chatId} {
+      allow read: if isAdmin() || (isVerified() && resource.data.get('userId', '') == request.auth.uid);
+      allow create: if isVerified();
+      allow update, delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow read, update: if isAdmin();
+      allow create: if isSignedIn();
+    }
+
+    match /ads/{adId} {
+      allow read: if true;
+      allow create: if isVerified();
+      allow update, delete: if isAdmin() || (isVerified() && resource.data.get('professorId', '') == request.auth.uid);
+    }
+
+    match /events/{eventId} {
+      allow read: if true;
+      allow create: if isVerified();
+      allow update, delete: if isAdmin() || (isVerified() && resource.data.get('creatorId', '') == request.auth.uid);
+    }
+
+    match /stories/{storyId} {
+       allow read: if isSignedIn();
+       allow create: if isVerified() && request.resource.data.get('userId', '') == request.auth.uid;
+       allow update: if (isVerified() && resource.data.get('userId', '') == request.auth.uid) || 
+                    (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']));
+       allow delete: if (isVerified() && resource.data.get('userId', '') == request.auth.uid) || isAdmin();
+    }
+    
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}
