@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         },
         registerType: 'autoUpdate',
-        injectRegister: 'script',
+        injectRegister: null,
         includeAssets: ['icon-192x192.png', 'icon-512x512.png'],
         devOptions: {
           enabled: false,

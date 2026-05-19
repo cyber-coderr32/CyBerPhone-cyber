@@ -1,10 +1,10 @@
 {
-  "projectId": "remixed-project-id",
-  "appId": "remixed-app-id",
-  "apiKey": "remixed-api-key",
-  "authDomain": "remixed-auth-domain",
-  "firestoreDatabaseId": "remixed-firestore-database-id",
-  "storageBucket": "remixed-storage-bucket",
-  "messagingSenderId": "remixed-messaging-sender-id",
-  "measurementId": "remixed-measurement-id"
+  "projectId": "cyberphone-3b1a3",
+  "appId": "1:930369435109:web:f6bba68fa341a68183ab0c",
+  "apiKey": "AIzaSyAFsvVYZZzeUcKlNJg2DMnOrTGJkZQzQS0",
+  "authDomain": "cyberphone-3b1a3.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-c721e0e2-75d0-40ea-9d03-0baa83e46e41",
+  "storageBucket": "cyberphone-3b1a3.firebasestorage.app",
+  "messagingSenderId": "930369435109",
+  "measurementId": ""
 }

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Post, User, Comment, Page, NotificationType, PostType } from '../types';
 import { findUserById, addPostComment, deleteComment, updatePostLikes, updatePostSaves, updatePostShares, toggleFollowUser, generateUUID, getPosts, toggleReaction, addCommentReply, createNotification, getMutualBlockedUserIds } from '../services/storageService';
+import { translateText } from '../services/translationService';
 import { useDialog } from '../services/DialogContext';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import ShareModal from './ShareModal';
@@ -20,7 +21,10 @@ import {
   ArrowDownTrayIcon,
   TrashIcon,
   LockClosedIcon,
-  UserGroupIcon
+  UserGroupIcon,
+  LanguageIcon,
+  SpeakerWaveIcon,
+  SpeakerXMarkIcon
 } from '@heroicons/react/24/outline';
 import { 
   HeartIcon as HeartIconSolid, 
@@ -38,7 +42,7 @@ interface PostDetailModalProps {
 }
 
 const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, onClose, onUpdate, onNavigate, refreshUser }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { showAlert, showConfirm } = useDialog();
   const [commentText, setCommentText] = useState('');
   const [author, setAuthor] = useState<User | null>(null);
@@ -47,6 +51,9 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
   const [replyingTo, setReplyingTo] = useState<{ id: string, userName: string } | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const [translatedContent, setTranslatedContent] = useState<string | null>(null);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [isReadingVoice, setIsReadingVoice] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -131,6 +138,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     toggleFollowUser(currentUser.id, post.userId);
     refreshUser();
     onUpdate();
+    setTimeout(() => window.location.reload(), 1);
   };
 
   const handleDeleteComment = async (commentId: string) => {
@@ -191,6 +199,66 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     await toggleReaction(commentId, 'COMMENT', emoji, currentUser.id, post.id);
     await fetchComments();
     onUpdate();
+  };
+
+  useEffect(() => {
+    return () => {
+      if (isReadingVoice) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, [isReadingVoice]);
+
+  const handleTranslate = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (translatedContent) {
+        setTranslatedContent(null);
+        return;
+    }
+    
+    setIsTranslating(true);
+    try {
+        const langMap: Record<string, string> = {
+            'pt': 'Português',
+            'en': 'English',
+            'es': 'Español',
+            'fr': 'Français',
+            'zh': 'Chinese'
+        };
+        const targetLang = langMap[i18n.language.split('-')[0]] || 'Português';
+        const translated = await translateText(post.content || '', targetLang);
+        setTranslatedContent(translated);
+    } catch (error) {
+        showAlert(t('translation_error'));
+    } finally {
+        setIsTranslating(false);
+    }
+  };
+
+  const handleReadAloud = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isReadingVoice) {
+      window.speechSynthesis.cancel();
+      setIsReadingVoice(false);
+      return;
+    }
+
+    const textToRead = translatedContent || post.content;
+    if (!textToRead) return;
+
+    const utterance = new SpeechSynthesisUtterance(textToRead);
+    const currentLang = i18n.language.split('-')[0];
+    if (currentLang === 'pt') utterance.lang = 'pt-BR';
+    else if (currentLang === 'en') utterance.lang = 'en-US';
+    else if (currentLang === 'es') utterance.lang = 'es-ES';
+    else if (currentLang === 'fr') utterance.lang = 'fr-FR';
+    else if (currentLang === 'zh') utterance.lang = 'zh-CN';
+
+    utterance.onend = () => setIsReadingVoice(false);
+    utterance.onerror = () => setIsReadingVoice(false);
+
+    setIsReadingVoice(true);
+    window.speechSynthesis.speak(utterance);
   };
 
   if (!author) return null;
@@ -344,6 +412,23 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
              <ArrowLeftIcon className="h-5 w-5 dark:text-white" />
            </button>
            <h2 className="ml-8 text-lg font-black dark:text-white tracking-tight uppercase">Post</h2>
+           
+           <div className="flex items-center gap-1 ml-auto">
+             <button 
+               onClick={handleTranslate}
+               className={`p-2 rounded-2xl transition-all ${isTranslating ? 'animate-pulse' : ''} ${translatedContent ? 'bg-brand/20 text-brand' : 'text-gray-500 hover:text-brand hover:bg-brand/10'}`}
+               title={t('translate')}
+             >
+               <LanguageIcon className="h-5 w-5" />
+             </button>
+             <button 
+               onClick={handleReadAloud}
+               className={`p-2 rounded-2xl transition-all ${isReadingVoice ? 'bg-brand/20 text-brand' : 'text-gray-500 hover:text-brand hover:bg-brand/10'}`}
+               title={t('read_aloud')}
+             >
+               {isReadingVoice ? <SpeakerXMarkIcon className="h-5 w-5" /> : <SpeakerWaveIcon className="h-5 w-5" />}
+             </button>
+           </div>
         </div>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar">
@@ -396,7 +481,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                       style={{ fontFamily: `var(--${post.fontFamily || 'font-sans'})` }}
                       className={`whitespace-pre-wrap break-words w-full relative z-10 transition-all duration-500 ${hasBg ? fontSizeClass : 'text-[18px] md:text-[22px] leading-relaxed dark:text-gray-100'}`}
                     >
-                      {post.content}
+                      {translatedContent || post.content}
                     </p>
                  </div>
                  
@@ -411,7 +496,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                        <VideoPlayer 
                           src={post.reel.videoUrl} 
                           className="rounded-3xl shadow-xl aspect-video"
-                          isReel={post.type === PostType.REEL}
+                          isReel={post.type === PostType.REEL || post.type?.toString().toUpperCase() === 'REEL'}
                           autoPlay={false}
                        />
                     </div>

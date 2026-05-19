@@ -1,0 +1,1 @@
+                        <span className="text-xl font-black dark:text-white tracking-tighter">Taxa de Ativação: <span className="text-blue-600">${settings?.storeCreationFee?.toFixed(2)}</span></span>

@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { initializeFirestore, getDocFromServer, getDoc, doc, enableNetwork, persistentLocalCache, memoryLocalCache } from "firebase/firestore";
+import { initializeFirestore, getDocFromServer, getDoc, getDocs, doc, query, collection, limit, enableNetwork, persistentLocalCache, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import firebaseConfig from '../../firebase-applet-config.json';
 import { safeJsonStringify } from "../lib/utils";
@@ -40,7 +40,9 @@ if (dbId) {
 // which is often caused by persistence corruption in iframe environments.
 const db = app ? initializeFirestore(app, {
   // @ts-ignore
-  experimentalAutoDetectLongPolling: true,
+  experimentalForceLongPolling: true,
+  // @ts-ignore
+  useFetchStreams: false,
   // @ts-ignore
   ignoreUndefinedProperties: true,
   localCache: memoryLocalCache()
@@ -60,25 +62,24 @@ if (isFirebaseConfigured && app && db) {
       
       // Try to get from server directly to verify connectivity
       try {
-        // Use getDocFromServer to force a network request
-        await getDocFromServer(testDocRef);
-        console.log("✅ Firestore Server Connection Successful");
+        console.log("ℹ️ [Firestore] Iniciando teste de conexão direta com o servidor...");
+        // Use getDocs instead of getDoc to verify collection read too
+        await getDocs(query(collection(db, 'settings'), limit(1)));
+        console.log("✅ Firestore Server Connection Successful via getDocs");
       } catch (serverError: any) {
-        // If it's just a permission error, we are actually online
-        if (serverError.code === 'permission-denied') {
-          console.log("✅ Firestore is reachable (Permission Denied is expected for 'test/connection')");
-        } else if (serverError.message && (serverError.message.includes('offline') || serverError.code === 'unavailable')) {
-          if (retries > 0) {
-            console.warn(`⚠️ Firestore Offline/Unavailable. Tentando reconectar... (${retries} tentativas restantes)`);
-            // Force disable and re-enable network
-            await enableNetwork(db).catch(() => {});
-            setTimeout(() => testConnection(retries - 1), 3000);
-          } else {
-            console.error("❌ Firestore Server Connection Failed: Client is offline.");
-            console.log("ℹ️ Navigator Online Status:", navigator.onLine);
-          }
+        // If it's a timeout or unreachable
+        if (serverError.message && (serverError.message.includes('backend') || serverError.message.includes('10 seconds'))) {
+           console.error("❌ [CRITICAL] Firestore Backend Unreachable. Switching to recovery mode.");
+           // Force disable and re-enable network with long polling priority
+           await enableNetwork(db).catch(() => {});
+           if (retries > 0) {
+             console.log(`ℹ️ Tentando recuperação em 5s... (${retries} tentativas)`);
+             setTimeout(() => testConnection(retries - 1), 5000);
+           }
+        } else if (serverError.code === 'permission-denied') {
+          console.log("✅ Firestore is reachable (Permission Denied is expected/safe here)");
         } else {
-          console.warn("ℹ️ Firestore Server Connection Test Result:", serverError.message, "Code:", serverError.code);
+          console.warn("ℹ️ Firestore Server Connection Result:", serverError.message);
         }
       }
     } catch (error: any) {

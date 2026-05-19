@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { User, CartItem, GlobalSettings, GroupTheme, Page } from './types';
-import {
-    getCurrentUserId,
+import { useTranslation } from 'react-i18next';
+import i18n from './i18n';
+import { getCurrentUserId,
     findUserById,
     saveCurrentUser,
     getNotificationsForUser,
     markNotificationsAsRead,
     getCart,
+    saveCart,
     getUnreadMessagesCount,
     addToCart,
     getGlobalSettings,
@@ -35,6 +37,7 @@ import StoreManagerPage from './components/StoreManagerPage';
 import ReelsPage from './components/ReelsPage';
 import SearchResultsPage from './components/SearchResultsPage';
 import NotificationsPage from './components/NotificationsPage';
+import CartPage from './components/CartPage';
 import CartModal from './components/CartModal';
 import WalletModal from './components/WalletModal';
 import SettingsPage from './components/SettingsPage';
@@ -46,12 +49,16 @@ import CreateGroupPage from './components/CreateGroupPage';
 import SupportPage from './components/SupportPage';
 import LegalPage from './components/LegalPage';
 import MonetizationPage from './components/MonetizationPage';
+import CreatorCenterPage from './components/CreatorCenterPage';
+import ExplorePage from './components/ExplorePage';
+import CyberAssistantPage from './components/CyberAssistantPage';
 import SavedPostsPage from './components/SavedPostsPage';
 import BlockedUsersPage from './components/BlockedUsersPage';
 import OfflinePage from './components/OfflinePage';
 import LandingPage from './components/LandingPage';
+import ProductDetailPage from './components/ProductDetailPage';
 import { ExclamationTriangleIcon, WifiIcon } from '@heroicons/react/24/solid';
-
+import { motion, AnimatePresence } from 'motion/react';
 import { DialogProvider, useDialog } from './services/DialogContext';
 
 console.log("[BOOT] App.tsx Iniciado");
@@ -71,6 +78,7 @@ const THEME_MAP: Record<GroupTheme, { primary: string, hover: string, light: str
 };
 
 const App: React.FC = () => {
+    const { t } = useTranslation();
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('cyberphone_theme') === 'dark');
     const [appTheme, setAppTheme] = useState<GroupTheme>(() => getAppTheme());
     const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -139,8 +147,8 @@ const App: React.FC = () => {
 
                     const msgCount = await getUnreadMessagesCount(userId);
                     if (msgCount > lastMessageCountRef.current) {
-                        showNotification("Nova Mensagem", {
-                            body: `Você tem ${msgCount} mensagens não lidas no bupo.`,
+                        showNotification(t('app_new_message'), {
+                            body: t('app_unread_messages', { count: msgCount }),
                             url: window.location.origin
                         });
                     }
@@ -161,7 +169,7 @@ const App: React.FC = () => {
                 });
 
                 showSuccess(`🚀 ${content.title}\n${content.body}`, {
-                    title: "PARABÉNS POR SUA VENDA!"
+                    title: t('app_sale_congrats')
                 });
             });
 
@@ -270,19 +278,26 @@ const App: React.FC = () => {
 
     const syncUserProfile = useCallback(async (userId: string, authUserReference?: any) => {
         try {
+            console.log("[DEBUG] Iniciando sincronização para:", userId);
             let user = await findUserById(userId, authUserReference);
             
             if (!user && authUserReference) {
-                // Fallback para dados básicos se o perfil no Firestore falhar ou não existir
                 console.warn("[APP] Perfil não encontrado no Firestore, usando fallback do Auth.");
                 user = mapUserData(userId, null, authUserReference);
             }
 
-            if (user) {
-                setCurrentUser(prevUser => {
+                if (user) {
+                    console.log("[DEBUG] Perfil carregado, atualizando estado...");
+                    
+                    // Aplicar idioma preferido se existir
+                    if (user.preferredLanguage && i18n.language !== user.preferredLanguage) {
+                        console.log("[DEBUG] Aplicando idioma preferido:", user.preferredLanguage);
+                        i18n.changeLanguage(user.preferredLanguage);
+                    }
+
+                    setCurrentUser(prevUser => {
                     if (!prevUser) return user;
 
-                    // Ignora diferenças triviais como lastSeen para evitar loops de heartbeat
                     const criticalFieldsChanged = 
                         prevUser.id !== user.id ||
                         prevUser.email !== user.email ||
@@ -306,21 +321,29 @@ const App: React.FC = () => {
                     return user;
                 });
                 
+                console.log("[DEBUG] Atualizando status e notificações...");
                 updateUserStatus(user.id, true);
                 setCartItems(getCart());
                 
-                // Seed database if admin
                 const email = (user.email || '').toLowerCase().trim();
                 if (email === 'ac926815124@gmail.com' || email === 'alfaajmc@gmail.com') {
-                    seedDatabase().catch(err => console.error("[APP] Erro ao popular banco:", err));
+                    seedDatabase().catch(err => console.error("[APP] Erro ao popular banco:", safeJsonStringify(err)));
                 }
                 
-                const userNotifications = await getNotificationsForUser(user.id);
-                const unreadNotifCount = userNotifications.filter(n => !n.isRead).length;
-                setUnreadNotificationsCount(prev => prev !== unreadNotifCount ? unreadNotifCount : prev);
+                try {
+                    const userNotifications = await getNotificationsForUser(user.id);
+                    const unreadNotifCount = userNotifications.filter(n => !n.isRead).length;
+                    setUnreadNotificationsCount(prev => prev !== unreadNotifCount ? unreadNotifCount : prev);
+                } catch (notifErr) {
+                    console.error("[APP] Erro ao buscar notificações:", safeJsonStringify(notifErr));
+                }
                 
-                const msgCount = await getUnreadMessagesCount(user.id);
-                setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
+                try {
+                    const msgCount = await getUnreadMessagesCount(user.id);
+                    setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
+                } catch (msgErr) {
+                    console.error("[APP] Erro ao buscar contagem de mensagens:", safeJsonStringify(msgErr));
+                }
 
                 requestNotificationPermission();
                 return true;
@@ -328,7 +351,7 @@ const App: React.FC = () => {
             return false;
         } catch (error) {
             console.error("[APP] Erro de sincronização:", safeJsonStringify(error));
-            setInitError("Falha na sincronização local. Tente recarregar.");
+            setInitError(t('app_sync_error') || "Falha na sincronização local. Tente recarregar.");
             return false;
         } finally {
             setIsLoading(false);
@@ -470,6 +493,54 @@ const App: React.FC = () => {
         };
     }, [currentUser, refreshCurrentUser]);
 
+    const handleCheckout = () => {
+        if (cartItems.length === 0) return;
+        setIsCartModalOpen(false);
+        handleNavigate('cart');
+    };
+
+    const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+    useEffect(() => {
+        const handleFocusIn = (e: FocusEvent) => {
+            const target = e.target as HTMLElement;
+            if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) {
+                setIsKeyboardVisible(true);
+            }
+        };
+
+        const handleFocusOut = () => {
+            setTimeout(() => {
+                if (document.activeElement?.tagName !== 'INPUT' && 
+                    document.activeElement?.tagName !== 'TEXTAREA' && 
+                    !(document.activeElement as HTMLElement)?.isContentEditable) {
+                    setIsKeyboardVisible(false);
+                }
+            }, 100);
+        };
+
+        window.addEventListener('focusin', handleFocusIn);
+        window.addEventListener('focusout', handleFocusOut);
+
+        const handleResize = () => {
+            const visualViewport = window.visualViewport;
+            if (visualViewport) {
+                if (visualViewport.height < window.innerHeight * 0.8) {
+                    setIsKeyboardVisible(true);
+                } else if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+                    setIsKeyboardVisible(false);
+                }
+            }
+        };
+        window.visualViewport?.addEventListener('resize', handleResize);
+
+        return () => {
+            window.removeEventListener('focusin', handleFocusIn);
+            window.removeEventListener('focusout', handleFocusOut);
+            window.visualViewport?.removeEventListener('resize', handleResize);
+        };
+    }, []);
+
     function renderPage() {
         // PERMITIR PÁGINAS PÚBLICAS MESMO SEM USUÁRIO
         if (currentPage === 'terms') return <LegalPage type="terms" onBack={() => handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any))} />;
@@ -491,7 +562,7 @@ const App: React.FC = () => {
                         addToCart(pid, qty, color, aff || pageParams.affiliateId);
                         setCartItems(getCart());
                     }}
-                    onOpenCart={() => setIsCartModalOpen(true)}
+                    onOpenCart={() => handleNavigate('cart')}
                 />;
             }
             return <AuthPage onLoginSuccess={(user) => {
@@ -501,10 +572,21 @@ const App: React.FC = () => {
         }
         
         // NOVO: Fluxo de Verificação de ID Obrigatório para novos usuários, pendentes ou expirados
+        const verificationStatus = currentUser.idVerificationStatus || 'NOT_STARTED';
         const isExpired = currentUser.idVerificationDocs?.expiresAt && currentUser.idVerificationDocs.expiresAt < Date.now();
-        const verificationIncomplete = currentUser.idVerificationStatus !== 'APPROVED' || !currentUser.documentId;
+        const isVerifying = verificationStatus === 'PENDING';
         
-        if ((verificationIncomplete || isExpired) && !currentUser.isAdmin) {
+        const isAdminEmail = currentUser.email === 'alfaajmc@gmail.com' || currentUser.email === 'ac926815124@gmail.com';
+        const effectiveIsAdmin = currentUser.isAdmin || isAdminEmail;
+        
+        // Se o usuário já tem o flag isVerified ou está com status APPROVED, e não está expirado, permitimos a navegação.
+        // Administradores sempre pulam a verificação.
+        const hasApprovedVerification = (currentUser.isVerified === true || verificationStatus === 'APPROVED') && !isExpired;
+
+        // Mostra a tela de verificação se não for Admin e não tiver verificação aprovada
+        const shouldShowVerification = !effectiveIsAdmin && !hasApprovedVerification;
+
+        if (shouldShowVerification) {
             return (
                 <IDVerification 
                   user={currentUser} 
@@ -535,20 +617,38 @@ const App: React.FC = () => {
               appTheme={appTheme} 
               onThemeChange={changeAppTheme} 
             />;
-            case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} storeId={pageParams.storeId} productId={pageParams.productId} affiliateId={pageParams.affiliateId} onAddToCart={(pid: string, qty: number, color?: string, aff?: string) => {
+            case 'store': return <StorePage currentUser={currentUser} onNavigate={handleNavigate} storeId={pageParams.storeId} productId={pageParams.productId} affiliateId={pageParams.affiliateId} onAddToCart={(pid: string, qty: number, color?: string, aff?: string) => {
                 addToCart(pid, qty, color, aff || pageParams.affiliateId);
                 setCartItems(getCart());
-            }} onOpenCart={() => setIsCartModalOpen(true)} />;
+            }} onOpenCart={() => handleNavigate('cart')} />;
             case 'monetization': return <MonetizationPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
+            case 'creator-center': return <CreatorCenterPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
+            case 'explore': return <ExplorePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
+            case 'cyber-assistant': return <CyberAssistantPage currentUser={currentUser} onNavigate={handleNavigate} />;
             case 'saved': return <SavedPostsPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             case 'manage-store': return <StoreManagerPage currentUser={currentUser} refreshUser={refreshCurrentUser} onNavigate={handleNavigate} params={pageParams} />;
             case 'admin': return <AdminDashboard currentUser={currentUser} onNavigate={handleNavigate} onRefreshUser={refreshCurrentUser} />;
-            case 'events': return <EventsPage currentUser={currentUser} />;
-            case 'purchases': return <PurchasesPage currentUser={currentUser} onNavigate={handleNavigate} />;
+            case 'events': return <EventsPage currentUser={currentUser} onNavigate={handleNavigate} />;
+            case 'purchases': return <PurchasesPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             case 'affiliates': return <AffiliatesPage currentUser={currentUser} onNavigate={handleNavigate} />;
             case 'ads': return <AdCampaignPage currentUser={currentUser} refreshUser={refreshCurrentUser} onNavigate={handleNavigate} />;
             case 'blocked-users': return <BlockedUsersPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
-            default: return <FeedPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
+            case 'product-detail': return <ProductDetailPage 
+                currentUser={currentUser} 
+                productId={pageParams.productId} 
+                onNavigate={handleNavigate}
+                onAddToCart={(pid, qty, color, aff) => {
+                    addToCart(pid, qty, color, aff);
+                    setCartItems(getCart());
+                }}
+                onOpenCart={() => handleNavigate('cart')}
+                affiliateId={pageParams.affiliateId}
+            />;
+            case 'cart': return <CartPage currentUser={currentUser} cart={cartItems} setCart={(items: any) => {
+                setCartItems(items);
+                saveCart(items);
+            }} onNavigate={handleNavigate} />;
+            default: return <FeedPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} params={pageParams} />;
         }
     }
 
@@ -561,22 +661,22 @@ const App: React.FC = () => {
                             onClick={() => setIsLoading(false)}
                             className="text-[8px] font-black uppercase text-gray-400 hover:text-blue-600 transition-colors"
                         >
-                            Pular Carregamento
+                            {t('app_skip_loading')}
                         </button>
                         <button 
                             onClick={() => { localStorage.clear(); window.location.reload(); }}
                             className="text-[8px] font-black uppercase text-red-400 hover:text-red-600 transition-colors"
                         >
-                            Resetar Cache
+                            {t('app_reset_cache')}
                         </button>
                     </div>
                     <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-6 shadow-[0_0_15px_rgba(37,99,235,0.3)]"></div>
                     <div className="flex flex-col items-center gap-2">
                        <h1 className="text-xl font-black uppercase text-gray-900 dark:text-white tracking-tighter">CyBerPhone</h1>
-                       <p className="text-[9px] font-bold uppercase text-gray-400 tracking-[0.3em] animate-pulse">A inicializar o CyBerPhone 1.0.0</p>
+                       <p className="text-[9px] font-bold uppercase text-gray-400 tracking-[0.3em] animate-pulse">{t('app_initializing')}</p>
                     </div>
                     <div className="mt-8 text-[8px] text-gray-400 uppercase font-medium">
-                        Se demorar mais de 10 segundos, tente Resetar o Cache.
+                        {t('app_loading_slow')}
                     </div>
                 </div>
             );
@@ -599,9 +699,9 @@ const App: React.FC = () => {
             return (
                 <div className="h-screen w-full flex flex-col items-center justify-center bg-white dark:bg-[#0a0c10] p-6 text-center">
                     <ExclamationTriangleIcon className="h-16 w-16 text-red-500 mb-6" />
-                    <h2 className="text-2xl font-black uppercase mb-2 text-gray-900 dark:text-white">Erro de Inicialização</h2>
+                    <h2 className="text-2xl font-black uppercase mb-2 text-gray-900 dark:text-white">{t('app_init_error')}</h2>
                     <p className="text-gray-500 text-sm mb-8 font-medium">{initError}</p>
-                    <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">Recarregar App</button>
+                    <button onClick={() => window.location.reload()} className="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all">{t('app_reload')}</button>
                 </div>
             );
         }
@@ -612,9 +712,9 @@ const App: React.FC = () => {
                     <div className="bg-orange-500 text-white text-[10px] font-black py-2 px-4 flex items-center justify-between fixed top-0 left-0 w-full z-[1000] animate-pulse uppercase tracking-widest shadow-xl">
                         <div className="flex items-center gap-2">
                             <WifiIcon className="h-4 w-4" />
-                            <span>Modo Offline: Usando dados locais de cache</span>
+                            <span>{t('app_offline_mode')}</span>
                         </div>
-                        <button onClick={() => window.location.reload()} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-all">Reconectar</button>
+                        <button onClick={() => window.location.reload()} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-all">{t('app_reconnect')}</button>
                     </div>
                 )}
                 {currentUser && currentPage !== 'admin' && (
@@ -623,7 +723,7 @@ const App: React.FC = () => {
                       onNavigate={handleNavigate} 
                       unreadNotificationsCount={unreadNotificationsCount} 
                       cartItemCount={cartItems.length} 
-                      onOpenCart={() => setIsCartModalOpen(true)} 
+                      onOpenCart={() => handleNavigate('cart')} 
                       onToggleMenu={() => setIsMenuOpen(!isMenuOpen)}
                     />
                 )}
@@ -639,15 +739,35 @@ const App: React.FC = () => {
                         unreadMessagesCount={unreadMessagesCount}
                       />
                     )}
-                    <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? 'pt-[64px] md:pt-[72px] pb-[80px] md:pb-8 md:ml-64 px-0 md:px-8' : ''} transition-all overflow-x-hidden`}>
+                    <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? `pt-[64px] md:pt-[72px] ${isKeyboardVisible ? 'pb-0' : 'pb-[80px]'} md:pb-8 md:ml-64 px-0 md:px-8` : ''} transition-all overflow-x-hidden`}>
                         <div className={`w-full ${currentUser ? 'max-w-7xl mx-auto min-h-[calc(100vh-140px)]' : 'h-full'}`}>
-                            {renderPage()}
+                            <AnimatePresence mode="wait">
+                                <motion.div
+                                    key={currentPage + (pageParams.userId || '') + (pageParams.productId || '')}
+                                    initial={{ opacity: 0, scale: 0.98, y: 5 }}
+                                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                                    exit={{ opacity: 0, scale: 0.98, y: -5 }}
+                                    transition={{ duration: 0.25, ease: [0.23, 1, 0.32, 1] }}
+                                    className="w-full h-full"
+                                >
+                                    {renderPage()}
+                                </motion.div>
+                            </AnimatePresence>
                         </div>
                     </main>
                 </div>
                 {currentUser && (
                   <>
-                    <CartModal isOpen={isCartModalOpen} onClose={() => setIsCartModalOpen(false)} currentUser={currentUser} onCartUpdate={() => setCartItems(getCart())} refreshUser={refreshCurrentUser} />
+                    <CartModal 
+                        isOpen={isCartModalOpen} 
+                        onClose={() => setIsCartModalOpen(false)} 
+                        cart={cartItems} 
+                        setCart={(items: any) => {
+                            setCartItems(items);
+                            saveCart(items);
+                        }} 
+                        onCheckout={handleCheckout}
+                    />
                     <WalletModal isOpen={walletConfig.isOpen} mode={walletConfig.mode} onClose={() => setWalletConfig({ ...walletConfig, isOpen: false })} currentUser={currentUser} refreshUser={refreshCurrentUser} />
                   </>
                 )}

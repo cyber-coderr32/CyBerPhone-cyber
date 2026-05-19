@@ -19,9 +19,11 @@ import {
   BoltIcon
 } from '@heroicons/react/24/solid';
 import { motion, AnimatePresence } from 'motion/react';
+import { useTranslation } from 'react-i18next';
 import { Post, Product, User, Page, PostType } from '../types';
 import { getPosts, getProducts, findUserById } from '../services/storageService';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { formatCurrency, safeJsonStringify } from '../lib/utils';
 
 interface LandingPageProps {
   currentUser: User | null;
@@ -33,6 +35,7 @@ interface LandingPageProps {
 }
 
 const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNavigate, refreshUser, onAddToCart, onOpenCart }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab ] = useState<'hero' | 'discover'>('hero');
   const [discoverMode, setDiscoverMode] = useState<'reels' | 'videos' | 'shop'>('reels');
   const [publicReels, setPublicReels] = useState<Post[]>([]);
@@ -47,14 +50,14 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
       setLoading(true);
       try {
         const [posts, products] = await Promise.all([
-          getPosts('guest'), 
+          getPosts(undefined), 
           getProducts()
         ]);
         setPublicReels(posts.filter(p => p.type === PostType.REEL).slice(0, 15));
         setPublicVideos(posts.filter(p => p.type === PostType.VIDEO).slice(0, 12));
         setPublicProducts(products.slice(0, 12));
       } catch (e) {
-        console.error("Error fetching guest content", e);
+        console.error("Error fetching guest content", safeJsonStringify(e));
       } finally {
         setLoading(false);
       }
@@ -86,9 +89,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
         <div className="flex items-center gap-4">
           <button 
             onClick={onGoToAuth}
-            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-black uppercase text-[10px] tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all"
+            className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-full font-black uppercase text-[10px] tracking-widest shadow-xl shadow-blue-500/20 active:scale-95 transition-all relative z-[110]"
           >
-            Entrar agora
+            {t('landing_login_btn')}
           </button>
         </div>
       </nav>
@@ -107,16 +110,16 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
         >
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-500/10 border border-blue-100 dark:border-blue-500/20 mb-8">
             <span className="flex h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600">A revolução digital chegou</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600">{t('landing_revolution')}</span>
           </div>
           
           <h1 className="text-[13vw] sm:text-[10vw] md:text-[8vw] font-black text-gray-900 dark:text-white tracking-tighter leading-[0.85] mb-8 uppercase text-balance">
-            Angola em <br />
-            <span className="text-blue-600 italic font-serif lowercase tracking-normal">outra</span> dimensão
+            {t('landing_hero_title_1')} <br />
+            <span className="text-blue-600 italic font-serif lowercase tracking-normal">{t('landing_hero_title_2')}</span> {t('landing_hero_title_3')}
           </h1>
           
           <p className="text-gray-500 dark:text-gray-400 text-lg md:text-xl max-w-2xl mx-auto font-medium leading-relaxed mb-12 px-4 italic font-serif">
-            "Mais do que uma rede social, o CyBerPhone é o epicentro da nova economia digital angolana. Conecte-se com o que realmente importa."
+            {t('landing_hero_desc')}
           </p>
           
           <div className="flex flex-col sm:flex-row items-center justify-center gap-6">
@@ -127,7 +130,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
               className="group relative w-full sm:w-auto px-12 py-6 bg-blue-600 text-white rounded-full font-black uppercase text-sm tracking-widest overflow-hidden shadow-2xl shadow-blue-500/40"
             >
               <span className="relative z-10 flex items-center justify-center gap-3">
-                Explorar Feed
+                {t('landing_explore_feed')}
                 <PlayIcon className="h-5 w-5 group-hover:scale-125 transition-transform" />
               </span>
               <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -136,7 +139,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
               onClick={onGoToAuth}
               className="px-12 py-6 border-2 border-gray-200 dark:border-white/10 rounded-full font-black uppercase text-sm tracking-widest hover:bg-gray-50 dark:hover:bg-white/5 transition-all active:scale-95 text-gray-900 dark:text-white"
             >
-              Criar Conta
+              {t('landing_create_account')}
             </button>
           </div>
         </motion.div>
@@ -160,24 +163,24 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                   onClick={() => setDiscoverMode('reels')}
                   className={`text-sm font-black uppercase tracking-widest transition-all ${discoverMode === 'reels' ? 'text-white border-b-2 border-white pb-1' : 'text-gray-500 hover:text-gray-300'}`}
                >
-                  Reels
+                  {t('landing_reels')}
                </button>
                <button 
                   onClick={() => setDiscoverMode('videos')}
                   className={`text-sm font-black uppercase tracking-widest transition-all ${discoverMode === 'videos' ? 'text-white border-b-2 border-white pb-1' : 'text-gray-500 hover:text-gray-300'}`}
                >
-                  Vídeos
+                  {t('landing_videos')}
                </button>
                <button 
                   onClick={() => setDiscoverMode('shop')}
                   className={`text-sm font-black uppercase tracking-widest transition-all ${discoverMode === 'shop' ? 'text-white border-b-2 border-white pb-1' : 'text-gray-500 hover:text-gray-300'}`}
                >
-                  Shop
+                  {t('landing_shop')}
                </button>
             </div>
             <button onClick={onGoToAuth} className="hidden md:flex items-center gap-2 px-4 py-2 bg-blue-600 rounded-full text-[10px] font-black uppercase tracking-widest hover:bg-blue-500 transition-colors">
                <BoltIcon className="h-3 w-3" />
-               Entrar
+               {t('landing_login_mini')}
             </button>
          </div>
 
@@ -220,14 +223,14 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                            <div className="sticky top-0 z-40 bg-blue-600/20 backdrop-blur-md px-6 py-2 border-b border-blue-500/20 text-center">
                               <p className="text-[9px] font-black uppercase tracking-[0.3em] text-blue-400 flex items-center justify-center gap-2">
                                  <BoltIcon className="h-3 w-3" />
-                                 Você está no modo visitante — Algumas interações estão limitadas
+                                 {t('landing_guest_mode_warning')}
                               </p>
                            </div>
                            
                            {publicReels.map((reel, idx) => (
                            <div key={reel.id} className="h-full w-full snap-start snap-always relative flex items-center justify-center overflow-hidden bg-black">
                               {/* Fake Reel Background (Image/Video Placeholder) */}
-                              {reel.reel && (
+                               {reel.reel && reel.reel.videoUrl && (
                                 <video 
                                   src={reel.reel.videoUrl} 
                                   className="absolute inset-0 w-full h-full object-cover opacity-80"
@@ -237,6 +240,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                                   playsInline
                                   controlsList="nodownload"
                                   onContextMenu={(e) => e.preventDefault()}
+                                  onError={(e) => {
+                                    console.warn("Landing reel video failed to load", e);
+                                    (e.target as HTMLVideoElement).style.display = 'none';
+                                  }}
                                 />
                               )}
                               
@@ -298,10 +305,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
 
                               {/* Interaction Warning Backdrop */}
                               <div className="absolute inset-0 bg-black/40 flex items-center justify-center pointer-events-none">
-                                <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-[2rem] text-center max-w-xs hidden md:block">
-                                   <h3 className="text-xl font-black uppercase tracking-tighter mb-2">Gostou desse conteúdo?</h3>
-                                   <p className="text-xs text-gray-400 mb-6 font-medium">Faça login para interagir, comentar e seguir seus criadores favoritos.</p>
-                                   <button onClick={onGoToAuth} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl">Entrar agora</button>
+                                <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-[2rem] text-center max-w-xs hidden md:block pointer-events-auto">
+                                   <h3 className="text-xl font-black uppercase tracking-tighter mb-2">{t('landing_like_content_q')}</h3>
+                                   <p className="text-xs text-gray-400 mb-6 font-medium">{t('landing_like_content_desc')}</p>
+                                   <button onClick={onGoToAuth} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl relative z-20 pointer-events-auto">{t('landing_login_btn')}</button>
                                 </div>
                               </div>
                            </div>
@@ -326,7 +333,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                            <div key={video.id} className="bg-[#1a1c23] rounded-2xl overflow-hidden border border-white/5 group cursor-pointer" onClick={handleAction}>
                               <div className="aspect-video relative overflow-hidden bg-black">
                                  {video.reel?.videoUrl && (
-                                   <video src={video.reel.videoUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" muted loop playsInline onMouseEnter={e => e.currentTarget.play()} onMouseLeave={e => e.currentTarget.pause()} />
+                                   <video 
+                                      src={video.reel.videoUrl} 
+                                      className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" 
+                                      muted 
+                                      loop 
+                                      playsInline 
+                                      onMouseEnter={e => e.currentTarget.play().catch(() => {})} 
+                                      onMouseLeave={e => e.currentTarget.pause()} 
+                                   />
                                  )}
                                  <div className="absolute inset-0 flex items-center justify-center group-hover:opacity-0 transition-opacity">
                                     <PlayIcon className="h-10 w-10 text-white/50" />
@@ -334,14 +349,14 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                               </div>
                               <div className="p-4">
                                  <h4 className="text-sm font-black text-white uppercase tracking-tight mb-2 line-clamp-2">{video.reel?.description || video.content || 'Sem título'}</h4>
-                                 <div className="flex items-center justify-between">
+                               <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                        <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center">
                                           <span className="text-[8px] font-black">{video.authorName?.[0]}</span>
                                        </div>
                                        <span className="text-[10px] font-black text-gray-400 capitalize">{video.authorName}</span>
                                     </div>
-                                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">Ver agora</span>
+                                    <span className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t('landing_view_now')}</span>
                                  </div>
                               </div>
                            </div>
@@ -366,7 +381,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                               <div className="p-3">
                                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1 truncate">{product.name}</h4>
                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm font-black text-white">${product.price.toFixed(2)}</span>
+                                    <span className="text-sm font-black text-white">{formatCurrency(product.price)}</span>
                                     <button className="p-2 bg-blue-600/20 text-blue-500 rounded-lg group-hover:bg-blue-600 group-hover:text-white transition-colors">
                                        <ShoppingBagIcon className="h-3 w-3" />
                                     </button>
@@ -389,11 +404,11 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
               className="bg-white p-4 md:p-6 rounded-[2rem] shadow-2xl flex items-center justify-between gap-4 md:gap-8"
             >
                <div className="hidden md:block">
-                  <h4 className="text-gray-900 font-black uppercase text-xs tracking-widest mb-1">Crie sua conta</h4>
-                  <p className="text-[10px] text-gray-500 font-medium">Participe da conversa em Angola.</p>
+                  <h4 className="text-gray-900 font-black uppercase text-xs tracking-widest mb-1">{t('landing_create_account_footer')}</h4>
+                  <p className="text-[10px] text-gray-500 font-medium">{t('landing_join_conversation')}</p>
                </div>
-               <button onClick={onGoToAuth} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-500/30">Inscrever-se Grátis</button>
-               <button onClick={onGoToAuth} className="px-6 py-4 border-2 border-gray-100 rounded-2xl font-black uppercase text-xs tracking-widest text-gray-900">Login</button>
+               <button onClick={onGoToAuth} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl shadow-blue-500/30">{t('landing_signup_free')}</button>
+               <button onClick={onGoToAuth} className="px-6 py-4 border-2 border-gray-100 rounded-2xl font-black uppercase text-xs tracking-widest text-gray-900">{t('landing_login_footer')}</button>
             </motion.div>
          </div>
       </section>
@@ -426,23 +441,23 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                  </div>
                  {/* Floating Label */}
                  <div className="absolute -bottom-6 -right-6 bg-white dark:bg-[#1a1c23] p-6 rounded-3xl shadow-2xl border border-gray-100 dark:border-white/10 max-w-[200px]">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 mb-2">Social Feed</p>
-                    <p className="text-sm font-bold leading-tight">Onde a comunidade se encontra.</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-600 mb-2">{t('landing_social_feed')}</p>
+                    <p className="text-sm font-bold leading-tight">{t('landing_where_community_meets')}</p>
                  </div>
               </div>
             </div>
             <div className="order-1 lg:order-2 space-y-8">
-              <p className="text-xs font-black uppercase tracking-[0.4em] text-blue-600">01. Conectividade</p>
+              <p className="text-xs font-black uppercase tracking-[0.4em] text-blue-600">{t('landing_connectivity')}</p>
               <h2 className="text-5xl md:text-7xl font-black tracking-tighter uppercase leading-[0.9]">
-                Não é apenas <br /> 
-                <span className="text-blue-600">Postar</span>. <br />
-                É Pertencer.
+                {t('landing_belonging_title_1')} <br /> 
+                <span className="text-blue-600">{t('landing_belonging_title_2')}</span>. <br />
+                {t('landing_belonging_title_3')}
               </h2>
               <p className="text-gray-500 dark:text-gray-400 font-serif italic text-xl">
-                 "No CyBerPhone, cada interação é uma oportunidade de crescimento. Nossa tecnologia aproxima quem está longe e fortalece quem está perto."
+                 {t('landing_belonging_desc')}
               </p>
               <ul className="space-y-4 pt-4">
-                {['Feed Inteligente', 'Comunidades Temáticas', 'ID Digital Verificado'].map((item, i) => (
+                {[t('landing_smart_feed'), t('landing_communities'), t('landing_id_verified')].map((item, i) => (
                   <li key={i} className="flex items-center gap-3">
                     <CheckCircleIcon className="h-5 w-5 text-blue-600" />
                     <span className="text-sm font-black uppercase tracking-wider">{item}</span>
@@ -459,25 +474,25 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
             <div className="space-y-8">
-              <p className="text-xs font-black uppercase tracking-[0.4em] text-green-600">02. Economia Digital</p>
+              <p className="text-xs font-black uppercase tracking-[0.4em] text-green-600">{t('landing_digital_economy')}</p>
               <h2 className="text-5xl md:text-7xl font-black tracking-tighter uppercase leading-[0.9]">
-                Transforme <br /> 
-                Ideias em <br />
-                <span className="text-green-600">AKZ</span>.
+                {t('landing_transform_ideas_1')} <br /> 
+                {t('landing_transform_ideas_2')} <br />
+                <span className="text-green-600">{t('landing_transform_ideas_3')}</span>.
               </h2>
               <p className="text-gray-500 dark:text-gray-400 font-serif italic text-xl">
-                 "O maior marketplace seguro de Angola agora no seu bolso. Escrow, integridade e oportunidades para todos os empreendedores."
+                 {t('landing_marketplace_desc')}
               </p>
               <div className="flex gap-4 pt-6">
                  <div className="p-6 bg-white dark:bg-white/5 rounded-3xl shadow-xl flex-1 border border-gray-100 dark:border-white/5 group hover:border-green-500/30 transition-colors">
                     <BanknotesIcon className="h-8 w-8 text-green-600 mb-4" />
-                    <h4 className="font-black uppercase text-xs tracking-widest mb-1">Venda Seguro</h4>
-                    <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Checkout Otimizado</p>
+                    <h4 className="font-black uppercase text-xs tracking-widest mb-1">{t('landing_sell_secure')}</h4>
+                    <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">{t('landing_checkout_optimized')}</p>
                  </div>
                  <div className="p-6 bg-white dark:bg-white/5 rounded-3xl shadow-xl flex-1 border border-gray-100 dark:border-white/5 group hover:border-green-500/30 transition-colors">
                     <ShoppingBagIcon className="h-8 w-8 text-green-600 mb-4" />
-                    <h4 className="font-black uppercase text-xs tracking-widest mb-1">Compre VIP</h4>
-                    <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Produtos Curados</p>
+                    <h4 className="font-black uppercase text-xs tracking-widest mb-1">{t('landing_buy_vip')}</h4>
+                    <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">{t('landing_curated_products')}</p>
                  </div>
               </div>
             </div>
@@ -502,12 +517,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
         </div>
         
         <div className="max-w-7xl mx-auto relative z-10 text-center mb-20">
-          <p className="text-xs font-black uppercase tracking-[0.4em] text-blue-500 mb-6 transition-all duration-700">Exploração Infinita</p>
+          <p className="text-xs font-black uppercase tracking-[0.4em] text-blue-500 mb-6 transition-all duration-700">{t('landing_infinite_exploration')}</p>
           <h2 className="text-6xl md:text-8xl font-black tracking-tighter uppercase leading-[0.85] mb-8">
-            Momentos <br /> Que <span className="text-blue-500">Inspiram</span>.
+            {t('landing_moments_inspire_1')} <br /> {t('landing_moments_inspire_2')} <span className="text-blue-500">{t('landing_moments_inspire_3')}</span>.
           </h2>
           <p className="text-gray-400 font-serif italic text-xl max-w-xl mx-auto">
-            "Descubra o talento angolano através de vídeos curtos. Música, humor e criatividade sem limites."
+            {t('landing_reels_desc')}
           </p>
         </div>
 
@@ -538,10 +553,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12 text-center">
              {[
-               { label: 'Cidadãos', val: '100K+', icon: UserGroupIcon },
-               { label: 'Negócios', val: '5K+', icon: ShoppingBagIcon },
-               { label: 'Transações', val: '2B+', icon: BanknotesIcon },
-               { label: 'Alcance', val: 'Global', icon: GlobeAltIcon }
+               { label: t('landing_citizens'), val: '100K+', icon: UserGroupIcon },
+               { label: t('landing_businesses'), val: '5K+', icon: ShoppingBagIcon },
+               { label: t('landing_transactions'), val: '2B+', icon: BanknotesIcon },
+               { label: t('landing_reach'), val: t('landing_global'), icon: GlobeAltIcon }
              ].map((stat, i) => (
                <div key={i} className="group cursor-default">
                   <div className="mb-6 mx-auto w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center group-hover:scale-110 group-hover:bg-blue-600 transition-all duration-500">
@@ -562,7 +577,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
          
          <div className="max-w-4xl mx-auto text-center text-white">
             <h2 className="text-5xl md:text-8xl font-black tracking-tighter uppercase leading-[0.85] mb-12">
-               O futuro não <br /> espera. <span className="text-blue-200 italic font-serif lowercase tracking-normal">e você?</span>
+               {t('landing_future_wait_1')} <br /> {t('landing_future_wait_2')} <span className="text-blue-200 italic font-serif lowercase tracking-normal">{t('landing_future_wait_3')}</span>
             </h2>
             <motion.button 
               whileHover={{ scale: 1.05 }}
@@ -570,9 +585,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
               onClick={onGoToAuth}
               className="px-16 py-8 bg-white text-blue-600 rounded-full font-black uppercase text-lg tracking-[0.2em] shadow-2xl transition-all"
             >
-              Criar minha conta agora
+              {t('landing_create_account_now')}
             </motion.button>
-            <p className="mt-8 text-blue-100/60 text-xs font-black uppercase tracking-[0.3em]">Junte-se a milhares de angolanos hoje.</p>
+            <p className="mt-8 text-blue-100/60 text-xs font-black uppercase tracking-[0.3em]">{t('landing_join_partners')}</p>
          </div>
       </section>
 
@@ -588,32 +603,42 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                   <span className="text-2xl font-black tracking-tighter text-gray-900 dark:text-white uppercase">CyBerPhone</span>
                 </div>
                 <p className="text-gray-400 font-serif italic text-lg max-w-sm">
-                  "Redefinindo os limites da conexão digital no coração de África."
+                  {t('landing_redefining_limits')}
                 </p>
              </div>
              <div>
-                <h5 className="font-black uppercase text-[10px] tracking-widest text-blue-600 mb-6">Plataforma</h5>
+                <h5 className="font-black uppercase text-[10px] tracking-widest text-blue-600 mb-6">{t('landing_platform')}</h5>
                 <ul className="space-y-4">
-                   {['Marketplace', 'Feed Social', 'CyBer Reels', 'CyBer Wallet'].map(link => (
-                     <li key={link}>
-                       <button onClick={onGoToAuth} className="text-sm font-bold text-gray-400 hover:text-blue-600 uppercase tracking-wider transition-colors">{link}</button>
+                   {[
+                     { label: t('landing_marketplace'), key: 'marketplace' }, 
+                     { label: t('landing_social_feed'), key: 'social' }, 
+                     { label: t('landing_cyber_reels'), key: 'reels' }, 
+                     { label: t('landing_cyber_wallet'), key: 'wallet' }
+                   ].map(link => (
+                     <li key={link.key}>
+                       <button onClick={onGoToAuth} className="text-sm font-bold text-gray-400 hover:text-blue-600 uppercase tracking-wider transition-colors">{link.label}</button>
                      </li>
                    ))}
                 </ul>
              </div>
              <div>
-                <h5 className="font-black uppercase text-[10px] tracking-widest text-blue-600 mb-6">Legal</h5>
+                <h5 className="font-black uppercase text-[10px] tracking-widest text-blue-600 mb-6">{t('landing_legal')}</h5>
                 <ul className="space-y-4">
-                   {['Termos de Uso', 'Privacidade', 'Cookies', 'Suporte'].map(link => (
-                     <li key={link}>
-                       <button onClick={onGoToAuth} className="text-sm font-bold text-gray-400 hover:text-blue-600 uppercase tracking-wider transition-colors">{link}</button>
+                   {[
+                     { label: t('landing_terms'), key: 'terms' }, 
+                     { label: t('landing_privacy'), key: 'privacy' }, 
+                     { label: t('landing_cookies'), key: 'cookies' }, 
+                     { label: t('landing_support'), key: 'support' }
+                   ].map(link => (
+                     <li key={link.key}>
+                       <button onClick={onGoToAuth} className="text-sm font-bold text-gray-400 hover:text-blue-600 uppercase tracking-wider transition-colors">{link.label}</button>
                      </li>
                    ))}
                 </ul>
              </div>
           </div>
           <div className="pt-8 border-t border-gray-100 dark:border-white/5 flex flex-col md:row items-center justify-between gap-6">
-             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">© 2026 CyBerPhone Angola — All Rights Reserved.</p>
+             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">© 2026 CyBerPhone — All Rights Reserved.</p>
              <div className="flex gap-6">
                 <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center hover:bg-blue-600 transition-colors group cursor-pointer">
                    <GlobeAltIcon className="h-4 w-4 text-gray-400 group-hover:text-white" />

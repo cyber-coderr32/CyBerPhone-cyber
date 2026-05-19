@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { 
   User, Post, Product, AdCampaign, Transaction, 
   ContentReport, OrderStatus, GlobalSettings, TransactionType, Store, PostType, SystemLog, Page,
-  SupportTicket, SupportMessage, AffiliateSale
+  SupportTicket, SupportMessage, AffiliateSale, AdminSignal
 } from '../types';
 import { 
   getUsers, getPlatformRevenue, getPosts, getProducts, getAds,
@@ -10,9 +10,10 @@ import {
   adminUpdateUser, adminDeletePost, adminProcessReport, adminDeleteProduct,
   updateGlobalSettings, updateUserBalance, getStores, deleteUser,
   getAdminSupportTickets, addSupportMessage, resolveSupportTicket, uploadFile,
-  subscribeToAdminSupportTickets, claimSupportTicket, getDisputedSales, confirmProductReceipt, cancelPurchaseAndRefund
+  subscribeToAdminSupportTickets, claimSupportTicket, getDisputedSales, confirmProductReceipt, cancelPurchaseAndRefund,
+  seedDatabase, verifyStore, unverifyStore, updateStoreVerificationWithDetails, sendAdminSignalToStore
 } from '../services/storageService';
-import { safeJsonStringify } from '../lib/utils';
+import { safeJsonStringify, formatCurrency } from '../lib/utils';
 import { 
   BanknotesIcon, UserGroupIcon, ShieldCheckIcon, TrashIcon, 
   CheckBadgeIcon, ChartPieIcon, MagnifyingGlassIcon, CurrencyDollarIcon, 
@@ -38,12 +39,12 @@ import {
   LifebuoyIcon,
   PaperAirplaneIcon,
   PaperClipIcon,
-  DocumentIcon
+  DocumentIcon,
+  CpuChipIcon
 } from '@heroicons/react/24/solid';
 import Logo from './Logo';
 import { useDialog } from '../services/DialogContext';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
-import { getAoaExchangeRate } from '../services/currencyService';
 import { monetizationService } from '../services/monetizationService';
 
 type AdminTab = 'dashboard' | 'users' | 'posts' | 'stores' | 'products' | 'moderation' | 'finance' | 'config' | 'support' | 'verifications' | 'monetization' | 'disputes' | 'ads';
@@ -77,32 +78,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
   const itemsPerPage = 10;
   const [settings, setSettings] = useState<GlobalSettings>({ 
     platformTax: 0.1, 
-    minWithdrawal: 50, 
+    minWithdrawal: 5000, 
     maintenanceMode: false, 
-    boostFee: 5,
-    boostMinBid: 5,
-    boostDailyMin: 0.5,
-    adMinBudget: 5,
-    adReachCost: 2,
-    verificationFee: 10,
-    groupCreationFee: 5,
-    storeCreationFee: 50,
-    positioningMinBid: 1
+    boostFee: 500,
+    boostMinBid: 500,
+    boostDailyMin: 100,
+    adMinBudget: 500,
+    adReachCost: 200,
+    verificationFee: 1000,
+    groupCreationFee: 500,
+    storeCreationFee: 5000,
+    positioningMinBid: 100,
+    orderCancellationFeePercentage: 5
   });
   
   const [data, setData] = useState<DashboardData>({
     users: [], posts: [], products: [], stores: [], ads: [], transactions: [], reports: [], logs: [], tickets: [], disputes: [], revenue: 0
   });
   const [loading, setLoading] = useState(true);
-  const [exchangeRate, setExchangeRate] = useState(930);
-  
-  useEffect(() => {
-    const fetchRate = async () => {
-      const rate = await getAoaExchangeRate();
-      setExchangeRate(rate);
-    };
-    fetchRate();
-  }, []);
   const [currentTicket, setCurrentTicket] = useState<SupportTicket | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [chatFile, setChatFile] = useState<File | null>(null);
@@ -203,7 +196,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
       case 'monetization':
         return data.users.filter(u => (u.monetizationStatus === 'PENDING' || u.isMonetized) && (`${u.firstName} ${u.lastName}`.toLowerCase().includes(term) || u.email.toLowerCase().includes(term)));
       case 'ads':
-        return data.ads.filter(a => a.name?.toLowerCase().includes(term) || a.professorName?.toLowerCase().includes(term));
+        return data.ads.filter(a => a.name?.toLowerCase().includes(term) || a.userName?.toLowerCase().includes(term));
       case 'disputes':
         return data.disputes.filter(d => d.id.includes(term) || d.buyerId.includes(term));
       case 'posts':
@@ -290,8 +283,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
   };
 
   const handleToggleAdmin = async (user: User) => {
-    if (currentUser.email !== 'alfaajmc@gmail.com') {
-      showAlert("Apenas o Administrador Master pode gerenciar privilégios Root.", { type: 'alert' });
+    // Check if current user is admin. We already did this via access, but let's be sure.
+    // If we want to restrict to only SOME admins, we use special emails.
+    // But if they are in the dashboard, they're likely already admin.
+    const isMasterAdmin = currentUser.email === 'alfaajmc@gmail.com' || currentUser.email === 'ac926815124@gmail.com';
+    
+    if (!isMasterAdmin && !currentUser.isAdmin) {
+      showAlert("Permissão negada para gerenciar privilégios.", { type: 'alert' });
       return;
     }
     const confirmed = await showConfirm(user.isAdmin ? `REBAIXAMENTO: Remover privilégios ROOT de ${user.firstName}?` : `PROMOÇÃO: Tornar ${user.firstName} Administrador ROOT?`, {
@@ -299,8 +297,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
        type: 'alert'
     });
     if (confirmed) {
-      await adminUpdateUser({ ...user, isAdmin: !user.isAdmin });
-      refresh();
+      const success = await adminUpdateUser({ ...user, isAdmin: !user.isAdmin });
+      if (success) {
+        showAlert("Privilégios atualizados com sucesso.", { type: 'success' });
+        refresh();
+      } else {
+        showAlert("Falha ao atualizar privilégios. Verifique as regras de segurança.", { type: 'alert' });
+      }
     }
   };
 
@@ -316,13 +319,18 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
 
   const handleDeleteUser = async (uId: string) => {
     if (await showConfirm("REMOÇÃO PERMANENTE: Confirmar exclusão deste membro?", { type: 'alert', title: 'Atenção' })) {
-      await deleteUser(uId);
-      refresh();
+      const success = await deleteUser(uId);
+      if (success) {
+        showAlert("Membro removido com sucesso.", { type: 'success' });
+        refresh();
+      } else {
+        showAlert("Falha ao remover membro. Verifique os logs.", { type: 'alert' });
+      }
     }
   };
 
   const handleUpdateBalance = async (uId: string) => {
-    const val = prompt("Ajustar saldo (USD):", "0");
+    const val = prompt("Ajustar saldo (KZ):", "0");
     if (val && !isNaN(parseFloat(val))) {
       await updateUserBalance(uId, parseFloat(val));
       refresh();
@@ -348,6 +356,79 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
     refresh();
   };
 
+  const [selectedStore, setSelectedStore] = useState<Store | null>(null);
+  const [showSignalModal, setShowSignalModal] = useState(false);
+  const [performanceInput, setPerformanceInput] = useState(80);
+  const [signalForm, setSignalForm] = useState({
+    type: 'VERIFICATION_REQUEST' as AdminSignal['type'],
+    title: '',
+    message: '',
+    requiresPayment: false,
+    paymentAmount: 0
+  });
+
+  const handleSendSignal = async () => {
+    if (!selectedStore) return;
+    if (!signalForm.title || !signalForm.message) {
+      showAlert('Preencha o título e a mensagem do sinal.', { type: 'error' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const signal: AdminSignal = {
+        id: `sig_${Date.now()}`,
+        adminId: currentUser.id,
+        type: signalForm.type,
+        title: signalForm.title,
+        message: signalForm.message,
+        timestamp: Date.now(),
+        requiresPayment: signalForm.requiresPayment,
+        paymentAmount: signalForm.paymentAmount,
+        paymentStatus: 'PENDING'
+      };
+
+      const success = await sendAdminSignalToStore(selectedStore.id, signal);
+      if (success) {
+        // Also update performance score if it's a verification request or similar
+        await updateStoreVerificationWithDetails(
+            selectedStore.id, 
+            selectedStore.verificationStatus || 'NOT_STARTED', 
+            performanceInput
+        );
+        
+        showAlert('Sinal enviado com sucesso para a loja!', { type: 'success' });
+        setShowSignalModal(false);
+        refresh();
+      }
+    } catch (err) {
+      showAlert('Erro ao enviar sinal.', { type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateStoreVerification = async (sid: string, status: 'APPROVED' | 'REJECTED' | 'PENDING', score: number) => {
+    try {
+      const success = await updateStoreVerificationWithDetails(sid, status, score);
+      if (success) {
+        showAlert(`Status da loja atualizado para ${status}.`, { type: 'success' });
+        fetchData();
+      }
+    } catch (err) {
+        showAlert('Erro ao atualizar verificação.', { type: 'error' });
+    }
+  };
+
+  const handleToggleStoreVerification = async (store: Store) => {
+    if (store.isVerified) {
+      await unverifyStore(store.id);
+    } else {
+      await verifyStore(store.id);
+    }
+    refresh();
+  };
+
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -355,7 +436,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
       refresh();
       showAlert("Parâmetros Root salvos.", { type: 'success' });
     } catch (error) {
-      console.error("Erro ao salvar configurações:", error);
+      console.error("Erro ao salvar configurações:", safeJsonStringify(error));
       showAlert("Erro ao salvar parâmetros.", { type: 'alert' });
     }
   };
@@ -413,7 +494,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
 
       <aside className={`fixed inset-y-0 left-0 z-[510] w-72 bg-[#0d1117] border-r border-white/5 flex flex-col p-6 transition-transform duration-300 lg:sticky lg:translate-x-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
          <div className="flex items-center justify-between mb-12">
-            <Logo size="md" variant="white" className="cursor-pointer" onClick={() => onNavigate('feed')} />
+            <div className="cursor-pointer" onClick={() => onNavigate('feed')}>
+              <Logo size="md" variant="white" />
+            </div>
             <button onClick={() => setIsSidebarOpen(false)} className="lg:hidden p-3 bg-white/5 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-all"><XMarkIcon className="h-7 w-7" /></button>
          </div>
          <nav className="space-y-1 flex-1 overflow-y-auto no-scrollbar">
@@ -442,6 +525,127 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
       </aside>
 
       <main className="flex-1 p-4 lg:p-12 overflow-y-auto h-screen custom-scrollbar relative bg-[#080a0f]">
+         {/* Send Signal Modal */}
+         {showSignalModal && selectedStore && (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in shadow-2xl">
+                <div className="bg-[#12161f] w-full max-w-lg rounded-[3.5rem] p-10 shadow-2xl relative border border-white/5 overflow-hidden">
+                    <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600"></div>
+                    
+                    <div className="flex justify-between items-start mb-8">
+                        <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 bg-blue-600/20 rounded-2xl flex items-center justify-center text-blue-500 shadow-inner">
+                                <PaperAirplaneIcon className="h-8 w-8" />
+                            </div>
+                            <div>
+                                <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Enviar Sinal Admin</h3>
+                                <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest leading-tight">Para: {selectedStore.name}</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setShowSignalModal(false)} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+                            <XMarkIcon className="h-6 w-6 text-gray-500" />
+                        </button>
+                    </div>
+
+                    <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2 no-scrollbar">
+                        <div>
+                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block ml-2 leading-none">Tipo de Sinal</label>
+                            <select 
+                                value={signalForm.type}
+                                onChange={e => setSignalForm({...signalForm, type: e.target.value as AdminSignal['type']})}
+                                className="w-full bg-white/5 border border-white/5 rounded-2xl p-4 text-sm font-bold text-white outline-none focus:border-blue-500/50 appearance-none cursor-pointer"
+                            >
+                                <option value="VERIFICATION_REQUEST">Convite para Verificação</option>
+                                <option value="SUPPORT">Apoio & Suporte</option>
+                                <option value="SUGGESTION">Sugestões de Melhoria</option>
+                                <option value="COMPLIANCE_NOTICE">Aviso de Conformidade</option>
+                            </select>
+                        </div>
+
+                        <div className="bg-white/5 p-6 rounded-[2rem] border border-white/5">
+                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-4 block ml-1 leading-none">Desempenho (0-100)</label>
+                            <div className="flex gap-4 items-center">
+                                <input 
+                                    type="range" min="0" max="100" 
+                                    value={performanceInput}
+                                    onChange={e => setPerformanceInput(parseInt(e.target.value))}
+                                    className="flex-1 h-2 bg-gray-700 rounded-full accent-blue-600 cursor-pointer"
+                                />
+                                <span className="text-2xl font-black text-blue-500 w-16 text-right">{performanceInput}%</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block ml-2 leading-none">Título do Sinal</label>
+                            <input 
+                                type="text"
+                                value={signalForm.title}
+                                onChange={e => setSignalForm({...signalForm, title: e.target.value})}
+                                placeholder="Ex: Melhore sua Vitrine"
+                                className="w-full bg-white/5 border border-white/5 rounded-2xl p-4 text-sm font-bold text-white outline-none focus:border-blue-500/50"
+                            />
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block ml-2 leading-none">Mensagem / Sugestões</label>
+                            <textarea 
+                                value={signalForm.message}
+                                onChange={e => setSignalForm({...signalForm, message: e.target.value})}
+                                rows={4}
+                                placeholder="Como o usuário pode melhorar ou o que ele precisa fazer..."
+                                className="w-full bg-white/5 border border-white/5 rounded-[2rem] p-6 text-sm font-bold text-white outline-none focus:border-blue-500/50 resize-none"
+                            ></textarea>
+                        </div>
+
+                        <div className="flex items-center justify-between bg-white/5 p-5 rounded-2xl border border-white/5 shadow-inner">
+                            <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all ${signalForm.requiresPayment ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-800 text-gray-600'}`}>
+                                    <CurrencyDollarIcon className="h-6 w-6" />
+                                </div>
+                                <div>
+                                    <p className="text-[10px] font-black text-white uppercase tracking-widest leading-none">Exigir Pagamento</p>
+                                    <p className="text-[9px] font-black text-gray-600 mt-1 uppercase">Taxa de Verificação/Serviço</p>
+                                </div>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input 
+                                    type="checkbox"
+                                    checked={signalForm.requiresPayment}
+                                    onChange={e => setSignalForm({...signalForm, requiresPayment: e.target.checked})}
+                                    className="sr-only peer"
+                                />
+                                <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
+                            </label>
+                        </div>
+
+                        {signalForm.requiresPayment && (
+                            <div className="animate-fade-in">
+                                <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 block ml-2 leading-none">Valor da Taxa (KZ)</label>
+                                <div className="relative">
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-600 font-black text-sm">KZ</span>
+                                    <input 
+                                        type="number"
+                                        value={signalForm.paymentAmount}
+                                        onChange={e => setSignalForm({...signalForm, paymentAmount: parseFloat(e.target.value)})}
+                                        className="w-full bg-orange-600/5 border border-orange-600/20 rounded-2xl p-4 pl-12 text-sm font-black text-orange-500 outline-none focus:border-orange-500/50"
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="pt-6">
+                        <button 
+                            onClick={handleSendSignal}
+                            disabled={loading}
+                            className="w-full py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-xl hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
+                        >
+                            {loading ? 'ENVIANDO SINAL...' : 'ENVIAR SINAL AGORA'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+         )}
+
          <header className="flex flex-col lg:flex-row lg:items-center justify-between mb-12 gap-6">
             <div className="flex items-center gap-5">
                <button 
@@ -476,7 +680,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                <div className="space-y-12 animate-fade-in">
                   <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
                {[
-                 { label: 'Receita Total', val: `$${data.revenue.toFixed(2)}`, subVal: `≈ ${(data.revenue * exchangeRate).toLocaleString()} KZ`, color: 'text-green-500', icon: BanknotesIcon },
+                 { label: 'Receita Total', val: formatCurrency(data.revenue), color: 'text-green-500', icon: BanknotesIcon },
                  { label: 'Usuários Ativos', val: data.users.length, color: 'text-blue-500', icon: UserGroupIcon },
                  { label: 'Tickets Suporte', val: data.tickets.filter(t => t.status === 'OPEN').length, color: 'text-red-500', icon: LifebuoyIcon, highlight: data.tickets.some(t => t.status === 'OPEN') },
                  { label: 'Publicações', val: data.posts.length, color: 'text-purple-500', icon: NewspaperIcon },
@@ -492,24 +696,23 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                        <s.icon className={`h-4 w-4 ${s.highlight ? 'text-red-500 animate-pulse' : 'text-white/20'}`} />
                     </div>
                     <p className={`text-xl md:text-4xl font-black tracking-tighter ${s.color}`}>{s.val}</p>
-                    {s.subVal && <p className="text-[10px] font-black text-green-600 uppercase mt-1">{s.subVal}</p>}
                     {s.highlight && <p className="text-[8px] font-black text-red-500 uppercase mt-2">Ação Requerida</p>}
                  </div>
                ))}
             </div>
-                  <div className="bg-[#12161f] p-10 rounded-[3rem] border border-white/5 shadow-inner">
+                  <div className="bg-[#12161f] p-6 md:p-10 rounded-[2.5rem] md:rounded-[3rem] border border-white/5 shadow-inner">
                      <h3 className="text-[10px] font-black uppercase tracking-[0.3em] mb-10 flex items-center gap-3 text-blue-500">
                         <CommandLineIcon className="h-5 w-5" /> Auditoria Root (Últimos 10)
                      </h3>
                      <div className="space-y-4">
                         {data.logs.length === 0 ? <p className="text-gray-600 text-xs">Nenhum log registrado.</p> : data.logs.slice(0, 10).map(log => (
-                            <div key={log.id} className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5">
-                                <div className="flex items-center gap-4">
-                                    <div className="p-2 bg-blue-600/20 text-blue-400 rounded-xl font-black text-[8px] uppercase">{log.action}</div>
-                                    <p className="text-xs font-medium text-gray-300">{log.details}</p>
-                                </div>
-                                <span className="text-[9px] font-bold text-gray-500">{new Date(log.timestamp).toLocaleTimeString()}</span>
-                            </div>
+                             <div key={log.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 gap-3">
+                                 <div className="flex items-start sm:items-center gap-4 min-w-0 flex-1">
+                                     <div className="p-2 bg-blue-600/20 text-blue-400 rounded-xl font-black text-[8px] uppercase shrink-0">{log.action}</div>
+                                     <p className="text-xs font-medium text-gray-300 break-all sm:break-words">{log.details}</p>
+                                 </div>
+                                 <span className="text-[9px] font-bold text-gray-500 shrink-0">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                             </div>
                         ))}
                      </div>
                   </div>
@@ -549,8 +752,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                  onClick={() => handleUpdateBalance(user.id)} 
                                  className="flex-1 bg-emerald-500/5 border border-emerald-500/20 rounded-xl py-3 text-center"
                                >
-                                  <p className="font-black text-lg text-emerald-400 tracking-tighter">${(user.balance || 0).toFixed(2)}</p>
-                                  <p className="text-[8px] font-black text-green-500 uppercase">≈ {((user.balance || 0) * exchangeRate).toLocaleString()} KZ</p>
+                                  <p className="font-black text-lg text-emerald-400 tracking-tighter">{formatCurrency(user.balance || 0)}</p>
                                </button>
 
                                <div className="flex gap-2">
@@ -575,7 +777,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                             <thead className="bg-black/40">
                                <tr className="text-[10px] font-black uppercase tracking-[0.25em] text-gray-400 border-b border-white/5">
                                   <th className="px-8 py-7">Identidade do Membro</th>
-                                  <th className="px-8 py-7">Financeiro (USD)</th>
+                                  <th className="px-8 py-7">Financeiro (KZ)</th>
                                   <th className="px-8 py-7 text-right">Ações de Controle</th>
                                </tr>
                             </thead>
@@ -609,10 +811,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                          onClick={() => handleUpdateBalance(user.id)} 
                                          className="group/bal bg-emerald-500/5 hover:bg-emerald-500/10 border border-emerald-500/20 hover:border-emerald-500/40 rounded-2xl px-6 py-4 transition-all flex flex-col items-center min-w-[140px] shadow-inner"
                                         >
-                                           <p className="font-black text-xl text-emerald-400 tracking-tighter group-hover/bal:scale-110 transition-transform">${(user.balance || 0).toFixed(2)}</p>
-                                           <p className="text-[10px] font-black text-green-500 uppercase">≈ {((user.balance || 0) * exchangeRate).toLocaleString()} KZ</p>
+                                           <p className="font-black text-xl text-emerald-400 tracking-tighter group-hover/bal:scale-110 transition-transform">{formatCurrency(user.balance || 0)}</p>
                                            <div className="flex items-center gap-1 mt-1">
-                                              <CurrencyDollarIcon className="h-3 w-3 text-emerald-500/60" />
+                                              <BanknotesIcon className="h-3 w-3 text-emerald-500/60" />
                                               <p className="text-[8px] font-black uppercase text-emerald-500/60">Ajustar Saldo</p>
                                            </div>
                                         </button>
@@ -711,13 +912,64 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                 )}
                              </div>
 
-                              <div className="flex gap-2">
-                                 <div className="flex-1 bg-white/5 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest text-center text-gray-500 border border-white/5">
-                                    Verificação Automática
-                                 </div>
-                                 <div className={`px-4 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest ${user.idVerificationStatus === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-500' : user.idVerificationStatus === 'REJECTED' ? 'bg-red-500/20 text-red-500' : 'bg-yellow-500/20 text-yellow-500'}`}>
-                                    {user.idVerificationStatus}
-                                 </div>
+                              <div className="flex flex-col gap-3">
+                                 {user.idVerificationDocs?.aiConfidence !== undefined && (
+                                    <div className="p-3 bg-brand/5 border border-brand/10 rounded-xl">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-[8px] font-black uppercase text-brand flex items-center gap-1">
+                                                <CpuChipIcon className="w-3 h-3" /> Sentinela AI
+                                            </span>
+                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded ${user.idVerificationDocs.aiConfidence > 0.8 ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'}`}>
+                                                {(user.idVerificationDocs.aiConfidence * 100).toFixed(0)}% Confiança
+                                            </span>
+                                        </div>
+                                        {user.idVerificationDocs.extractedId && (
+                                            <p className="text-[9px] font-bold text-gray-400">ID Extraído: {user.idVerificationDocs.extractedId}</p>
+                                        )}
+                                    </div>
+                                 )}
+
+                                 {user.idVerificationStatus === 'APPROVED' ? (
+                                    <div className="flex gap-2">
+                                       <div className="flex-1 bg-green-500/20 text-green-500 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest text-center border border-green-500/20 flex items-center justify-center gap-2">
+                                          <CheckCircleIcon className="w-3 h-3" /> Aprovado pela IA
+                                       </div>
+                                       <button 
+                                          onClick={async () => {
+                                             if(await showConfirm(`OVERRIDE: Revogar verificação de ${user.firstName}?`)) {
+                                                await adminUpdateUser({ ...user, idVerificationStatus: 'NOT_STARTED', isVerified: false });
+                                                refresh();
+                                             }
+                                          }}
+                                          className="px-3 bg-white/5 text-gray-500 hover:text-red-500 rounded-xl"
+                                          title="Revogar Manualmente"
+                                       >
+                                          <NoSymbolIcon className="w-4 h-4" />
+                                       </button>
+                                    </div>
+                                 ) : user.idVerificationStatus === 'REJECTED' ? (
+                                    <div className="flex flex-col gap-2">
+                                        <div className="bg-red-500/20 text-red-500 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest text-center border border-red-500/20">
+                                            Recusado pela IA
+                                        </div>
+                                        <p className="text-[9px] text-red-400/70 font-medium px-2">{user.idVerificationDocs?.rejectionReason}</p>
+                                        <button 
+                                          onClick={async () => {
+                                             if(await showConfirm(`OVERRIDE: Aprovar ${user.firstName} manualmente mesmo com recusa da IA?`)) {
+                                                await adminUpdateUser({ ...user, idVerificationStatus: 'APPROVED', isVerified: true });
+                                                refresh();
+                                             }
+                                          }}
+                                          className="text-[8px] font-black text-gray-500 hover:text-brand uppercase underline transition-all"
+                                        >
+                                            Aprovar Manualmente (Sobrescrever IA)
+                                        </button>
+                                    </div>
+                                 ) : (
+                                    <div className="bg-gray-500/10 text-gray-500 py-3 rounded-xl font-black uppercase text-[8px] tracking-widest text-center border border-white/5 animate-pulse">
+                                       Aguardando IA Sentinela
+                                    </div>
+                                 )}
                               </div>
                           </div>
                        ))}
@@ -890,27 +1142,97 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
              )}
 
              {activeTab === 'stores' && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in">
-                   {(pagedData as Store[]).map((store: Store) => (
-                      <div key={store.id} className="bg-[#12161f] p-8 rounded-[2.5rem] border border-white/5 shadow-2xl relative group">
-                         <div className="flex items-center gap-4 mb-6">
-                            <div className="w-12 h-12 rounded-[1rem] flex items-center justify-center text-white" style={{ backgroundColor: store.brandColor || '#2563eb' }}>
-                               <BuildingStorefrontIcon className="h-7 w-7" />
-                            </div>
-                            <div>
-                               <h4 className="font-black text-sm uppercase truncate max-w-[150px]">{store.name}</h4>
-                               <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest">ID: {store.id}</p>
-                            </div>
-                         </div>
-                         <div className="flex justify-between items-end">
-                            <div>
-                               <p className="text-2xl font-black text-white">{data.products.filter(p => p.storeId === store.id).length}</p>
-                               <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest">Itens na Vitrine</p>
-                            </div>
-                            <button onClick={() => onNavigate('store', { storeId: store.id })} className="p-3 bg-white/5 hover:bg-white/10 rounded-xl text-gray-400"><GlobeAltIcon className="h-5 w-5" /></button>
-                         </div>
-                      </div>
-                   ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in pb-20">
+                   {(pagedData as Store[]).map((store: Store) => {
+                      const storeProducts = data.products.filter(p => p.storeId === store.id);
+                      const avgRating = storeProducts.length > 0 
+                        ? storeProducts.reduce((acc, p) => acc + (p.averageRating || 0), 0) / storeProducts.length 
+                        : 0;
+                      
+                      return (
+                        <div key={store.id} className="bg-[#12161f] p-8 rounded-[3rem] border border-white/5 shadow-2xl relative group overflow-hidden">
+                           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-white/5 to-transparent"></div>
+                           
+                           <div className="flex items-center gap-4 mb-6">
+                              <div className="relative">
+                                 <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-xl" style={{ backgroundColor: store.brandColor || '#2563eb' }}>
+                                    <BuildingStorefrontIcon className="h-8 w-8" />
+                                 </div>
+                                 {(store.isVerified || store.verificationStatus === 'APPROVED') && (
+                                    <div className="absolute -bottom-1 -right-1 bg-blue-600 p-1.5 rounded-xl border-4 border-[#12161f] shadow-lg">
+                                       <CheckBadgeIcon className="h-4 w-4 text-white" />
+                                    </div>
+                                 )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                 <h4 className="font-black text-base dark:text-white uppercase truncate tracking-tighter">{store.name}</h4>
+                                 <div className="flex items-center gap-2">
+                                    <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-lg border ${
+                                       store.verificationStatus === 'APPROVED' ? 'bg-green-500/10 text-green-500 border-green-500/20' :
+                                       store.verificationStatus === 'PENDING' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' :
+                                       store.verificationStatus === 'REJECTED' ? 'bg-red-500/10 text-red-500 border-red-500/20' :
+                                       'bg-gray-500/10 text-gray-500 border-white/5'
+                                    }`}>
+                                       {store.verificationStatus || 'NÃO VERIFICADA'}
+                                    </span>
+                                 </div>
+                              </div>
+                           </div>
+
+                           {/* Performance stats */}
+                           <div className="grid grid-cols-2 gap-4 mb-6">
+                              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                                 <div className="flex items-center gap-2 mb-1">
+                                    <ShoppingBagIcon className="h-3 w-3 text-blue-400" />
+                                    <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest leading-none">Produtos</p>
+                                 </div>
+                                 <p className="text-xl font-black text-white">{storeProducts.length}</p>
+                              </div>
+                              <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
+                                 <div className="flex items-center gap-2 mb-1">
+                                    <ArrowTrendingUpIcon className="h-3 w-3 text-green-400" />
+                                    <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest leading-none">Desempenho</p>
+                                 </div>
+                                 <p className="text-xl font-black text-white">{store.performanceScore || 0}%</p>
+                              </div>
+                           </div>
+
+                           <div className="flex gap-2">
+                              <button 
+                                 onClick={() => {
+                                   setSelectedStore(store);
+                                   setPerformanceInput(store.performanceScore || 80);
+                                   setSignalForm({
+                                       type: 'VERIFICATION_REQUEST',
+                                       title: 'Verificação de Loja',
+                                       message: 'Gostamos do seu desempenho! Gostaríamos de verificar sua loja para aumentar sua credibilidade.',
+                                       requiresPayment: true,
+                                       paymentAmount: settings.verificationFee || 1000
+                                   });
+                                   setShowSignalModal(true);
+                                 }}
+                                 className="flex-1 py-3 bg-white/5 hover:bg-blue-600 hover:text-white rounded-xl text-gray-400 text-[10px] font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 border border-white/5"
+                              >
+                                 <PaperAirplaneIcon className="h-4 w-4" /> Enviar Sinal
+                              </button>
+                              <button 
+                                 onClick={() => {
+                                    const nextStatus = store.verificationStatus === 'APPROVED' ? 'REJECTED' : 'APPROVED';
+                                    handleUpdateStoreVerification(store.id, nextStatus, store.performanceScore || 0);
+                                 }}
+                                 className={`p-3 rounded-xl transition-all border ${
+                                    store.verificationStatus === 'APPROVED' 
+                                    ? 'bg-blue-600 text-white border-blue-400' 
+                                    : 'bg-white/5 text-gray-400 border-white/5 hover:border-blue-500/50'
+                                 }`}
+                                 title="Alternar Verificação"
+                              >
+                                 <CheckBadgeIcon className="h-5 w-5" />
+                              </button>
+                           </div>
+                        </div>
+                      );
+                   })}
                 </div>
              )}
 
@@ -925,8 +1247,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                <div className="flex-1 min-w-0">
                                   <p className="text-xs font-black text-gray-100 uppercase truncate">{prod.name}</p>
                                   <div className="flex items-center gap-2 mt-1">
-                                     <p className="text-sm font-black text-blue-500">${prod.price.toFixed(2)}</p>
-                                     <p className="text-[10px] font-black text-green-600 uppercase">≈ {(prod.price * exchangeRate).toLocaleString()} KZ</p>
+                                     <p className="text-sm font-black text-blue-500">{formatCurrency(prod.price)}</p>
                                      <span className="text-[8px] font-black text-green-500 uppercase bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">
                                         {(prod.affiliateCommissionRate * 100).toFixed(0)}% Comis.
                                      </span>
@@ -961,8 +1282,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                         </div>
                                      </td>
                                      <td className="px-8 py-6">
-                                        <p className="text-sm font-black text-blue-600">${prod.price.toFixed(2)}</p>
-                                        <p className="text-[10px] font-black text-green-600 uppercase">≈ {(prod.price * exchangeRate).toLocaleString()} KZ</p>
+                                        <p className="text-sm font-black text-blue-600">{formatCurrency(prod.price)}</p>
                                         <p className="text-[9px] font-bold text-green-500 uppercase">Comissão: {(prod.affiliateCommissionRate * 100).toFixed(0)}%</p>
                                      </td>
                                      <td className="px-8 py-6 text-right">
@@ -1022,7 +1342,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                    <div className="p-8 border-b border-white/5 flex items-center justify-between">
                       <h3 className="font-black uppercase tracking-widest text-sm">Transações Recentes</h3>
                       <div className="bg-green-500/10 text-green-500 px-4 py-1.5 rounded-full text-[10px] font-black uppercase border border-green-500/20">
-                         Receita Bruta: ${data.revenue.toFixed(2)} (≈ {(data.revenue * exchangeRate).toLocaleString()} KZ)
+                         Receita Bruta: {formatCurrency(data.revenue)}
                       </div>
                    </div>
                    <div className="divide-y divide-white/[0.03]">
@@ -1041,8 +1361,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                   </div>
                                </div>
                                <div className={`font-black text-xs md:text-sm whitespace-nowrap ml-4 ${tx.type === TransactionType.DEPOSIT ? 'text-green-500' : 'text-white'}`}>
-                                  {tx.type === TransactionType.DEPOSIT ? '+' : ''}${tx.amount.toFixed(2)}
-                                  <p className="text-[10px] font-black text-green-600 uppercase mt-0.5">≈ {(tx.amount * exchangeRate).toLocaleString()} KZ</p>
+                                  {tx.type === TransactionType.DEPOSIT ? '+' : ''}{formatCurrency(tx.amount)}
                                </div>
                             </div>
                          ))
@@ -1074,7 +1393,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Saque Mínimo (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Saque Mínimo (KZ)</label>
                                <input 
                                  type="number" 
                                  step="1" 
@@ -1084,7 +1403,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Lance Mínimo de Boost (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Lance Mínimo de Boost (KZ)</label>
                                <input 
                                  type="number" 
                                  step="0.5" 
@@ -1097,7 +1416,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Boost Diário Mínimo (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Boost Diário Mínimo (KZ)</label>
                                <input 
                                  type="number" 
                                  step="0.1" 
@@ -1110,7 +1429,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Mínimo Anúncio (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Mínimo Anúncio (KZ)</label>
                                <input 
                                  type="number" 
                                  step="0.1" 
@@ -1123,7 +1442,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Custo por 1k Alcance (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Custo por 1k Alcance (KZ)</label>
                                <input 
                                  type="number" 
                                  step="0.1" 
@@ -1136,7 +1455,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Taxa de Verificação (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Taxa de Verificação (KZ)</label>
                                <input 
                                  type="number" 
                                  step="1" 
@@ -1149,7 +1468,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Criação de Grupo (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Criação de Grupo (KZ)</label>
                                <input 
                                  type="number" 
                                  step="1" 
@@ -1162,7 +1481,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Criação de Loja (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Criação de Loja (KZ) <span className="text-red-500 ml-2">(ATUALMENTE GRATUITO)</span></label>
                                <input 
                                  type="number" 
                                  step="1" 
@@ -1175,7 +1494,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Lance Mínimo Produto (USD)</label>
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Lance Mínimo Produto (KZ)</label>
                                <input 
                                  type="number" 
                                  step="1" 
@@ -1237,6 +1556,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                  onChange={e => {
                                    const val = parseFloat(e.target.value);
                                    setSettings({...settings, monetizationMinReelViews: isNaN(val) ? 0 : val});
+                                 }}
+                                 className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
+                               />
+                            </div>
+                            <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Taxa de Cancelamento Pedido (%)</label>
+                               <input 
+                                 type="number" 
+                                 step="1" 
+                                 min="0"
+                                 max="100"
+                                 value={settings.orderCancellationFeePercentage ?? 5} 
+                                 onChange={e => {
+                                   const val = parseFloat(e.target.value);
+                                   setSettings({...settings, orderCancellationFeePercentage: isNaN(val) ? 0 : val});
                                  }}
                                  className="w-full p-4 bg-black/20 border border-white/10 rounded-2xl text-white outline-none focus:border-blue-600 font-bold text-sm"
                                />
@@ -1307,7 +1641,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
 
                                   <div className="flex flex-wrap items-center gap-4 text-[10px] font-black text-gray-500 uppercase tracking-widest pt-2">
                                      <span className="bg-white/5 px-3 py-1 rounded-lg">ID: {sale.id.slice(-8)}</span>
-                                     <span className="text-white bg-blue-600 px-3 py-1 rounded-lg">VALOR EM ESCROW: ${sale.totalAmount.toFixed(2)} (≈ {(sale.totalAmount * exchangeRate).toLocaleString()} KZ)</span>
+                                     <span className="text-white bg-blue-600 px-3 py-1 rounded-lg">VALOR EM ESCROW: {formatCurrency(sale.totalAmount)}</span>
                                      <span>Data: {new Date(sale.timestamp).toLocaleDateString()}</span>
                                   </div>
                                </div>
@@ -1316,8 +1650,14 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                   <button 
                                     onClick={async () => {
                                       if (await showConfirm("Confirmar REEMBOLSO TOTAL ao comprador e cancelamento definitivo da venda?")) {
-                                        await cancelPurchaseAndRefund(sale.id);
-                                        refresh();
+                                        const success = await cancelPurchaseAndRefund(sale.id);
+                                        if (success) {
+                                          showAlert("Reembolso processado com sucesso.", { type: 'success' });
+                                          if (onRefreshUser) onRefreshUser();
+                                          refresh();
+                                        } else {
+                                          showAlert("Erro ao processar reembolso.", { type: 'error' });
+                                        }
                                       }
                                     }}
                                     className="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
@@ -1439,7 +1779,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                            {msg.attachmentUrl && (
                                               <div className="mb-3 rounded-xl overflow-hidden border border-white/10">
                                                  {msg.attachmentType === 'video' ? (
-                                                    <video src={msg.attachmentUrl} controls className="max-h-48 w-full object-cover" />
+                                                   <video 
+                                                     src={msg.attachmentUrl} 
+                                                     controls 
+                                                     className="max-h-48 w-full object-cover" 
+                                                     onError={(e) => {
+                                                       const video = e.currentTarget;
+                                                       video.style.display = 'none';
+                                                       const fallback = document.createElement('div');
+                                                       fallback.className = "p-4 bg-red-900/20 text-red-500 text-[10px] uppercase font-black rounded-xl border border-red-500/20";
+                                                       fallback.innerText = "Erro ao carregar vídeo";
+                                                       video.parentNode?.appendChild(fallback);
+                                                     }}
+                                                   />
                                                  ) : (
                                                     <img src={msg.attachmentUrl} className="max-h-48 w-full object-cover" alt="attachment" />
                                                  )}
@@ -1486,7 +1838,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                           setNewMessage('');
                                           setChatFile(null);
                                        } catch (err) {
-                                          console.error("Erro ao enviar resposta:", err);
+                                          console.error("Erro ao enviar resposta:", safeJsonStringify(err));
                                        } finally {
                                           setLoading(false);
                                        }
@@ -1546,7 +1898,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ currentUser, onNavigate
                                 <img src={ad.imageUrl} className="w-16 h-16 rounded-xl object-cover border border-white/10" />
                                 <div>
                                    <h4 className="font-black text-sm uppercase truncate w-40">{ad.name}</h4>
-                                   <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{ad.professorName}</p>
+                                   <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">{ad.userName || 'Autor Desconhecido'}</p>
                                 </div>
                              </div>
 

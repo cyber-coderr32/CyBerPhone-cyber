@@ -2,8 +2,9 @@
 import React, { useState, useRef } from 'react';
 import { User } from '../types';
 import { addStory, uploadFile } from '../services/storageService';
+import { safeJsonStringify } from '../lib/utils';
 import { XMarkIcon, SparklesIcon, ArrowUpTrayIcon, CheckCircleIcon, PhotoIcon } from '@heroicons/react/24/solid';
-import { checkContent } from '../services/sentinelService';
+import { checkContent, checkImageSecurity } from '../services/sentinelService';
 
 interface CreateStoryModalProps {
   currentUser: User;
@@ -78,7 +79,21 @@ const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser, onClos
       }
 
       if (mode === 'image' && selectedFile) {
-         finalImageUrl = await uploadFile(selectedFile, 'stories');
+        // Convert image to base64 for Sentinel check
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(selectedFile);
+        });
+        const base64 = await base64Promise;
+        const imageSentinelResult = await checkImageSecurity(base64, selectedFile.type);
+        if (!imageSentinelResult.allowed) {
+          setError(imageSentinelResult.reason || 'Esta imagem foi bloqueada pelo Sentinela AI por motivos de segurança.');
+          setLoading(false);
+          return;
+        }
+
+        finalImageUrl = await uploadFile(selectedFile, 'stories');
       } else if (mode === 'text') {
          finalText = textContent;
       }
@@ -94,7 +109,7 @@ const CreateStoryModal: React.FC<CreateStoryModalProps> = ({ currentUser, onClos
       onStoryCreated();
       onClose();
     } catch (err: any) {
-      console.error("Erro no submit do Story:", err);
+      console.error("Erro no submit do Story:", safeJsonStringify(err));
       setError(err.message || 'Erro ao publicar story. Verifique sua conexão.');
     } finally {
       setLoading(false);

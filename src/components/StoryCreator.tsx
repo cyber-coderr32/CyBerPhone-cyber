@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { XMarkIcon, CameraIcon, PencilIcon, CheckIcon, Bars3BottomLeftIcon, Bars3Icon, Bars3BottomRightIcon, SwatchIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import { User, Story } from '../types';
-import { addStory, CLOUDINARY_CLOUD_NAME, CLOUDINARY_UPLOAD_PRESET } from '../services/storageService';
+import { addStory, uploadFile } from '../services/storageService';
 import { safeJsonStringify } from '../lib/utils';
 import { useDialog } from '../services/DialogContext';
 
@@ -76,20 +76,12 @@ const StoryCreator: React.FC<StoryCreatorProps> = ({ currentUser, onClose, onSuc
     if (!file) return;
 
     setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
-
     try {
-      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
-        method: 'POST',
-        body: formData
-      });
-      const data = await res.json();
-      setImage(data.secure_url);
+      const url = await uploadFile(file, 'stories');
+      setImage(url);
       setMode('image');
     } catch (error) {
-      console.error('Error uploading to Cloudinary:', safeJsonStringify(error));
+      console.error('Error uploading story image:', safeJsonStringify(error));
       showError('Erro ao carregar imagem.');
     } finally {
       setUploading(false);

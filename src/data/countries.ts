@@ -1,5 +1,4 @@
 export const COUNTRIES = [
-  { name: 'Angola', code: 'AO', flag: '🇦🇴' },
   { name: 'Brasil', code: 'BR', flag: '🇧🇷' },
   { name: 'Portugal', code: 'PT', flag: '🇵🇹' },
   { name: 'Moçambique', code: 'MZ', flag: '🇲🇿' },

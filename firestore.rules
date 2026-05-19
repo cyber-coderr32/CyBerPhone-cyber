@@ -1,20 +1,14 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny
+    // 0. Global Safety Net
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // ===============================================================
-    // Helper Functions
-    // ===============================================================
+    // --- Helpers ---
     function isSignedIn() {
       return request.auth != null;
-    }
-
-    function isVerified() {
-      return isSignedIn() && (request.auth.token.email_verified == true || isAdmin());
     }
 
     function isOwner(userId) {
@@ -23,242 +17,343 @@ service cloud.firestore {
 
     function isAdmin() {
       return isSignedIn() && (
-        (request.auth.token.email == 'ac926815124@gmail.com' || request.auth.token.email == 'alfaajmc@gmail.com') ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        request.auth.token.email == 'alfaajmc@gmail.com' ||
+        request.auth.token.email == 'ac926815124@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (exists(/databases/$(database)/documents/profiles/$(request.auth.uid)) && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.isAdmin == true)
       );
     }
 
-    function isCallParty(data) {
-      return isSignedIn() && data != null && (
-        data.get('callerId', '') == request.auth.uid || 
-        data.get('receiverId', '') == request.auth.uid
+    function isVerified(userId) {
+      return isSignedIn() && (
+        isAdmin() || 
+        get(/databases/$(database)/documents/public_profiles/$(userId)).data.isVerified == true
       );
-    }
-
-    function isValidCall(data) {
-      return data.get('callerId', '') is string && data.get('callerId', '').size() >= 1 &&
-             data.get('receiverId', '') is string && data.get('receiverId', '').size() >= 1 &&
-             data.get('type', '') in ['VOICE', 'VIDEO'] &&
-             data.get('status', '') in ['RINGING', 'ACCEPTED', 'REJECTED', 'ENDED', 'MISSED', 'TIMED_OUT'] &&
-             data.get('timestamp', 0) is number;
     }
 
     function isValidId(id) {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // ===============================================================
-    // Rules
-    // ===============================================================
-
-    match /profiles/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isVerified() && isOwner(userId) && (request.resource.data.get('isAdmin', false) == false || isAdmin());
-      allow update: if isAdmin() || (
-        isVerified() && (
-          (isOwner(userId) && (
-            // Owner can change fields. If balance is changed, it must NOT increase (spending is ok, self-funding is not)
-            (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance']) || 
-             request.resource.data.get('balance', 0) <= resource.data.get('balance', 0))
-          )) ||
-          (!isOwner(userId) && (
-            // Others can only increase specific fields (like balance when paying or followers)
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance', 'followers', 'monetizationGoals', 'monetizationStatus']) &&
-            request.resource.data.get('balance', 0) >= resource.data.get('balance', 0)
-          ))
-        )
-      );
-      allow delete: if isAdmin();
+    function incoming() {
+      return request.resource.data;
     }
 
-    match /public_profiles/{userId} {
-      allow read: if true;
-      allow write: if isAdmin() || (
-        isVerified() && (
-          (isOwner(userId) && (
-            (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance']) || 
-             request.resource.data.get('balance', 0) <= resource.data.get('balance', 0))
-          )) ||
-          (!isOwner(userId) && (
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['balance', 'followers', 'monetizationGoals', 'monetizationStatus', 'followedUsers']) &&
-            request.resource.data.get('balance', 0) >= resource.data.get('balance', 0)
-          ))
-        )
-      );
+    function existing() {
+      return resource.data;
     }
 
-    match /posts/{postId} {
-      allow read: if true;
-      allow create: if isVerified() && request.resource.data.get('userId', '') == request.auth.uid;
-      allow update: if (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'comments', 'shares', 'saves', 'views'])) || 
-                    (isVerified() && resource.data.get('userId', '') == request.auth.uid);
-      allow delete: if (isVerified() && resource.data.get('userId', '') == request.auth.uid) || isAdmin();
+    // --- Validation Blueprints ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'firstName', 'lastName', 'email']) 
+        && data.id == request.auth.uid
+        && data.firstName is string && data.firstName.size() <= 100
+        && data.lastName is string && data.lastName.size() <= 100
+        && data.email is string
+        && (request.auth.token.email == null || data.email.lower() == request.auth.token.email.lower())
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 100))
+        && (!('birthDate' in data) || data.birthDate is number)
+        && (!('country' in data) || (data.country is string && data.country.size() <= 100))
+        && (!('bio' in data) || (data.bio is string && data.bio.size() <= 6000))
+        && (!('balance' in data) || data.balance is number)
+        && (!('isVerified' in data) || data.isVerified is bool)
+        && (!('isAdmin' in data) || data.isAdmin == false || isAdmin() || data.email.lower() == 'alfaajmc@gmail.com' || data.email.lower() == 'ac926815124@gmail.com');
     }
 
-    match /chats/{chatId} {
-      allow read: if isSignedIn() && (request.auth.uid in resource.data.participants || resource.data.get('isPublic', false) == true);
-      allow create: if isVerified();
-      allow update: if isVerified() && (request.auth.uid in resource.data.participants);
-      allow delete: if isAdmin();
+    function isValidPublicUser(data) {
+      return data.keys().hasAll(['id', 'firstName', 'lastName'])
+        && data.id is string
+        && data.firstName is string && data.firstName.size() <= 100
+        && data.lastName is string && data.lastName.size() <= 100
+        && (!('bio' in data) || (data.bio is string && data.bio.size() <= 5000))
+        && (!('isVerified' in data) || data.isVerified is bool)
+        && (!('isOnline' in data) || data.isOnline is bool)
+        && (!('lastSeen' in data) || data.lastSeen is number);
     }
 
-    match /notifications/{notificationId} {
-      allow get: if isSignedIn() && resource.data.get('recipientId', '') == request.auth.uid;
-      allow list: if isSignedIn() && resource.data.get('recipientId', '') == request.auth.uid;
-      allow create: if isSignedIn(); // System or Actor creates
-      allow update, delete: if isSignedIn() && resource.data.get('recipientId', '') == request.auth.uid;
+    function isValidPost(data) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'timestamp', 'authorName'])
+        && (data.userId == request.auth.uid || (isAdmin() && data.userId == 'system'))
+        && data.type in ['TEXT', 'IMAGE', 'VIDEO', 'LIVE', 'REEL']
+        && data.timestamp is number
+        && data.authorName is string && data.authorName.size() <= 128
+        && (!('content' in data) || (data.content is string && data.content.size() <= 10000))
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 2048))
+        && (!('isAnonymous' in data) || data.isAnonymous is bool);
     }
 
-    match /sales/{saleId} {
-      allow get: if isSignedIn() && (
-        resource.data.get('buyerId', '') == request.auth.uid || 
-        resource.data.get('sellerId', '') == request.auth.uid || 
-        resource.data.get('affiliateUserId', '') == request.auth.uid ||
-        isAdmin()
-      );
-      allow list: if isSignedIn() && (
-        resource.data.get('buyerId', '') == request.auth.uid || 
-        resource.data.get('sellerId', '') == request.auth.uid || 
-        resource.data.get('affiliateUserId', '') == request.auth.uid ||
-        isAdmin()
-      );
-      allow create: if isVerified() && request.resource.data.get('buyerId', '') == request.auth.uid;
-      allow update: if isAdmin() || (isVerified() && (
-        resource.data.get('buyerId', '') == request.auth.uid || 
-        resource.data.get('sellerId', '') == request.auth.uid
-      ));
+    function isValidBlock(data) {
+      return data.keys().hasAll(['blockerId', 'blockedId', 'timestamp'])
+        && data.blockerId == request.auth.uid
+        && data.blockedId is string && data.blockedId.size() <= 128
+        && (data.timestamp is number || data.timestamp == request.time);
     }
 
-    match /affiliate_links/{linkId} {
-      allow read: if isSignedIn() && (
-        resource.data.get('userId', '') == request.auth.uid || 
-        resource.data.get('sellerId', '') == request.auth.uid ||
-        isAdmin()
-      );
-      allow create: if isVerified() && 
-                    request.resource.data.get('userId', '') == request.auth.uid &&
-                    request.resource.data.get('sellerId', '') is string &&
-                    request.resource.data.get('productId', '') is string;
-      allow update, delete: if isVerified() && resource.data.get('userId', '') == request.auth.uid;
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'amount', 'timestamp', 'status'])
+        && data.userId == request.auth.uid
+        && data.amount is number
+        && data.type in ['DEPOSIT', 'WITHDRAWAL', 'PURCHASE', 'SALE', 'CHAT_FEE', 'BOOST', 'DONATION', 'TICKET', 'REFUND']
+        && (data.timestamp is number || data.timestamp == request.time);
     }
 
-    match /transactions/{transactionId} {
-      allow read: if isSignedIn() && (resource.data.get('userId', '') == request.auth.uid || isAdmin());
-      allow create: if isVerified() && (
-        request.resource.data.get('userId', '') == request.auth.uid || 
-        request.resource.data.get('type', '') == 'SALE'
-      );
-    }
-
-    match /stores/{storeId} {
-      allow read: if true;
-      allow create: if isVerified();
-      allow update, delete: if isAdmin() || (isVerified() && resource.data.get('professorId', '') == request.auth.uid);
-    }
-
-    match /products/{productId} {
-      allow read: if true;
-      allow create: if isVerified();
-      allow update: if isAdmin() || (isVerified() && (
-        (exists(/databases/$(database)/documents/stores/$(resource.data.get('storeId', ''))) &&
-         get(/databases/$(database)/documents/stores/$(resource.data.get('storeId', ''))).data.get('professorId', '') == request.auth.uid) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratings', 'averageRating', 'ratingCount', 'soldCount']))
-      ));
-      allow delete: if isAdmin() || (
-        isVerified() && 
-        exists(/databases/$(database)/documents/stores/$(resource.data.get('storeId', ''))) &&
-        get(/databases/$(database)/documents/stores/$(resource.data.get('storeId', ''))).data.get('professorId', '') == request.auth.uid
-      );
-    }
-
-    match /system_logs/{logId} {
+    // Reports
+    match /reports/{reportId} {
       allow create: if isSignedIn();
-      allow read: if isAdmin();
+      allow read, update, delete: if isAdmin();
     }
 
+    // Settings
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Admins
     match /admins/{adminId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if isAdmin() || request.auth.token.email == 'alfaajmc@gmail.com' || request.auth.token.email == 'ac926815124@gmail.com';
     }
 
-    match /uniqueness_registry/{id} {
-      allow read: if true;
-      allow create: if isSignedIn();
-      allow update, delete: if isAdmin() || (isVerified() && resource.data.get('userId', '') == request.auth.uid);
-    }
-
-    match /blocks/{blockId} {
-      allow get, list: if isSignedIn() && (resource.data.get('blockerId', '') == request.auth.uid || resource.data.get('blockedId', '') == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.get('blockerId', '') == request.auth.uid;
-      allow delete: if isSignedIn() && resource.data.get('blockerId', '') == request.auth.uid;
-    }
-
-    match /calls/{callId} {
-      allow get: if isSignedIn() && (isAdmin() || isCallParty(resource.data));
-      allow list: if isSignedIn() && (isAdmin() || (resource.data.get('callerId', '') == request.auth.uid || resource.data.get('receiverId', '') == request.auth.uid));
-      allow create: if isVerified() && isValidId(callId) && isValidCall(request.resource.data) && request.resource.data.get('callerId', '') == request.auth.uid;
-      allow update: if (isAdmin() || isCallParty(resource.data)) && 
-                    (
-                      isAdmin() || (
-                        isVerified() && 
-                        request.resource.data.diff(resource.data).affectedKeys().hasAny(['status', 'acceptedAt', 'endedAt']) &&
-                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'endedAt']) &&
-                        request.resource.data.get('callerId', '') == resource.data.get('callerId', '') &&
-                        request.resource.data.get('receiverId', '') == resource.data.get('receiverId', '')
-                      )
-                    );
-      allow delete: if isAdmin();
-    }
-
-    match /tickets/{ticketId} {
-      allow read, update: if isAdmin() || (isVerified() && resource.data.get('userId', '') == request.auth.uid);
-      allow create: if isVerified();
-    }
-
-    match /earnings/{recordId} {
-      allow read: if isAdmin() || (isVerified() && resource.data.get('creatorId', '') == request.auth.uid);
-      allow write: if isAdmin();
-    }
-
-    match /subscriptions/{subId} {
-      allow read: if isAdmin() || (isVerified() && resource.data.get('userId', '') == request.auth.uid);
-      allow write: if isAdmin();
-    }
-
-    match /super_chats/{chatId} {
-      allow read: if isAdmin() || (isVerified() && resource.data.get('userId', '') == request.auth.uid);
-      allow create: if isVerified();
+    // Affiliate Links
+    match /affiliate_links/{linkId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.affiliateId || request.auth.uid == resource.data.sellerId || isAdmin());
+      allow create: if isSignedIn() && (incoming().affiliateId == request.auth.uid || isAdmin());
       allow update, delete: if isAdmin();
     }
 
-    match /reports/{reportId} {
-      allow read, update: if isAdmin();
-      allow create: if isSignedIn();
+    // --- Rules ---
+
+    // Profiles
+    match /profiles/{userId} {
+      allow get: if isSignedIn();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if (isSignedIn() && (
+        isAdmin() || 
+        (isOwner(userId) && (
+          // Case 1: Full profile update (requires validation)
+          (incoming().diff(existing()).affectedKeys().hasAny(['firstName', 'lastName', 'email']) && isValidUser(incoming()) && 
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'firstName', 'lastName', 'phone', 'bio', 'profilePicture', 'coverPhoto', 
+              'gender', 'birthDate', 'country', 'address', 'lastSeen', 'isOnline', 
+              'followedUsers', 'followers', 'blockedUserIds', 'idVerificationStatus', 
+              'idVerificationDocs', 'academicRole', 'updatedAt', 'documentId', 'email',
+              'userType', 'monetizationGoals', 'monetizationStatus', 'isVerified', 'monetizationTier',
+              'balance', 'pendingBalance', 'totalEarnings', 'isMonetized', 'isFrozen',
+              'creatorStats', 'isPremium', 'premiumExpiry', 'resellerName', 'resellerBio', 'resellerBanner',
+              'storeId', 'isSuspended', 'verificationFileUrl', 'totalWithdrawn', 'id', 'createdAt', 'timestamp'
+            ])) ||
+          // Case 2: Partial update (don't force full validation if owner)
+          (!incoming().diff(existing()).affectedKeys().hasAny(['firstName', 'lastName', 'email']) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'firstName', 'lastName', 'phone', 'bio', 'profilePicture', 'coverPhoto', 
+              'gender', 'birthDate', 'country', 'address', 'lastSeen', 'isOnline', 
+              'followedUsers', 'followers', 'blockedUserIds', 'idVerificationStatus', 
+              'idVerificationDocs', 'academicRole', 'updatedAt', 'documentId', 'email',
+              'userType', 'monetizationGoals', 'monetizationStatus', 'isVerified', 'monetizationTier',
+              'balance', 'pendingBalance', 'totalEarnings', 'isMonetized', 'isFrozen',
+              'creatorStats', 'isPremium', 'premiumExpiry', 'resellerName', 'resellerBio', 'resellerBanner',
+              'storeId', 'isSuspended', 'verificationFileUrl', 'totalWithdrawn', 'id', 'createdAt', 'timestamp'
+            ]))
+        ) && (!incoming().diff(existing()).affectedKeys().hasAny(['isAdmin']) || isAdmin())
+        ) ||
+        // Allow others to update balance fields during transactions/donations/sales
+        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'pendingBalance', 'totalEarnings', 'followedUsers', 'followers', 'creatorStats']))
+      ));
+      allow delete: if isAdmin();
     }
 
-    match /ads/{adId} {
+    // Public Profiles
+    match /public_profiles/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && isValidPublicUser(incoming());
+      allow update: if (isSignedIn() && (
+        isAdmin() || 
+        (isOwner(userId) && 
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'firstName', 'lastName', 'profilePicture', 'coverPhoto', 'bio', 'isVerified', 
+            'isOnline', 'followedUsers', 'followers', 'idVerificationStatus', 'balance', 
+            'monetizationStatus', 'lastSeen', 'userType', 'address', 'monetizationGoals', 'academicRole',
+            'id', 'createdAt', 'isSuspended', 'isFrozen', 'isPremium', 'birthDate', 'country',
+            'updatedAt', 'timestamp', 'isMonetized', 'monetizationTier', 'blockedUserIds'
+          ])
+        ) ||
+        // Allow others to update balance during transactions
+        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'isOnline', 'lastSeen']))
+      ));
+      allow delete: if isAdmin();
+    }
+
+    // Posts
+    match /posts/{postId} {
       allow read: if true;
-      allow create: if isVerified();
-      allow update, delete: if isAdmin() || (isVerified() && resource.data.get('professorId', '') == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(postId) && isValidPost(incoming());
+      allow update: if isSignedIn() && (
+        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'imageUrl', 'isPinned', 'disableComments', 'isMonetized', 'isAnonymous'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'comments', 'shares', 'reactions', 'views', 'saves', 'indicatedUserIds']))
+      );
+      allow delete: if isOwner(existing().userId) || isAdmin();
     }
 
+    // Uniqueness Registry
+    match /uniqueness_registry/{registryId} {
+      allow get: if true; // Allow checking availability before sign-up
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && (isAdmin() || (existing().userId == request.auth.uid && incoming().userId == request.auth.uid));
+      allow delete: if isAdmin();
+    }
+
+    // Chats
+    match /chats/{chatId} {
+      allow get: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.participants || resource.data.isPublic == true);
+      allow list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.participants || resource.data.isPublic == true);
+      allow create: if isSignedIn() && (isAdmin() || request.auth.uid in incoming().participants || incoming().isPublic == true);
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (request.auth.uid in existing().participants && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['messages', 'description', 'theme', 'groupName', 'groupImage'])
+        )) ||
+        (incoming().isPublic == true && incoming().diff(existing()).affectedKeys().hasOnly(['participants'])) // Allow joining public chats
+      );
+      allow delete: if isAdmin();
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow get: if isSignedIn() && isValidId(notificationId) && (resource.data.recipientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.recipientId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(notificationId) && (
+        (incoming().actorId == request.auth.uid && incoming().recipientId != request.auth.uid)
+        || (incoming().actorId in ['SYSTEM', 'SYSTEM_AD'] && incoming().recipientId == request.auth.uid)
+      );
+      allow update: if isSignedIn() && isValidId(notificationId) && (resource.data.recipientId == request.auth.uid || isAdmin())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isSignedIn() && isValidId(notificationId) && (
+        resource.data.recipientId == request.auth.uid 
+        || resource.data.actorId == request.auth.uid
+        || isAdmin()
+      );
+    }
+
+    // Ads
+    match /ads/{adId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isAdmin() || isOwner(existing().userId);
+    }
+
+    // Stores & Products
+    match /stores/{storeId} {
+      allow read: if true;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isAdmin() || (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'productIds', 'brandColor']));
+    }
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isSignedIn() && isValidId(productId) && exists(/databases/$(database)/documents/stores/$(incoming().storeId)) && get(/databases/$(database)/documents/stores/$(incoming().storeId)).data.userId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        isAdmin() || (
+          exists(/databases/$(database)/documents/stores/$(existing().storeId)) && 
+          get(/databases/$(database)/documents/stores/$(existing().storeId)).data.userId == request.auth.uid && 
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'description', 'price', 'imageUrls', 'status', 'stock', 'type', 'category',
+            'condition', 'brand', 'sku', 'videoUrl', 'attributes', 'variants',
+            'hasFreeShipping', 'shippingFee', 'positioning', 'bidAmount',
+            'lessonsCount', 'totalHours', 'hasCertificate', 'modules',
+            'weight', 'dimensions', 'digitalContentUrl', 'affiliateCommissionRate',
+            'originalPrice', 'discountPercentage', 'updatedAt'
+          ])
+        ) ||
+        // Allow buyers to update sold count
+        (incoming().diff(existing()).affectedKeys().hasOnly(['soldCount', 'ratings', 'averageRating', 'ratingCount']))
+      );
+      allow delete: if isAdmin() || (exists(/databases/$(database)/documents/stores/$(existing().storeId)) && get(/databases/$(database)/documents/stores/$(existing().storeId)).data.userId == request.auth.uid);
+    }
+
+    // Transactions (Strict but allowing creation)
+    match /transactions/{transactionId} {
+      allow get: if isOwner(resource.data.userId) || isAdmin();
+      allow list: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isSignedIn() && isValidId(transactionId) && isValidTransaction(incoming());
+      allow update, delete: if isAdmin();
+    }
+
+    // Sales
+    match /sales/{saleId} {
+      allow get: if isSignedIn() && (request.auth.uid == resource.data.buyerId || request.auth.uid == resource.data.sellerId || request.auth.uid == resource.data.affiliateUserId || isAdmin());
+      allow list: if isSignedIn() && (request.auth.uid == resource.data.buyerId || request.auth.uid == resource.data.sellerId || request.auth.uid == resource.data.affiliateUserId || isAdmin());
+      allow create: if isSignedIn() && (isOwner(incoming().buyerId) || isAdmin());
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (isOwner(existing().buyerId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'isRated', 'rating', 'ratingComment', 'disputeReason', 'fundsReleased', 'updatedAt', 'canceledAt', 'refundAmount', 'cancellationFee'])) ||
+        (isOwner(existing().sellerId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'trackingCode', 'supplierOrderId', 'fundsReleased', 'updatedAt', 'fundsReleasedAt']))
+      );
+      allow delete: if isOwner(existing().buyerId) || isOwner(existing().sellerId) || isAdmin();
+    }
+
+    // Stories
+    match /stories/{storyId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+      allow create: if isOwner(incoming().userId) && incoming().timestamp == request.time;
+      allow update: if isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['views']);
+      allow delete: if isOwner(existing().userId) || isAdmin();
+    }
+
+    // Tickets
+    match /tickets/{ticketId} {
+      allow get: if isOwner(resource.data.userId) || isAdmin();
+      allow list: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isOwner(incoming().userId);
+      allow update: if isOwner(existing().userId) || isAdmin();
+    }
+
+    // Blocks
+    match /blocks/{blockId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.blockerId || request.auth.uid == resource.data.blockedId || isAdmin());
+      allow create, update: if isSignedIn() && isValidId(blockId) && isValidBlock(incoming());
+      allow delete: if isSignedIn() && (existing().blockerId == request.auth.uid || isAdmin());
+    }
+
+    // Earnings
+    match /earnings/{recordId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.creatorId || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // Subscriptions
+    match /subscriptions/{subId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // Super Chats
+    match /super_chats/{chatId} {
+      allow read: if true;
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // Events
     match /events/{eventId} {
       allow read: if true;
-      allow create: if isVerified();
-      allow update, delete: if isAdmin() || (isVerified() && resource.data.get('creatorId', '') == request.auth.uid);
+      allow write: if isAdmin();
     }
 
-    match /stories/{storyId} {
-       allow read: if isSignedIn();
-       allow create: if isVerified() && request.resource.data.get('userId', '') == request.auth.uid;
-       allow update: if (isVerified() && resource.data.get('userId', '') == request.auth.uid) || 
-                    (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']));
-       allow delete: if (isVerified() && resource.data.get('userId', '') == request.auth.uid) || isAdmin();
+    // System Logs
+    match /system_logs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
     }
-    
-    match /settings/{settingId} {
-      allow read: if true;
-      allow write: if isAdmin();
+
+    // Calls
+    match /calls/{callId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId);
+      allow create: if isSignedIn() && incoming().callerId == request.auth.uid;
+      allow update: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId);
     }
   }
 }

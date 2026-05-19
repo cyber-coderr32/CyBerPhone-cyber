@@ -1,5 +1,5 @@
 
-export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users' | 'premium' | 'landing';
+export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'cart' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users' | 'premium' | 'landing' | 'creator-center' | 'explore' | 'cyber-assistant' | 'product-detail' | 'post-detail';
 
 export type MonetizationStatus = 'INELIGIBLE' | 'ELIGIBLE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
@@ -60,6 +60,7 @@ export interface Message {
     id: string;
     text: string;
     senderName: string;
+    senderAvatar?: string;
     type?: 'text' | 'image' | 'video' | 'audio' | 'document'; // Tipo do reply
   };
   reactions?: Record<string, string[]>; // emoji -> userIds
@@ -73,7 +74,8 @@ export enum TransactionType {
   CHAT_FEE = 'CHAT_FEE',
   BOOST = 'BOOST',
   DONATION = 'DONATION',
-  TICKET = 'TICKET'
+  TICKET = 'TICKET',
+  REFUND = 'REFUND'
 }
 
 export interface Transaction {
@@ -137,6 +139,7 @@ export interface User {
   storeId?: string | null;
   isAdmin?: boolean;
   isVerified?: boolean;
+  country?: string;
   idVerificationStatus?: 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
   idVerificationDocs?: {
     frontUrl?: string;
@@ -145,6 +148,8 @@ export interface User {
     rejectionReason?: string;
     submittedAt?: number;
     expiresAt?: number;
+    aiConfidence?: number;
+    extractedId?: string;
   };
   userType?: 'STANDARD' | 'CREATOR';
   isSuspended?: boolean;
@@ -154,6 +159,7 @@ export interface User {
   // Status Online
   isOnline?: boolean;
   lastSeen?: number;
+  preferredLanguage?: string;
   // Monetização
   isMonetized?: boolean;
   monetizationStatus?: MonetizationStatus;
@@ -177,12 +183,12 @@ export interface User {
   };
   isPremium?: boolean;
   premiumExpiry?: number;
+  autoTranslateEnabled?: boolean;
   address?: ShippingAddress;
-  country?: string;
   resellerName?: string;
   resellerBio?: string;
   resellerBanner?: string;
-  academicRole?: 'PROFESSOR' | 'ALUNO' | 'OUTRO';
+  createdAt?: number;
 }
 
 export enum PostType {
@@ -225,7 +231,10 @@ export interface Post {
   isBoosted?: boolean;
   boostExpires?: number;
   boostBid?: number; // Valor do lance para o leilão de visibilidade
-  disableComments?: boolean; // NOVO: Controle do professor
+  targetLocations?: string[]; // NOVO: Localizações alvo para posts impulsionados
+  minAge?: number; // NOVO: Idade mínima para posts impulsionados
+  maxAge?: number; // NOVO: Idade máxima para posts impulsionados
+  disableComments?: boolean; // Controle do criador
   likes: string[];
   comments: Comment[];
   shares: string[];
@@ -255,6 +264,7 @@ export interface Post {
   liveViewerCount?: number;
   liveHeartCount?: number;
   views?: number; // NOVO: Contador de visualizações para Reels
+  isVerified?: boolean; // NOVO: Status de verificação do autor no momento do post
 }
 
 export enum ProductType {
@@ -262,6 +272,20 @@ export enum ProductType {
   DIGITAL_COURSE = 'DIGITAL_COURSE',
   DIGITAL_EBOOK = 'DIGITAL_EBOOK',
   DIGITAL_OTHER = 'DIGITAL_OTHER',
+}
+
+export interface ProductVariant {
+  id: string;
+  name: string; // e.g., "Red, XL"
+  price: number;
+  stock: number;
+  sku?: string;
+  imageUrl?: string;
+}
+
+export interface ProductAttribute {
+  name: string;
+  value: string;
 }
 
 export interface Product {
@@ -283,6 +307,14 @@ export interface Product {
   digitalContentUrl?: string;
   digitalDownloadInstructions?: string;
   colors?: string[];
+  
+  // Atributos e Variantes (AliExpress Style)
+  attributes?: ProductAttribute[];
+  variants?: ProductVariant[];
+  videoUrl?: string;
+  brand?: string;
+  sku?: string;
+  
   // Dados de Preço e Promoção
   originalPrice?: number;
   discountPercentage?: number;
@@ -292,6 +324,8 @@ export interface Product {
   // Posicionamento e Bidding (Leilão)
   positioning?: 'STANDARD' | 'TOP_SEARCH' | 'MAIN_BANNER';
   bidAmount?: number; // Valor pago para aparecer no topo/banner
+  promotedUntil?: number; // Data de expiração da promoção
+  promotionDays?: number; // Quantidade de dias contratados
   
   // Detalhes Específicos
   courseDetails?: {
@@ -305,8 +339,14 @@ export interface Product {
     dimensions?: string;
     stock: number;
   };
+  digitalDetails?: {
+    fileFormat: string;
+    pageCount?: number;
+    fileSize?: string;
+  };
   
   condition?: 'NEW' | 'USED';
+  timestamp?: number;
 }
 
 export interface ProductRating {
@@ -318,13 +358,31 @@ export interface ProductRating {
   timestamp: number;
 }
 
+export interface AdminSignal {
+  id: string;
+  adminId: string;
+  type: 'VERIFICATION_REQUEST' | 'SUPPORT' | 'SUGGESTION' | 'COMPLIANCE_NOTICE';
+  title: string;
+  message: string;
+  timestamp: number;
+  readByOwner?: boolean;
+  requiresPayment?: boolean;
+  paymentAmount?: number;
+  paymentStatus?: 'PENDING' | 'COMPLETED';
+}
+
 export interface Store {
   id: string;
-  professorId: string;
+  userId: string;
   name: string;
   description: string;
   productIds: string[];
   brandColor?: string;
+  isVerified?: boolean;
+  verificationStatus?: 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
+  performanceScore?: number; // 0-100
+  adminSignals?: AdminSignal[];
+  lastSignalAt?: number;
 }
 
 export enum OrderStatus {
@@ -346,10 +404,10 @@ export interface Carrier {
 }
 
 export const CARRIERS: Carrier[] = [
-  // Angola
-  { id: 'macom', name: 'Macom', countries: ['Angola'], type: 'ROAD', estimatedDays: '1-3 dias' },
-  { id: 'huambo-express', name: 'Huambo Express', countries: ['Angola'], type: 'ROAD', estimatedDays: '1-2 dias' },
-  { id: 'terceiros-ligeiros', name: 'Terceiros Ligeiros', countries: ['Angola'], type: 'ROAD', estimatedDays: 'Mesmo dia/24h' },
+  // Local
+  { id: 'express-local', name: 'Express Local', countries: ['Local'], type: 'ROAD', estimatedDays: '1-3 dias' },
+  { id: 'rapid-delivery', name: 'Rapid Delivery', countries: ['Local'], type: 'ROAD', estimatedDays: '1-2 dias' },
+  { id: 'standard-cargo', name: 'Standard Cargo', countries: ['Local'], type: 'ROAD', estimatedDays: 'Mesmo dia/24h' },
   // Internacional / PALOP / CPLP
   { id: 'dhl', name: 'DHL Express', countries: ['Brasil', 'Portugal', 'Moçambique', 'Cabo Verde', 'Guiné-Bissau', 'São Tomé e Príncipe', 'Timor-Leste', 'EUA', 'China'], type: 'AIR', estimatedDays: '3-7 dias' },
   { id: 'fedex', name: 'FedEx', countries: ['EUA', 'Brasil', 'Portugal', 'Espanha', 'Reino Unido'], type: 'AIR', estimatedDays: '3-5 dias' },
@@ -387,12 +445,13 @@ export interface ShippingAddress {
   city: string;
   state: string;
   zipCode: string;
+  carrierName?: string;
 }
 
 export interface AdCampaign {
   id: string;
-  professorId: string;
-  professorName?: string;
+  userId: string;
+  userName?: string;
   name?: string;
   title: string;
   description: string;
@@ -425,6 +484,8 @@ export interface AdCampaign {
   isAutoRenew: boolean;
   notifiedRenewal?: boolean;
   renewalAmount: number;
+  promotedUntil?: number;
+  promotionDays?: number;
 }
 
 export interface EarningRecord {
@@ -490,10 +551,12 @@ export interface GlobalSettings {
   groupCreationFee?: number;
   storeCreationFee?: number;
   positioningMinBid?: number;
+  promotedCarouselMinBidPerDay?: number;
   monetizationMinFollowers?: number;
   monetizationMinWatchHours?: number;
   monetizationMinReelViews?: number;
   creatorRevenueShare?: number; // Percentual para o criador (ex: 0.7)
+  orderCancellationFeePercentage?: number; // Taxa de cancelamento de pedido pelo comprador (%)
 }
 
 export interface CartItem {

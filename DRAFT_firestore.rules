@@ -1,0 +1,163 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'alfaajmc@gmail.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'firstName', 'lastName', 'email']) 
+        && data.id == request.auth.uid
+        && data.firstName is string && data.firstName.size() <= 50
+        && data.lastName is string && data.lastName.size() <= 50
+        && data.email == request.auth.token.email
+        && (!('bio' in data) || (data.bio is string && data.bio.size() <= 500))
+        && (!('isAdmin' in data) || data.isAdmin == false); // Can't set self as admin
+    }
+
+    function isValidPost(data) {
+      return data.keys().hasAll(['id', 'userId', 'type', 'timestamp'])
+        && data.userId == request.auth.uid
+        && data.type in ['TEXT', 'IMAGE', 'LIVE', 'REEL']
+        && data.timestamp == request.time
+        && (!('content' in data) || (data.content is string && data.content.size() <= 2000))
+        && (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 1000));
+    }
+
+    // --- Rules ---
+
+    // Profiles (PII)
+    match /profiles/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'phone', 'bio', 'profilePicture', 'coverPhoto', 'gender', 'birthDate', 'country']);
+    }
+
+    // Public Profiles (No PII)
+    match /public_profiles/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['firstName', 'lastName', 'profilePicture', 'bio', 'isOnline', 'lastSeen']);
+    }
+
+    // Posts
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(postId) && isValidPost(incoming());
+      allow update: if isSignedIn() && (
+        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'imageUrl', 'isPinned', 'disableComments'])) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'comments', 'shares', 'reactions', 'views'])) // Interactions
+      );
+      allow delete: if isOwner(existing().userId) || isAdmin();
+    }
+
+    // Chats
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && request.auth.uid in existing().participants;
+      allow create: if isSignedIn() && request.auth.uid in incoming().participants;
+      allow update: if isSignedIn() && request.auth.uid in existing().participants
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['messages', 'description', 'theme', 'groupName', 'groupImage'])
+        );
+    }
+
+    // Notifications
+    match /notifications/{notificationId} {
+      allow read: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+      allow create: if isSignedIn() && incoming().actorId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.recipientId == request.auth.uid
+        && incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isSignedIn() && resource.data.recipientId == request.auth.uid;
+    }
+
+    // Ads
+    match /ads/{adId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().professorId == request.auth.uid;
+      allow update: if isAdmin() || (isOwner(existing().professorId) && incoming().diff(existing()).affectedKeys().hasOnly(['isActive', 'title', 'description', 'ctaText']));
+    }
+
+    // Stores & Products
+    match /stores/{storeId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (isAdmin() || (incoming().professorId == request.auth.uid));
+    }
+    match /products/{productId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (isAdmin() || (get(/databases/$(database)/documents/stores/$(incoming().storeId)).data.professorId == request.auth.uid));
+    }
+
+    // Transactions (Strict)
+    match /transactions/{transactionId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if false; // Only via cloud functions/admin for security, or very strict client side if needed
+    }
+
+    // Sales
+    match /sales/{saleId} {
+      allow read: if isSignedIn() && (request.auth.uid == existing().buyerId || request.auth.uid == existing().sellerId || request.auth.uid == existing().affiliateUserId || isAdmin());
+      allow create, update: if isAdmin(); // System managed
+    }
+
+    // Stories (WhatsApp style)
+    match /stories/{storyId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(incoming().userId) && incoming().timestamp == request.time;
+      allow update: if isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['views']);
+      allow delete: if isOwner(existing().userId) || isAdmin();
+    }
+
+    // Tickets
+    match /tickets/{ticketId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isOwner(incoming().userId);
+      allow update: if isOwner(existing().userId) || isAdmin();
+    }
+
+    // Blocks
+    match /blocks/{blockId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.blockerId || request.auth.uid == resource.data.blockedId);
+      allow create: if isSignedIn() && incoming().blockerId == request.auth.uid;
+      allow delete: if isSignedIn() && existing().blockerId == request.auth.uid;
+    }
+
+    // Calls
+    match /calls/{callId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId);
+      allow create: if isSignedIn() && incoming().callerId == request.auth.uid;
+      allow update: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId);
+    }
+  }
+}

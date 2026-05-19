@@ -7,6 +7,7 @@ import { checkContent } from '../services/sentinelService';
 import { COUNTRIES } from '../data/countries';
 import { isFirebaseConfigured } from '../services/firebaseClient';
 import { useDialog } from '../services/DialogContext';
+import { safeJsonStringify } from '../lib/utils';
 import { Github } from 'lucide-react';
 import { requestNotificationPermission, showNotification } from '../services/notificationService';
 import { 
@@ -30,9 +31,10 @@ import {
   GlobeAltIcon,
   ArrowDownTrayIcon,
   NoSymbolIcon,
-  BellIcon
+  BellIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline';
-import ConfirmationModal from './ConfirmationModal';
+import ConfirmationModal, { ConfirmationType } from './ConfirmationModal';
 
 interface SettingsPageProps {
   currentUser: User;
@@ -46,17 +48,19 @@ interface SettingsPageProps {
   onThemeChange: (theme: GroupTheme) => void;
 }
 
-const THEMES: { id: GroupTheme; label: string; color: string }[] = [
-    { id: 'blue', label: 'Azul Clássico', color: 'bg-blue-500' },
-    { id: 'green', label: 'Verde Natureza', color: 'bg-emerald-500' },
-    { id: 'black', label: 'Dark OLED', color: 'bg-zinc-900' },
-    { id: 'orange', label: 'Laranja Solar', color: 'bg-orange-500' }
+const THEMES: { id: GroupTheme; labelKey: string; color: string }[] = [
+    { id: 'blue', labelKey: 'settings_theme_blue', color: 'bg-blue-500' },
+    { id: 'green', labelKey: 'settings_theme_green', color: 'bg-emerald-500' },
+    { id: 'black', labelKey: 'settings_theme_black', color: 'bg-zinc-900' },
+    { id: 'orange', labelKey: 'settings_theme_orange', color: 'bg-orange-500' }
 ];
 
 const LANGUAGES = [
     { id: 'pt', label: 'Português (Brasil)', flag: '🇧🇷' },
     { id: 'en', label: 'English (US)', flag: '🇺🇸' },
-    { id: 'es', label: 'Español (ES)', flag: '🇪🇸' }
+    { id: 'es', label: 'Español (ES)', flag: '🇪🇸' },
+    { id: 'fr', label: 'Français (FR)', flag: '🇫🇷' },
+    { id: 'zh', label: 'Chinese (简体中文)', flag: '🇨🇳' }
 ];
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ 
@@ -81,8 +85,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [coverPhoto, setCoverPhoto] = useState(currentUser.coverPhoto || '');
   const [email, setEmail] = useState(currentUser.email || '');
   const [phone, setPhone] = useState(currentUser.phone || '');
-  const [country, setCountry] = useState(currentUser.country || 'Angola');
-  const [academicRole, setAcademicRole] = useState(currentUser.academicRole || 'ALUNO');
+  const [country, setCountry] = useState(currentUser.country || '');
   
   const [birthDate, setBirthDate] = useState(() => {
     const d = new Date(currentUser.birthDate);
@@ -105,7 +108,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
-        showAlert('Por favor, selecione um arquivo de imagem.', { type: 'error' });
+        showAlert(t('settings_select_image'), { type: 'error' });
         return;
       }
       setIsUploading(true);
@@ -113,7 +116,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         const url = await uploadFile(file, 'profiles');
         setProfilePicture(url);
       } catch (err) {
-        showAlert('Erro no upload da imagem.', { type: 'error' });
+        showAlert(t('settings_upload_error'), { type: 'error' });
       } finally {
         setIsUploading(false);
       }
@@ -124,7 +127,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (!file.type.startsWith('image/')) {
-        showAlert('Por favor, selecione um arquivo de imagem.', { type: 'error' });
+        showAlert(t('settings_select_image'), { type: 'error' });
         return;
       }
       setIsUploadingCover(true);
@@ -132,7 +135,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         const url = await uploadFile(file, 'covers');
         setCoverPhoto(url);
       } catch (err) {
-        showAlert('Erro no upload da imagem de capa.', { type: 'error' });
+        showAlert(t('settings_cover_upload_error'), { type: 'error' });
       } finally {
         setIsUploadingCover(false);
       }
@@ -149,7 +152,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       if (bio.trim()) {
         const sentinelResult = await checkContent(bio.trim(), 'bio');
         if (!sentinelResult.isSafe) {
-          showAlert(sentinelResult.reason || 'Sua biografia foi bloqueada pelo Sentinela AI por motivos de segurança.', { type: 'error', title: 'Sentinela de Segurança' });
+          showAlert(sentinelResult.reason || t('settings_bio_blocked'), { type: 'error', title: t('settings_sentinel_title') });
           setIsSaving(false);
           return;
         }
@@ -157,12 +160,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
       if (newPassword) {
         if (newPassword.length < 6) {
-          showAlert('A senha deve ter pelo menos 6 caracteres.', { type: 'error' });
+          showAlert(t('settings_password_min_length'), { type: 'error' });
           setIsSaving(false);
           return;
         }
         if (newPassword !== confirmPassword) {
-          showAlert('As senhas não conferem.', { type: 'error' });
+          showAlert(t('settings_passwords_mismatch'), { type: 'error' });
           setIsSaving(false);
           return;
         }
@@ -181,7 +184,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           profilePicture,
           coverPhoto,
           country,
-          academicRole,
           birthDate: new Date(birthDate).getTime()
       };
       
@@ -191,8 +193,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      console.error(err);
-      showAlert("Erro ao salvar perfil.", { type: 'error' });
+      console.error(safeJsonStringify(err));
+      showAlert(t('settings_save_error'), { type: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -206,8 +208,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setShowDeleteConfirm(false);
         onDeleteAccount();
     } catch (error) {
-        console.error("Erro ao deletar conta:", error);
-        showAlert("Não foi possível excluir a conta no momento. Tente novamente.", { type: 'error' });
+        console.error("Erro ao deletar conta:", safeJsonStringify(error));
+        showAlert(t('settings_delete_error'), { type: 'error' });
         setIsSaving(false);
         setShowDeleteConfirm(false);
     }
@@ -228,8 +230,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     {LANGUAGES.map(lang => (
                         <button 
                           key={lang.id}
-                          onClick={() => {
+                          onClick={async () => {
                               i18n.changeLanguage(lang.id);
+                              if (currentUser && currentUser.id) {
+                                try {
+                                  await updateUser({ ...currentUser, preferredLanguage: lang.id });
+                                  refreshUser();
+                                } catch (err) {
+                                  console.error("Erro ao salvar idioma preferido:", safeJsonStringify(err));
+                                }
+                              }
                           }}
                           className={`w-full p-6 rounded-[2rem] border-2 transition-all flex items-center justify-between group ${i18n.language.startsWith(lang.id) ? 'border-brand bg-brand/5 shadow-lg' : 'border-gray-50 dark:border-white/5 hover:border-gray-200'}`}
                         >
@@ -249,11 +259,31 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
             </div>
 
+            <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border dark:border-white/10">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">{t('settings_auto_translate')}</p>
+                <div className="flex items-center justify-between p-6 bg-gray-50 dark:bg-white/5 rounded-[2rem]">
+                  <div>
+                    <h4 className="text-sm font-black dark:text-white uppercase tracking-tight">{t('auto_translate_posts')}</h4>
+                    <p className="text-[10px] text-gray-400 font-bold">{t('settings_auto_translate_desc')}</p>
+                  </div>
+                  <button 
+                    onClick={async () => {
+                      const updatedUser: User = { ...currentUser, autoTranslateEnabled: !currentUser.autoTranslateEnabled };
+                      await updateUser(updatedUser);
+                      refreshUser();
+                    }} 
+                    className={`w-14 h-7 rounded-full transition-all relative ${currentUser.autoTranslateEnabled ? 'bg-brand' : 'bg-gray-200 dark:bg-gray-700'}`}
+                  >
+                    <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all ${currentUser.autoTranslateEnabled ? 'right-1' : 'left-1'}`}></div>
+                  </button>
+                </div>
+            </div>
+
             <div className="p-6 bg-brand/5 dark:bg-white/5 rounded-[2rem] border border-dashed border-brand/20">
                <div className="flex gap-4">
                   <GlobeAltIcon className="h-8 w-8 text-brand shrink-0" />
                   <p className="text-xs text-brand/80 font-bold leading-relaxed">
-                     A Cyber Social é uma plataforma global. Ao alterar o idioma, todos os textos do sistema serão atualizados para sua preferência regional.
+                     {t('settings_global_platform')}
                   </p>
                </div>
             </div>
@@ -267,12 +297,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="container mx-auto p-4 md:p-8 pt-24 pb-20 max-w-2xl animate-fade-in">
           <div className="flex items-center gap-6 mb-10">
             <button onClick={() => setView('main')} className="p-3 bg-white dark:bg-darkcard rounded-2xl shadow-md text-gray-400 hover:text-brand transition-all"><ArrowLeftIcon className="h-6 w-6" /></button>
-            <h2 className="text-4xl font-black dark:text-white tracking-tighter">Estilo</h2>
+            <h2 className="text-4xl font-black dark:text-white tracking-tighter">{t('settings_style')}</h2>
           </div>
           
           <div className="space-y-10">
             <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border dark:border-white/10">
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">Tema de Cores</p>
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6">{t('settings_color_theme')}</p>
                 <div className="grid grid-cols-2 gap-4">
                     {THEMES.map(theme => (
                         <button 
@@ -283,7 +313,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                            <div className={`w-14 h-14 rounded-2xl ${theme.color} shadow-lg flex items-center justify-center`}>
                               {appTheme === theme.id && <CheckIcon className="h-7 w-7 text-white" />}
                            </div>
-                           <span className={`text-xs font-black uppercase ${appTheme === theme.id ? 'text-brand' : 'text-gray-400'}`}>{theme.label}</span>
+                           <span className={`text-xs font-black uppercase ${appTheme === theme.id ? 'text-brand' : 'text-gray-400'}`}>{t(theme.labelKey)}</span>
                         </button>
                     ))}
                 </div>
@@ -291,8 +321,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
             <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border dark:border-white/10 flex items-center justify-between">
                 <div>
-                    <p className="font-black text-sm dark:text-white uppercase tracking-tighter">Modo Escuro</p>
-                    <p className="text-xs text-gray-400 font-bold">Inverter cores do sistema</p>
+                    <p className="font-black text-sm dark:text-white uppercase tracking-tighter">{t('dark_mode')}</p>
+                    <p className="text-xs text-gray-400 font-bold">{t('settings_dark_mode_inverted')}</p>
                 </div>
                 <button onClick={toggleTheme} className={`w-14 h-7 rounded-full transition-all relative ${darkMode ? 'bg-brand' : 'bg-gray-200'}`}>
                     <div className={`absolute top-1 w-5 h-5 bg-white rounded-full transition-all ${darkMode ? 'right-1' : 'left-1'}`}></div>
@@ -308,19 +338,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       <div className="container mx-auto p-4 md:p-8 pt-24 pb-20 max-w-3xl animate-fade-in">
         <div className="flex items-center gap-6 mb-10">
           <button onClick={() => setView('main')} className="p-3 bg-white dark:bg-darkcard rounded-2xl shadow-md text-gray-400 hover:text-brand transition-all"><ArrowLeftIcon className="h-6 w-6" /></button>
-          <h2 className="text-4xl font-black dark:text-white tracking-tighter">Dados de Inscrição</h2>
+          <h2 className="text-4xl font-black dark:text-white tracking-tighter">{t('settings_registration_data')}</h2>
         </div>
 
         {saveSuccess && (
           <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-500/30 rounded-2xl flex items-center gap-3 animate-fade-in">
              <CheckIcon className="h-5 w-5 text-green-600" />
-             <p className="text-xs font-black text-green-700 dark:text-green-400 uppercase tracking-widest">Perfil atualizado!</p>
+             <p className="text-xs font-black text-green-700 dark:text-green-400 uppercase tracking-widest">{t('settings_profile_updated')}</p>
           </div>
         )}
 
         <form onSubmit={handleSaveProfile} className="space-y-8">
            <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border dark:border-white/10">
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 ml-1">Identidade Visual</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 ml-1">{t('settings_visual_identity')}</p>
               <div className="flex flex-col items-center gap-6">
                   {/* Cover Photo */}
                   <div className="w-full h-32 rounded-2xl overflow-hidden bg-gray-100 dark:bg-white/5 relative group cursor-pointer border-2 border-dashed border-gray-200 dark:border-white/10" onClick={() => coverInputRef.current?.click()}>
@@ -337,7 +367,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                         </div>
                      )}
                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                        <p className="text-white text-[10px] font-black uppercase">Alterar Capa</p>
+                        <p className="text-white text-[10px] font-black uppercase">{t('settings_change_cover')}</p>
                      </div>
                      <input type="file" ref={coverInputRef} className="hidden" accept="image/*" onChange={handleCoverChange} />
                   </div>
@@ -372,26 +402,26 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                       onChange={handleFileChange} 
                     />
                  </div>
-                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Clique na foto para alterar</p>
+                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{t('settings_click_to_change')}</p>
               </div>
            </div>
 
            <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border dark:border-white/10">
-              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 ml-1">Dados Pessoais</p>
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 ml-1">{t('settings_personal_data')}</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">Nome</label>
+                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">{t('first_name')}</label>
                     <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)} className="w-full p-4 bg-gray-50 dark:bg-white/5 rounded-2xl dark:text-white outline-none border-2 border-transparent focus:border-brand font-black" />
                  </div>
                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">Sobrenome</label>
+                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">{t('last_name')}</label>
                     <input type="text" value={lastName} onChange={e => setLastName(e.target.value)} className="w-full p-4 bg-gray-50 dark:bg-white/5 rounded-2xl dark:text-white outline-none border-2 border-transparent focus:border-brand font-black" />
                  </div>
               </div>
 
               <div className="space-y-6">
                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">Data de Nascimento</label>
+                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">{t('birth_date')}</label>
                     <div className="relative">
                        <CalendarDaysIcon className="h-5 w-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                        <input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)} className="w-full p-4 pl-12 bg-gray-50 dark:bg-white/5 rounded-2xl dark:text-white outline-none border-2 border-transparent focus:border-brand font-bold" />
@@ -399,32 +429,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                  </div>
 
                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">Biografia</label>
-                    <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder="Conte um pouco sobre você..." className="w-full p-5 bg-gray-50 dark:bg-white/5 rounded-[2rem] dark:text-white outline-none border-2 border-transparent focus:border-brand font-medium h-32 resize-none" />
+                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">{t('bio')}</label>
+                    <textarea value={bio} onChange={e => setBio(e.target.value)} placeholder={t('settings_bio_placeholder')} className="w-full p-5 bg-gray-50 dark:bg-white/5 rounded-[2rem] dark:text-white outline-none border-2 border-transparent focus:border-brand font-medium h-32 resize-none" />
                  </div>
 
-                 <div className="space-y-2">
-                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">Eu sou...</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button 
-                        type="button"
-                        onClick={() => setAcademicRole('ALUNO')}
-                        className={`p-4 rounded-2xl font-black text-xs uppercase transition-all border-2 ${academicRole === 'ALUNO' ? 'bg-brand/10 border-brand text-brand' : 'bg-gray-50 dark:bg-white/5 text-gray-500 border-transparent hover:border-gray-200'}`}
-                      >
-                        Aluno
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setAcademicRole('PROFESSOR')}
-                        className={`p-4 rounded-2xl font-black text-xs uppercase transition-all border-2 ${academicRole === 'PROFESSOR' ? 'bg-brand/10 border-brand text-brand' : 'bg-gray-50 dark:bg-white/5 text-gray-500 border-transparent hover:border-gray-200'}`}
-                      >
-                        Professor
-                      </button>
-                    </div>
-                  </div>
-
                   <div className="space-y-2">
-                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">País de Residência</label>
+                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">{t('settings_country_residence')}</label>
                     <div className="relative">
                        <GlobeAltIcon className="h-5 w-5 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
                        <select value={country} onChange={e => setCountry(e.target.value)} className="w-full p-4 pl-12 bg-gray-50 dark:bg-white/5 rounded-2xl dark:text-white outline-none border-2 border-transparent focus:border-brand font-bold appearance-none cursor-pointer">
@@ -442,16 +452,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="flex items-center justify-between mb-6">
                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
                     {currentUser.isAdmin ? (
-                        <><LockOpenIcon className="h-3 w-3 text-green-500" /> Acesso Administrativo (Desbloqueado)</>
+                        <><LockOpenIcon className="h-3 w-3 text-green-500" /> {t('settings_admin_access')}</>
                     ) : (
-                        <><LockClosedIcon className="h-3 w-3" /> Dados Sensíveis (Protegidos)</>
+                        <><LockClosedIcon className="h-3 w-3" /> {t('settings_sensitive_data')}</>
                     )}
                  </p>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">Endereço de E-mail</label>
+                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">{t('settings_email_address')}</label>
                     <div className="relative">
                        <EnvelopeIcon className={`h-5 w-5 absolute left-4 top-1/2 -translate-y-1/2 ${currentUser.isAdmin ? 'text-brand' : 'text-gray-300'}`} />
                        <input 
@@ -465,7 +475,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                  </div>
 
                  <div className="space-y-2">
-                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">Telefone</label>
+                    <label className="text-[9px] font-black text-gray-400 uppercase ml-2">{t('phone')}</label>
                     <div className="relative">
                        <PhoneIcon className={`h-5 w-5 absolute left-4 top-1/2 -translate-y-1/2 ${currentUser.isAdmin ? 'text-brand' : 'text-gray-300'}`} />
                        <input 
@@ -488,47 +498,59 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
              {isSaving ? (
                <div className="w-5 h-5 border-3 border-white border-t-transparent animate-spin rounded-full"></div>
              ) : (
-               <><CheckIcon className="h-6 w-6 stroke-[3]" /> Salvar Alterações</>
+               <><CheckIcon className="h-6 w-6 stroke-[3]" /> {t('settings_save_changes')}</>
              )}
-           </button>
-        </form>
+            </button>
+         </form>
       </div>
     );
-  }
-
-  const systemItems = [
-    { label: 'Ajuda e Suporte', desc: 'Abrir tickets e resolver problemas', icon: LifebuoyIcon, onClick: () => onNavigate('support') }
-  ];
-
-  systemItems.push({ label: 'Sair da Conta', desc: 'Desconectar dispositivo', icon: ArrowRightOnRectangleIcon, onClick: onLogout });
+  };
 
   const sections = [
     {
-      title: 'Identidade Digital',
+      titleKey: 'identidade_digital',
       items: [
-        { label: 'Editar Perfil & Senha', desc: 'Nome, bio, foto e segurança', icon: UserIcon, onClick: () => setView('edit-profile') },
-        { label: 'Visual e Estilo', desc: 'Cores e Modo Dark', icon: PaintBrushIcon, onClick: () => setView('appearance') },
+        { id: 'profile', labelKey: 'editar_perfil_senha', descKey: 'nome_bio_photo_e_seguranca', icon: UserIcon, onClick: () => setView('edit-profile') },
+        { id: 'appearance', labelKey: 'visual_e_estilo', descKey: 'cores_e_modo_dark', icon: PaintBrushIcon, onClick: () => setView('appearance') },
         { 
-          label: 'Notificações no Celular', 
-          desc: 'Alerta na barra de tarefas', 
+          id: 'notifications',
+          labelKey: 'notificacoes_no_celular', 
+          descKey: 'alerta_na_barra_de_tarefas', 
           icon: BellIcon, 
           onClick: async () => {
             const granted = await requestNotificationPermission();
             if (granted) {
-              showNotification("Notificações Ativadas!", { body: "Você agora receberá alertas de vendas e mensagens aqui." });
-              showAlert("Notificações ativadas com sucesso!", { type: 'success' });
+              showNotification(t('notifications_activated') || "Notificações Ativadas!", { body: t('notifications_activated_desc') || "Você agora receberá alertas de vendas e mensagens aqui." });
+              showAlert(t('notifications_activated_success') || "Notificações ativadas com sucesso!", { type: 'success' });
             } else {
-              showAlert("Permissão negada ou não suportada no navegador.", { type: 'error' });
+              showAlert(t('notifications_denied') || "Permissão negada ou não suportada no navegador.", { type: 'error' });
             }
           } 
         },
-        { label: 'Usuários Bloqueados', desc: 'Gerenciar lista negra', icon: NoSymbolIcon, onClick: () => onNavigate('blocked-users') },
-        { label: 'Idioma do Sistema', desc: 'Alterar linguagem global', icon: LanguageIcon, onClick: () => setView('language') }
+        { id: 'blocked', labelKey: 'usuarios_bloqueados', descKey: 'gerenciar_lista_negra', icon: NoSymbolIcon, onClick: () => onNavigate('blocked-users') },
+        { id: 'language', labelKey: 'idioma_do_sistema', descKey: 'alterar_linguagem_global', icon: LanguageIcon, onClick: () => setView('language') },
+        { 
+          id: 'id-verification',
+          labelKey: 'verificacao_de_identidade', 
+          descKey: currentUser.idVerificationStatus === 'APPROVED' ? 'conta_verificada' : 'gerenciar_documentos', 
+          icon: ShieldCheckIcon, 
+          onClick: () => {
+              if (currentUser.idVerificationStatus === 'APPROVED') {
+                  showAlert(t('settings_verified_success'), { type: 'success', title: t('settings_verified') });
+              } else {
+                  onNavigate('feed');
+                  showAlert(t('settings_verification_in_progress'), { type: 'alert' });
+              }
+          } 
+        }
       ]
     },
     {
-      title: 'Sistema & Segurança',
-      items: systemItems
+      titleKey: 'sistema_seguranca',
+      items: [
+        { id: 'help', labelKey: 'ajuda_e_suporte', descKey: 'abrir_tickets_e_resolver_problemas', icon: LifebuoyIcon, onClick: () => onNavigate('support') },
+        { id: 'logout', labelKey: 'sair_da_conta', descKey: 'desconectar_dispositivo', icon: ArrowRightOnRectangleIcon, onClick: onLogout }
+      ]
     }
   ];
 
@@ -541,12 +563,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
       <div className="space-y-10">
         {sections.map(section => (
-          <div key={section.title}>
-            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4 ml-4">{t(section.title.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')) || section.title}</h3>
+          <div key={section.titleKey}>
+            <h3 className="text-xs font-black text-gray-400 uppercase tracking-[0.2em] mb-4 ml-4">{t(section.titleKey)}</h3>
             <div className="bg-white dark:bg-darkcard rounded-[2.5rem] shadow-xl border border-gray-100 dark:border-white/10 overflow-hidden">
               {section.items.map((item, idx) => (
                 <div 
-                  key={item.label} 
+                  key={item.id} 
                   onClick={item.onClick}
                   className={`p-6 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-white/5 transition-colors cursor-pointer ${idx !== section.items.length - 1 ? 'border-b border-gray-50 dark:border-white/10' : ''}`}
                 >
@@ -555,8 +577,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                       <item.icon className="h-6 w-6" />
                     </div>
                     <div>
-                      <p className="font-black text-sm dark:text-white">{t(item.label.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_')) || item.label}</p>
-                      <p className="text-xs text-gray-400 font-bold">{t(item.desc.toLowerCase().replace(/ /g, '_')) || item.desc}</p>
+                      <p className="font-black text-sm dark:text-white uppercase tracking-tight">{t(item.labelKey)}</p>
+                      <p className="text-xs text-gray-400 font-bold">{t(item.descKey)}</p>
                     </div>
                   </div>
                   <ChevronDownIcon className="h-5 w-5 text-gray-300 -rotate-90" />
@@ -569,10 +591,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="mt-10 px-4 bg-red-50 dark:bg-red-900/10 p-8 rounded-[3rem] border border-red-100 dark:border-red-900/20">
            <div className="flex items-center gap-3 mb-4">
               <ExclamationTriangleIcon className="h-6 w-6 text-red-600" />
-              <h3 className="text-sm font-black text-red-700 dark:text-red-400 uppercase tracking-widest">Área de Perigo</h3>
+              <h3 className="text-sm font-black text-red-700 dark:text-red-400 uppercase tracking-widest">{t('danger_zone')}</h3>
            </div>
            <p className="text-xs text-red-600/80 dark:text-red-400/80 font-medium mb-6 leading-relaxed">
-              A exclusão da conta é permanente. Todos os seus dados, postagens e saldo serão removidos dos nossos servidores.
+              {t('delete_account_warning')}
            </p>
            
            <div className="flex flex-col gap-6">
@@ -582,9 +604,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                  className="w-full py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black text-xs uppercase shadow-lg shadow-red-200 dark:shadow-none active:scale-95 transition-all flex items-center justify-center gap-2"
                >
                   {isSaving ? (
-                      <>Processando Exclusão...</>
+                      <>{t('processing_deletion')}</>
                   ) : (
-                      <><TrashIcon className="h-4 w-4" /> Excluir Minha Conta</>
+                      <><TrashIcon className="h-4 w-4" /> {t('delete_my_account')}</>
                   )}
                </button>
 
@@ -602,10 +624,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         isOpen={showDeleteConfirm}
         onClose={() => setShowDeleteConfirm(false)}
         onConfirm={handleConfirmDelete}
-        title="Excluir Conta?"
-        message="Esta ação é irreversível. Todos os seus dados, saldo e conteúdo serão apagados permanentemente."
-        confirmText="Sim, Apagar Tudo"
-        type="danger"
+        title={t('settings_delete_account_title')}
+        message={t('settings_delete_account_message')}
+        confirmText={t('settings_delete_account_confirm')}
+        type={ConfirmationType.DANGER}
         loading={isSaving}
       />
     </div>

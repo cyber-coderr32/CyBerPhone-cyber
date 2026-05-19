@@ -1,13 +1,13 @@
 
-import { User, Post, PostType, ChatConversation, AdCampaign, Store, Product, AffiliateSale, Comment, ShippingAddress, ProductType, AudioTrack, Notification, NotificationType, CartItem, ProductRating, OrderStatus, CyberEvent, Story, Transaction, ContentReport, SystemLog, GlobalSettings, TransactionType, ChatType, GroupTheme, Message, SupportTicket, SupportMessage, AffiliateLink, CallType } from '../types';
+import { User, Post, PostType, ChatConversation, AdCampaign, Store, Product, AffiliateSale, Comment, ShippingAddress, ProductType, AudioTrack, Notification, NotificationType, CartItem, ProductRating, OrderStatus, CyberEvent, Story, Transaction, ContentReport, SystemLog, GlobalSettings, TransactionType, ChatType, GroupTheme, Message, SupportTicket, SupportMessage, AffiliateLink, CallType, AdminSignal } from '../types';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { safeJsonStringify } from '../lib/utils';
 import { checkContentSecurity } from './sentinelService';
 import { auth, db, storage, isFirebaseConfigured } from './firebaseClient';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 import { 
   collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, addDoc, onSnapshot,
-  getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion, increment
+  getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion, increment, writeBatch, serverTimestamp
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -106,10 +106,19 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
     let firstName = dbData?.firstName || authDisplayName.split(' ')[0] || "";
     let lastName = dbData?.lastName || authDisplayName.split(' ').slice(1).join(' ') || "";
 
+    const isGoogle = authUser?.providerData?.some((p: any) => p.providerId === 'google.com');
+
+    // Se não tiver nome e NÃO for Google, evitamos o uso do e-mail como nome
+    // A menos que o usuário explicitamente deseje (no caso do Google, é o padrão aceitável)
     if (!firstName && authUser?.email) {
-        firstName = authUser.email.split('@')[0];
-        firstName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
-        lastName = "Membro";
+        if (isGoogle) {
+            firstName = authUser.email.split('@')[0];
+            firstName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
+            lastName = "Membro";
+        } else {
+            firstName = "Usuário";
+            lastName = "CyberPhone";
+        }
     }
 
     const email = (dbData?.email || authUser?.email || '').toLowerCase().trim();
@@ -135,10 +144,12 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
         followers: dbData?.followers || [],
         balance: Number(dbData?.balance || 0),
         bio: dbData?.bio || '',
+        country: dbData?.country || '',
+        academicRole: dbData?.academicRole || 'ALUNO',
         storeId: dbData?.storeId || null,
         isAdmin: isAdminEmail || !!dbData?.isAdmin,
         isVerified: isAdminEmail || !!dbData?.isVerified,
-        idVerificationStatus: dbData?.idVerificationStatus || 'NOT_STARTED',
+        idVerificationStatus: isAdminEmail ? 'APPROVED' : (dbData?.idVerificationStatus || 'NOT_STARTED'),
         idVerificationDocs: dbData?.idVerificationDocs || null,
         userType: isAdminEmail ? 'CREATOR' : (dbData?.userType || 'STANDARD'),
         isOnline: isActuallyOnline,
@@ -157,11 +168,98 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
         },
         address: dbData?.address || undefined,
         blockedUserIds: dbData?.blockedUserIds || [],
-        country: dbData?.country || '',
-        academicRole: dbData?.academicRole || 'ALUNO'
+        createdAt: dbData?.createdAt || Number(id.split('-')[1]) || Date.now()
     } as User;
 };
 
+export const promoteProduct = async (userId: string, productId: string, days: number, costPerDay: number): Promise<boolean> => {
+  if (!db || !auth) return false;
+  const totalCost = days * costPerDay;
+  
+  try {
+    const user = await findUserById(userId);
+    if (!user || (user.balance || 0) < totalCost) {
+      throw new Error("Saldo insuficiente para promover.");
+    }
+
+    const batch = writeBatch(db);
+    
+    // Deduct balance
+    const userRef = doc(db, 'profiles', userId);
+    batch.update(userRef, { balance: increment(-totalCost) });
+
+    // Update product
+    const productRef = doc(db, 'products', productId);
+    batch.update(productRef, {
+      promotedUntil: Date.now() + (days * 24 * 60 * 60 * 1000),
+      promotionDays: days
+    });
+
+    // Create transaction
+    const transId = generateUUID();
+    const transRef = doc(db, 'transactions', transId);
+    batch.set(transRef, {
+      id: transId,
+      userId,
+      type: TransactionType.BOOST,
+      amount: totalCost,
+      description: `Promoção de Produto (${days} dias) - ID: ${productId}`,
+      timestamp: Date.now(),
+      status: 'COMPLETED'
+    });
+
+    await batch.commit();
+    return true;
+  } catch (err) {
+    console.error("Error promoting product:", safeJsonStringify(err));
+    throw err;
+  }
+};
+
+export const promoteAdCampaign = async (userId: string, campaignId: string, days: number, costPerDay: number): Promise<boolean> => {
+  if (!db || !auth) return false;
+  const totalCost = days * costPerDay;
+  
+  try {
+    const user = await findUserById(userId);
+    if (!user || (user.balance || 0) < totalCost) {
+      throw new Error("Saldo insuficiente para promover.");
+    }
+
+    const batch = writeBatch(db);
+    
+    // Deduct balance
+    const userRef = doc(db, 'profiles', userId);
+    batch.update(userRef, { balance: increment(-totalCost) });
+
+    // Update campaign
+    const campaignRef = doc(db, 'ad_campaigns', campaignId);
+    batch.update(campaignRef, {
+      endDate: Date.now() + (days * 24 * 60 * 60 * 1000),
+      promotedUntil: Date.now() + (days * 24 * 60 * 60 * 1000),
+      isActive: true
+    });
+
+    // Create transaction
+    const transId = generateUUID();
+    const transRef = doc(db, 'transactions', transId);
+    batch.set(transRef, {
+      id: transId,
+      userId,
+      type: TransactionType.BOOST,
+      amount: totalCost,
+      description: `Promoção de Anúncio (${days} dias) - ID: ${campaignId}`,
+      timestamp: Date.now(),
+      status: 'COMPLETED'
+    });
+
+    await batch.commit();
+    return true;
+  } catch (err) {
+    console.error("Error promoting ad campaign:", safeJsonStringify(err));
+    throw err;
+  }
+};
 export const findUserById = async (userId: string, authUserReference?: any): Promise<User | undefined> => {
   if (!userId || !isFirebaseConfigured || !db) return undefined;
   
@@ -170,26 +268,26 @@ export const findUserById = async (userId: string, authUserReference?: any): Pro
 
   // Processar cobranças automáticas de anúncios se for o dono
   if (isOwner) {
-    checkAndProcessAdBilling(userId).catch(console.error);
+    checkAndProcessAdBilling(userId).catch(err => console.error("[ADS] Error processing ads:", safeJsonStringify(err)));
   }
   
   try {
+    console.log("[STORAGE] Buscando documento no Firestore para:", userId);
     let docSnap;
     let data;
     let foundInPrivate = false;
 
-    // Tenta sempre ler do public_profiles primeiro se não for o dono
-    // Ou tenta ler do profiles se for o dono (para pegar saldo, etc)
     if (isOwner) {
       try {
+        console.log("[STORAGE] Tentando acesso privado (profiles)...");
         docSnap = await getDoc(doc(db, 'profiles', userId));
         if (docSnap.exists()) {
           data = docSnap.data();
           foundInPrivate = true;
+          console.log("[STORAGE] Perfil privado encontrado.");
         }
       } catch (err: any) {
-        // Se falhar a leitura privada (ex: permissão negada por delay de auth), tenta a pública
-        console.warn("[STORAGE] Falha na leitura privada, tentando pública:", err.message);
+        console.warn("[STORAGE] Falha na leitura privada, tentando pública:", err.message || err);
       }
     }
 
@@ -207,18 +305,16 @@ export const findUserById = async (userId: string, authUserReference?: any): Pro
       const newUser = mapUserData(userId, null, currentAuth);
       
       try {
-        await setDoc(doc(db, 'profiles', userId), {
-            ...newUser,
-            timestamp: Date.now()
-        });
+        const filteredPrivate = filterProfileData({ ...newUser, updatedAt: Date.now() });
+        await setDoc(doc(db, 'profiles', userId), filteredPrivate);
 
-        const { email, phone, documentId, birthDate, balance, ...publicData } = newUser;
-        await setDoc(doc(db, 'public_profiles', userId), {
-            ...publicData,
-            timestamp: Date.now()
-        });
+        const { email, phone, documentId, birthDate, balance, ...publicDataRaw } = newUser;
+        const filteredPublic = filterProfileData({ ...publicDataRaw, updatedAt: Date.now() });
+        await setDoc(doc(db, 'public_profiles', userId), filteredPublic);
       } catch (err) {
-        console.error("[STORAGE] Erro ao criar perfil inicial:", err);
+        console.error("[STORAGE] Erro ao criar perfil inicial automatico:", safeJsonStringify(err));
+        // We don't throw here to avoid blocking the main auth flux if it's just a sync issue,
+        // but it's good to know it happened.
       }
       
       return newUser;
@@ -236,17 +332,49 @@ export const findUserById = async (userId: string, authUserReference?: any): Pro
 
 // --- AUTENTICAÇÃO ---
 
+export const loginWithGoogle = async (): Promise<User> => {
+  if (!isFirebaseConfigured || !auth) {
+    throw new Error("Firebase Auth não está inicializado.");
+  }
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = await findUserById(userCredential.user.uid, userCredential.user);
+    
+    if (user) return user;
+    
+    // Create new profile for Google user if not exists
+    console.log("[STORAGE] Novo usuário Google, criando perfil...");
+    const newUser = await createFirestoreUser(userCredential.user.uid, {
+      firstName: userCredential.user.displayName?.split(' ')[0] || 'Usuário',
+      lastName: userCredential.user.displayName?.split(' ').slice(1).join(' ') || 'Google',
+      email: userCredential.user.email,
+      phone: '',
+      birthDate: Date.now(),
+      gender: '',
+      country: '',
+      academicRole: 'ALUNO'
+    }, userCredential.user);
+    
+    return newUser;
+  } catch (e: any) {
+    console.error("Erro no login Google:", safeJsonStringify(e));
+    throw e;
+  }
+};
+
 export const loginUser = async (email: string, password: string): Promise<User> => {
-  console.log("[STORAGE] Tentando login para:", email, "Auth inicializado:", !!auth);
+  const emailClean = (email || '').toLowerCase().trim();
+  console.log("[STORAGE] Tentando login para:", emailClean, "Auth inicializado:", !!auth);
   if (!isFirebaseConfigured || !auth) {
     throw new Error("Firebase Auth não está inicializado. Isso pode ser um problema de conexão temporário. Por favor, recarregue a página.");
   }
   try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    const userCredential = await signInWithEmailAndPassword(auth, emailClean, password);
     const user = await findUserById(userCredential.user.uid, userCredential.user);
     
     // Check for super admin email
-    const emailClean = (email || '').toLowerCase().trim();
     const isAdminEmail = emailClean === 'ac926815124@gmail.com' || emailClean === 'alfaajmc@gmail.com';
     // Check for admin status to sync to the admins collection for faster rule checks
     if (user && user.isAdmin && db) {
@@ -289,14 +417,33 @@ export const loginUser = async (email: string, password: string): Promise<User> 
       fallbackUser.userType = 'CREATOR';
       
       // Save it
-      await setDoc(doc(db, 'profiles', fallbackUser.id), { ...fallbackUser, timestamp: Date.now() });
-      const { email: e, phone, documentId, birthDate, balance, ...publicData } = fallbackUser;
-      await setDoc(doc(db, 'public_profiles', fallbackUser.id), { ...publicData, timestamp: Date.now() });
+      const filteredPrivate = filterProfileData({ ...fallbackUser, updatedAt: Date.now() });
+      await setDoc(doc(db, 'profiles', fallbackUser.id), filteredPrivate);
+      
+      const { email: e, phone, documentId, birthDate, balance, ...publicDataRaw } = fallbackUser;
+      const filteredPublic = filterProfileData({ ...publicDataRaw, updatedAt: Date.now() });
+      await setDoc(doc(db, 'public_profiles', fallbackUser.id), filteredPublic);
     }
 
     return fallbackUser;
   } catch (e: any) {
     console.error("Erro no login:", safeJsonStringify(e));
+    
+    // Tratamento de erros amigáveis do Firebase Auth
+    if (e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password' || e.code === 'auth/user-not-found') {
+      // Repassamos o erro original para que o AuthPage possa usar o code amigável definido lá
+      throw e;
+    }
+    if (e.code === 'auth/too-many-requests') {
+      throw e;
+    }
+    if (e.code === 'auth/user-disabled') {
+       throw e;
+    }
+    if (e.code === 'auth/invalid-email') {
+       throw e;
+    }
+    
     throw e;
   }
 };
@@ -347,38 +494,53 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
     // Private profile (contains PII)
     try {
       if (db) {
-        await setDoc(doc(db, 'profiles', uid), {
+        const filteredPrivate = filterProfileData({
             ...newUser,
-            balance: 100, // Dá saldo inicial de $100 para testes
+            balance: 1000, // Dá saldo inicial de 1000 KZ para testes
             followedUsers: [],
             followers: [],
-            timestamp: Date.now()
+            updatedAt: Date.now()
         });
+        await setDoc(doc(db, 'profiles', uid), filteredPrivate);
+
+        // Public profile (no PII)
+        const { email, phone, documentId, balance, ...publicDataRaw } = newUser;
+        const filteredPublic = filterProfileData({
+            ...publicDataRaw,
+            birthDate: newUser.birthDate,
+            country: newUser.country || '',
+            balance: 1000, // Sincroniza saldo inicial
+            followedUsers: [],
+            followers: [],
+            updatedAt: Date.now()
+        });
+        await setDoc(doc(db, 'public_profiles', uid), filteredPublic);
 
         // Registrar unicidade do e-mail
         await setDoc(doc(db, 'uniqueness_registry', `email_${emailClean}`), {
           userId: uid,
-          timestamp: Date.now()
+          updatedAt: Date.now()
         });
-      }
-    } catch (err) {
-      console.error("Erro ao criar perfil privado ou registrar e-mail:", err);
-    }
 
-    // Public profile (no PII)
-    try {
-      if (db) {
-        const { email, phone, documentId, birthDate, balance, ...publicData } = newUser;
-        await setDoc(doc(db, 'public_profiles', uid), {
-            ...publicData,
-            balance: 100, // Sincroniza saldo inicial
-            followedUsers: [],
-            followers: [],
-            timestamp: Date.now()
-        });
+        // Registrar unicidade do documento se fornecido
+        if (newUser.documentId) {
+          await setDoc(doc(db, 'uniqueness_registry', `documentId_${newUser.documentId.toLowerCase().trim()}`), {
+            userId: uid,
+            updatedAt: Date.now()
+          });
+        }
+
+        // Registrar unicidade do telefone se fornecido
+        if (newUser.phone) {
+          await setDoc(doc(db, 'uniqueness_registry', `phone_${newUser.phone.toLowerCase().trim()}`), {
+            userId: uid,
+            updatedAt: Date.now()
+          });
+        }
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.WRITE, 'public_profiles/' + uid);
+      console.error("Erro ao criar perfis ou registrar unicidade:", safeJsonStringify(err));
+      handleFirestoreError(err, OperationType.CREATE, 'profiles/' + uid);
     }
     
     return newUser;
@@ -411,7 +573,7 @@ export const checkFieldUniqueness = async (field: string, value: string): Promis
     const snap = await getDocs(q);
     return snap.empty;
   } catch (err) {
-    console.error(`Erro ao verificar unicidade do campo ${field}:`, err);
+    console.error(`Erro ao verificar unicidade do campo ${field}:`, safeJsonStringify(err));
     return true; 
   }
 };
@@ -425,7 +587,7 @@ export const registerUniqueness = async (field: string, value: string, userId: s
       timestamp: Date.now()
     });
   } catch (error) {
-    console.error(`Erro ao registrar unicidade: ${registryId}`, error);
+    console.error(`Erro ao registrar unicidade: ${registryId}`, safeJsonStringify(error));
   }
 };
 
@@ -461,6 +623,19 @@ export const registerUser = async (userData: any): Promise<User> => {
     const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.password);
     return await createFirestoreUser(userCredential.user.uid, userData, userCredential.user);
   } catch (e: any) {
+    // Se o e-mail já existe, vamos tentar logar e criar o perfil se estiver faltando
+    if (e.code === 'auth/email-already-in-use' || e.message?.includes('EMAIL_EXISTS')) {
+      try {
+        console.log("[STORAGE] E-mail já existe no Auth. Tentando sincronizar perfil...");
+        const loginCredential = await signInWithEmailAndPassword(auth, userData.email, userData.password);
+        // Se conseguimos logar, então a senha está correta. Garantimos o perfil no Firestore.
+        return await createFirestoreUser(loginCredential.user.uid, userData, loginCredential.user);
+      } catch (loginErr) {
+        // Se falhou o login (ex: senha errada), lançamos o erro original de e-mail em uso
+        console.error("Erro ao sincronizar perfil após e-mail em uso:", safeJsonStringify(loginErr));
+        throw e;
+      }
+    }
     console.error("Erro no registro:", safeJsonStringify(e));
     throw e;
   }
@@ -480,10 +655,16 @@ export const recoverPassword = async (email: string): Promise<void> => {
 
 // --- CONTEÚDO (FIRESTORE) ---
 
-export const getPosts = async (currentUserId?: string): Promise<Post[]> => {
+export const getPosts = async (user?: User): Promise<Post[]> => {
   if (!isFirebaseConfigured || !db) return [];
+  const currentUserId = user?.id;
   try {
-    const q = query(collection(db, 'posts'), orderBy('timestamp', 'desc'));
+    const q = query(
+      collection(db, 'posts'), 
+      where('isAnonymous', '==', false),
+      orderBy('timestamp', 'desc')
+    );
+    
     let snap;
     try {
       snap = await getDocs(q);
@@ -496,13 +677,101 @@ export const getPosts = async (currentUserId?: string): Promise<Post[]> => {
       }
     }
     let posts = snap.docs.map(d => ({ ...d.data(), id: d.id } as Post));
-    
+
+    // Filter Boosted posts by Age and Location if user is provided
+    if (user) {
+        const userAge = (Date.now() - user.birthDate) / (31536000000); // 365 days
+        const userLocation = user.country?.toLowerCase() || '';
+
+        posts = posts.filter(p => {
+            if (!p.isBoosted || (p.boostExpires && p.boostExpires < Date.now())) return true;
+            
+            // Age Check
+            if (p.minAge && userAge < p.minAge) return false;
+            if (p.maxAge && userAge > p.maxAge) return false;
+
+            // Location Check
+            if (p.targetLocations && p.targetLocations.length > 0) {
+                const matchesLocation = p.targetLocations.some(loc => 
+                    loc.toLowerCase().includes(userLocation) || 
+                    userLocation.includes(loc.toLowerCase()) ||
+                    loc.toLowerCase() === 'global'
+                );
+                if (!matchesLocation) return false;
+            }
+
+            return true;
+        });
+    }
+
     // Mutual Blocking Filter
     if (currentUserId) {
         const hiddenIds = await getMutualBlockedUserIds(currentUserId);
         if (hiddenIds.length) {
             posts = posts.filter(p => !hiddenIds.includes(p.userId));
         }
+    }
+
+    // Ordenação personalizada: Impulsionados (por valor do lance) primeiro, depois por data
+    return posts.sort((a, b) => {
+      const now = Date.now();
+      const bidA = (a.isBoosted && a.boostExpires && a.boostExpires > now) ? (a.boostBid || 0) : 0;
+      const bidB = (b.isBoosted && b.boostExpires && b.boostExpires > now) ? (b.boostBid || 0) : 0;
+      
+      if (bidB !== bidA) return bidB - bidA;
+      return (b.timestamp || 0) - (a.timestamp || 0);
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'posts');
+    return [];
+  }
+};
+
+export const getReels = async (user?: User): Promise<Post[]> => {
+  if (!isFirebaseConfigured || !db) return [];
+  try {
+    const q = query(
+      collection(db, 'posts'),
+      where('type', '==', 'REEL'),
+      orderBy('timestamp', 'desc')
+    );
+    
+    let snap;
+    try {
+      snap = await getDocs(q);
+    } catch (initialError: any) {
+      if (initialError.message && initialError.message.includes('offline')) {
+        snap = await getDocsFromServer(q);
+      } else {
+        throw initialError;
+      }
+    }
+    let posts = snap.docs.map(d => ({ ...d.data(), id: d.id } as Post));
+
+    // Filter Boosted reels by Age and Location if user is provided
+    if (user) {
+        const userAge = (Date.now() - user.birthDate) / (31536000000); // 365 days
+        const userLocation = user.country?.toLowerCase() || '';
+
+        posts = posts.filter(p => {
+            if (!p.isBoosted || (p.boostExpires && p.boostExpires < Date.now())) return true;
+            
+            // Age Check
+            if (p.minAge && userAge < p.minAge) return false;
+            if (p.maxAge && userAge > p.maxAge) return false;
+
+            // Location Check
+            if (p.targetLocations && p.targetLocations.length > 0) {
+                const matchesLocation = p.targetLocations.some(loc => 
+                    loc.toLowerCase().includes(userLocation) || 
+                    userLocation.includes(loc.toLowerCase()) ||
+                    loc.toLowerCase() === 'global'
+                );
+                if (!matchesLocation) return false;
+            }
+
+            return true;
+        });
     }
 
     // Ordenação personalizada: Impulsionados (por valor do lance) primeiro, depois por data
@@ -535,8 +804,15 @@ export const addPost = async (post: Post) => {
       throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
   }
 
+  // Garantir campos obrigatórios para as regras
+  const postData = {
+    ...post,
+    isAnonymous: !!post.isAnonymous,
+    timestamp: post.timestamp || Date.now()
+  };
+
   try {
-    await setDoc(doc(db, 'posts', post.id), post);
+    await setDoc(doc(db, 'posts', post.id), postData);
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, 'posts/' + post.id);
   }
@@ -563,74 +839,47 @@ export const deletePost = async (postId: string) => {
 // --- UPLOAD (CLOUDINARY) ---
 
 export const uploadFile = async (file: File | Blob, folder: string, retryCount = 0): Promise<string> => {
-  const cloudName = CLOUDINARY_CLOUD_NAME.trim();
-  const uploadPreset = CLOUDINARY_UPLOAD_PRESET.trim();
-
-  // Se não houver configuração do Cloudinary, avisa e usa blob local para não travar a UI
-  if (!cloudName || !uploadPreset) {
-    console.warn("⚠️ Cloudinary não configurado corretamente. Verifique VITE_CLOUDINARY_CLOUD_NAME e VITE_CLOUDINARY_UPLOAD_PRESET.");
-    return URL.createObjectURL(file);
-  }
-
   try {
-    console.log(`[Cloudinary] Iniciando upload (${retryCount + 1}/3) para cloud: ${cloudName}, preset: ${uploadPreset}`);
+    console.log(`[Proxy Upload] Iniciando upload (${retryCount + 1}/3) para pasta: ${folder}`);
     
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('upload_preset', uploadPreset);
-    formData.append('cloud_name', cloudName);
     formData.append('folder', `cyberphone/${folder}`);
     
-    // Força tipo vídeo se for na pasta reels ou se o blob for vídeo
     const isVideo = folder === 'reels' || (file instanceof File && file.type.startsWith('video/'));
     const resourceType = isVideo ? 'video' : 'auto';
-    formData.append('resource_type', resourceType);
+    formData.append('resourceType', resourceType);
 
-    const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${cloudName}/${resourceType}/upload`,
-      {
-        method: 'POST',
-        body: formData,
-        mode: 'cors',
-      }
-    );
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      let errorData;
-      try {
-        errorData = JSON.parse(errorText);
-      } catch (e) {
-        errorData = { error: { message: errorText } };
-      }
-      
-      console.error("[Cloudinary] Erro detalhado:", errorData);
-      
-      const msg = errorData.error?.message || '';
-      if (msg.includes("Unknown API key")) {
-        throw new Error("Cloudinary: Assinatura Requerida. Verifique se o seu Preset está configurado como 'Unsigned' nas configurações de Upload do Cloudinary.");
-      }
-      if (msg.includes("Upload preset not found")) {
-        throw new Error(`Cloudinary: Preset '${uploadPreset}' não encontrado. Verifique a grafia nas configurações do Cloudinary.`);
-      }
-      
-      throw new Error(msg || 'Falha no upload para o Cloudinary');
+      const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }));
+      console.error("[Proxy Upload] Erro detalhado:", safeJsonStringify(errorData));
+      throw new Error(errorData.error || 'Falha no upload via proxy');
     }
 
     const data = await response.json();
-    console.log("✅ [Cloudinary] Upload concluído com sucesso!");
+    console.log("✅ [Proxy Upload] Upload concluído com sucesso!");
     return data.secure_url; 
   } catch (error: any) {
-    console.error(`❌ Erro no upload Cloudinary (Tentativa ${retryCount + 1}):`, error);
+    console.error(`❌ Erro no upload Proxy (Tentativa ${retryCount + 1}):`, safeJsonStringify(error.message || error));
     
-    // Retry logic for transient errors
-    if (retryCount < 2 && (error.message.includes('Failed to fetch') || error.message.includes('NetworkError'))) {
-      console.log(`[Cloudinary] Tentando novamente em 1s...`);
+    // Fallback: se o proxy falhar e for um erro de rede (que não deveria ocorrer chamando o próprio servidor), 
+    // ou se o desenvolvedor quiser manter o comportamento original por algum motivo.
+    // Mas aqui o objetivo é usar o proxy.
+    
+    if (retryCount < 2) {
+      console.log(`[Proxy Upload] Tentando novamente em 1s...`);
       await new Promise(resolve => setTimeout(resolve, 1000));
       return uploadFile(file, folder, retryCount + 1);
     }
-    
-    throw new Error(`Erro no upload: ${error.message || 'Erro desconhecido'}`);
+
+    // Se tudo falhar, tenta usar blob local como último recurso para não quebrar a UI
+    console.warn("⚠️ Todos os métodos de upload falharam. Usando URL de objeto local.");
+    return URL.createObjectURL(file);
   }
 };
 
@@ -638,30 +887,48 @@ export const uploadFile = async (file: File | Blob, folder: string, retryCount =
 
 export const toggleBlockUser = async (cur: string, target: string) => {
   if (!db) return;
-  const u1 = await findUserById(cur);
-  if (u1) {
-    const isBlocked = u1.blockedUserIds?.includes(target);
-    const newBlocked = isBlocked 
-        ? u1.blockedUserIds?.filter((i: string) => i !== target) 
-        : [...(u1.blockedUserIds || []), target];
-    
-    await updateDoc(doc(db, 'profiles', cur), { blockedUserIds: newBlocked });
-
-    // Sincronização de Bloqueio Mútuo
-    const blockId = `${cur}_${target}`;
-    try {
-      if (isBlocked) {
-        await deleteDoc(doc(db, 'blocks', blockId));
-      } else {
-        await setDoc(doc(db, 'blocks', blockId), {
-            blockerId: cur,
-            blockedId: target,
-            timestamp: Date.now()
-        });
+  try {
+    const u1 = await findUserById(cur);
+    if (u1) {
+      const isBlocked = u1.blockedUserIds?.includes(target);
+      const newBlocked = isBlocked 
+          ? u1.blockedUserIds?.filter((i: string) => i !== target) 
+          : [...(u1.blockedUserIds || []), target];
+      
+      console.log(`[STORAGE] toggleBlockUser: ${cur} -> ${target} (isBlocked currently: ${isBlocked})`);
+      
+      try {
+          await updateDoc(doc(db, 'profiles', cur), { blockedUserIds: newBlocked });
+      } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `profiles/${cur}`);
       }
-    } catch (err) {
-      console.warn("[STORAGE] Erro ao sincronizar coleção 'blocks':", err);
+
+      try {
+          await updateDoc(doc(db, 'public_profiles', cur), { blockedUserIds: newBlocked });
+      } catch (err) {
+          console.warn("[STORAGE] Falha ao atualizar public_profiles no bloqueio:", err);
+      }
+
+      // Sincronização de Bloqueio Mútuo
+      const blockId = `${cur}_${target}`;
+      try {
+        if (isBlocked) {
+          await deleteDoc(doc(db, 'blocks', blockId));
+        } else {
+          await setDoc(doc(db, 'blocks', blockId), {
+              blockerId: cur,
+              blockedId: target,
+              timestamp: Date.now()
+          });
+        }
+      } catch (err) {
+        console.warn("[STORAGE] Erro ao sincronizar coleção 'blocks':", err);
+        handleFirestoreError(err, OperationType.WRITE, `blocks/${blockId}`);
+      }
     }
+  } catch (err) {
+      console.error("[STORAGE] Erro crítico em toggleBlockUser:", safeJsonStringify(err));
+      throw err;
   }
 };
 
@@ -725,22 +992,42 @@ export const createNotification = async (recipientId: string, actorId: string, t
 };
 
 export const toggleFollowUser = async (cur: string, target: string) => {
-  if (!db) return;
-  const u1 = await findUserById(cur);
-  const u2 = await findUserById(target);
-  if (u1 && u2) {
+  if (!isFirebaseConfigured || !db) return;
+  try {
+    const u1 = await findUserById(cur);
+    const u2 = await findUserById(target);
+    if (!u1 || !u2) return;
+
     const isFollowing = u1.followedUsers.includes(target);
     const newFollowed = isFollowing ? u1.followedUsers.filter(i => i !== target) : [...u1.followedUsers, target];
     const newFollowers = isFollowing ? u2.followers.filter(i => i !== cur) : [...u2.followers, cur];
     
-    // Update both private and public profiles
-    await updateDoc(doc(db, 'profiles', cur), { followedUsers: newFollowed });
-    await updateDoc(doc(db, 'public_profiles', cur), { followedUsers: newFollowed });
+    const database = db;
+    const batch = writeBatch(database);
     
-    await updateDoc(doc(db, 'profiles', target), { followers: newFollowers });
-    await updateDoc(doc(db, 'public_profiles', target), { followers: newFollowers });
+    // Update both private and public profiles
+    batch.update(doc(database, 'profiles', cur), { followedUsers: newFollowed });
+    batch.update(doc(database, 'public_profiles', cur), { followedUsers: newFollowed });
+    
+    batch.update(doc(database, 'profiles', target), { followers: newFollowers });
+    batch.update(doc(database, 'public_profiles', target), { followers: newFollowers });
 
-    // Verificar se o usuário agora é elegível para monetização
+    // Se estiver seguindo, enviar notificação
+    if (!isFollowing) {
+      const notifId = `notif-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      batch.set(doc(database, 'notifications', notifId), {
+        id: notifId,
+        type: NotificationType.NEW_FOLLOWER,
+        actorId: cur,
+        actorName: `${u1.firstName} ${u1.lastName}`,
+        actorProfilePic: u1.profilePicture || DEFAULT_PROFILE_PIC,
+        recipientId: target,
+        timestamp: Date.now(),
+        isRead: false
+      });
+    }
+
+    // Verificar metas de monetização
     const goals = u2.monetizationGoals || { 
         followersGoal: 1000, 
         watchHoursGoal: 4000, 
@@ -758,13 +1045,13 @@ export const toggleFollowUser = async (cur: string, target: string) => {
     let newStatus = u2.monetizationStatus || 'INELIGIBLE';
     if (newStatus === 'INELIGIBLE' && meetsFollowers && meetsViews && meetsIdentity) {
         newStatus = 'ELIGIBLE';
-        await updateDoc(doc(db, 'profiles', target), { monetizationStatus: newStatus });
-        await updateDoc(doc(db, 'public_profiles', target), { monetizationStatus: newStatus });
+        batch.update(doc(db, 'profiles', target), { monetizationStatus: newStatus });
+        batch.update(doc(db, 'public_profiles', target), { monetizationStatus: newStatus });
     }
 
-    if (!isFollowing) {
-      await createNotification(target, cur, NotificationType.NEW_FOLLOWER);
-    }
+    await batch.commit();
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'profiles/' + cur);
   }
 };
 
@@ -865,13 +1152,19 @@ export const toggleReaction = async (targetId: string, targetType: 'COMMENT' | '
             const findAndToggleInComments = (commentList: any[]): boolean => {
                 for (let i = 0; i < commentList.length; i++) {
                     if (commentList[i].id === targetId) {
-                        const reactions = commentList[i].reactions || {};
-                        const userReactions = reactions[emoji] || [];
+                        const reactions = { ...(commentList[i].reactions || {}) };
+                        const alreadyHasThisEmoji = (reactions[emoji] || []).includes(userId);
                         
-                        if (userReactions.includes(userId)) {
-                            reactions[emoji] = userReactions.filter((id: string) => id !== userId);
-                        } else {
-                            reactions[emoji] = [...userReactions, userId];
+                        // Um usuário só pode ter uma reação ativa. Removemos de todas primeiro.
+                        Object.keys(reactions).forEach(e => {
+                            if (Array.isArray(reactions[e])) {
+                                reactions[e] = reactions[e].filter((id: string) => id !== userId);
+                            }
+                        });
+                        
+                        // Se ele ainda não tinha este emoji específico, adicionamos agora (substituindo o anterior)
+                        if (!alreadyHasThisEmoji) {
+                            reactions[emoji] = [...(reactions[emoji] || []), userId];
                         }
                         
                         commentList[i] = { ...commentList[i], reactions };
@@ -904,13 +1197,18 @@ export const toggleReaction = async (targetId: string, targetType: 'COMMENT' | '
                     throw new Error('OWNER_REACTION_NOT_ALLOWED');
                 }
 
-                const reactions = message.reactions || {};
-                const userReactions = reactions[emoji] || [];
+                const reactions = { ...(message.reactions || {}) };
+                const alreadyHasThisEmoji = (reactions[emoji] || []).includes(userId);
                 
-                if (userReactions.includes(userId)) {
-                    reactions[emoji] = userReactions.filter((id: string) => id !== userId);
-                } else {
-                    reactions[emoji] = [...userReactions, userId];
+                // Um usuário só pode ter uma reação ativa por mensagem.
+                Object.keys(reactions).forEach(e => {
+                    if (Array.isArray(reactions[e])) {
+                        reactions[e] = reactions[e].filter((id: string) => id !== userId);
+                    }
+                });
+                
+                if (!alreadyHasThisEmoji) {
+                    reactions[emoji] = [...(reactions[emoji] || []), userId];
                 }
                 
                 messages[messageIndex] = { ...message, reactions };
@@ -1043,7 +1341,8 @@ export const getGlobalSettings = async (): Promise<GlobalSettings> => {
             groupCreationFee: data.groupCreationFee ?? 5,
             storeCreationFee: data.storeCreationFee ?? 50,
             positioningMinBid: data.positioningMinBid ?? 1,
-            boostDailyMin: data.boostDailyMin ?? 0.5
+            boostDailyMin: data.boostDailyMin ?? 0.5,
+            orderCancellationFeePercentage: data.orderCancellationFeePercentage ?? 5
         } as GlobalSettings;
     }
     return { 
@@ -1058,10 +1357,27 @@ export const getGlobalSettings = async (): Promise<GlobalSettings> => {
         verificationFee: 10,
         groupCreationFee: 5,
         storeCreationFee: 50,
-        positioningMinBid: 1
+        positioningMinBid: 1,
+        orderCancellationFeePercentage: 5
     };
 };
-export const getCart = () => JSON.parse(localStorage.getItem('cyberphone_cart') || '[]');
+export const saveCart = (items: CartItem[]) => {
+    if (!items) {
+        localStorage.removeItem('cyberphone_cart');
+    } else {
+        localStorage.setItem('cyberphone_cart', safeJsonStringify(items));
+    }
+};
+export const getCart = () => {
+    try {
+        const stored = localStorage.getItem('cyberphone_cart');
+        if (!stored || stored === 'undefined') return [];
+        return JSON.parse(stored);
+    } catch (e) {
+        console.error("Erro ao ler carrinho do localStorage:", safeJsonStringify(e));
+        return [];
+    }
+};
 export const getProducts = async () => {
     if (!db) return [];
     try {
@@ -1069,6 +1385,18 @@ export const getProducts = async () => {
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'products');
         return [];
+    }
+};
+
+export const getProduct = async (id: string) => {
+    if (!db || !id) return null;
+    try {
+        const snap = await getDoc(doc(db, 'products', id));
+        if (snap.exists()) return { ...(snap.data() as any), id: snap.id } as Product;
+        return null;
+    } catch (error) {
+        handleFirestoreError(error, OperationType.GET, 'products/' + id);
+        return null;
     }
 };
 export const getAds = async () => {
@@ -1203,6 +1531,125 @@ export const seedDatabase = async () => {
         handleFirestoreError(error, OperationType.WRITE, 'chats/' + sampleGroup.id);
     }
 
+    // Sample Reels
+    const sampleReels: Post[] = [
+        {
+            id: generateUUID(),
+            userId: 'system',
+            authorName: 'Cyber Digital',
+            authorProfilePic: 'https://i.pravatar.cc/150?u=cyber',
+            type: PostType.REEL,
+            timestamp: Date.now() - 20000,
+            content: 'Beleza natural do nosso mundo! 🌎 #Global #Turismo',
+            likes: [],
+            comments: [],
+            shares: [],
+            saves: [],
+            tags: ['WORLD', 'TRAVEL'],
+            reel: {
+                videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-girl-in-neon-light-dancing-alone-31508-large.mp4',
+                description: 'Dançando na noite cosmopolita'
+            }
+        },
+        {
+            id: generateUUID(),
+            userId: 'system',
+            authorName: 'Tech Central',
+            authorProfilePic: 'https://i.pravatar.cc/150?u=tech',
+            type: PostType.REEL,
+            timestamp: Date.now() - 15000,
+            content: 'Review rápido: O novo smartphone que chegou ao mercado! 📱',
+            likes: [],
+            comments: [],
+            shares: [],
+            saves: [],
+            tags: ['TECH', 'REVIEW'],
+            reel: {
+                videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-rotating-smartphone-with-a-blue-screen-34444-large.mp4',
+                description: 'Gadget do dia'
+            }
+        }
+    ];
+
+    for (const reel of sampleReels) {
+        await addPost(reel);
+    }
+
+    // Sample Videos
+    const sampleVideos: Post[] = [
+        {
+            id: generateUUID(),
+            userId: 'system',
+            authorName: 'CyBer TV',
+            authorProfilePic: 'https://i.pravatar.cc/150?u=tv',
+            type: PostType.VIDEO,
+            timestamp: Date.now() - 30000,
+            content: 'Documentário: A Revolução Digital Global. 📺 #Tech #Global',
+            imageUrl: 'https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&q=80&w=800',
+            likes: [],
+            comments: [],
+            shares: [],
+            saves: [],
+            tags: ['DOCUMENTARY', 'TECH']
+        }
+    ];
+
+    for (const video of sampleVideos) {
+        await addPost(video);
+    }
+
+    // Sample Products
+    const sampleProducts: Product[] = [
+        {
+            id: generateUUID(),
+            storeId: 'global-store',
+            name: 'CyberPhone Pro Max',
+            description: 'O smartphone mais potente do mercado, com IA integrada.',
+            price: 450000,
+            imageUrls: ['https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&q=80&w=800'],
+            category: 'ELECTRONICS',
+            status: 'active',
+            userId: 'system',
+            type: ProductType.PHYSICAL,
+            ratings: [],
+            averageRating: 5,
+            ratingCount: 10,
+            affiliateCommissionRate: 0.05
+        },
+        {
+            id: generateUUID(),
+            storeId: 'global-store',
+            name: 'Cyber T-Shirt Classic',
+            description: 'Vista a marca do futuro digital.',
+            price: 15000,
+            imageUrls: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=800'],
+            category: 'FASHION',
+            status: 'active',
+            userId: 'system',
+            type: ProductType.PHYSICAL,
+            ratings: [],
+            averageRating: 4.8,
+            ratingCount: 25,
+            affiliateCommissionRate: 0.1
+        }
+    ];
+
+    // Create a global store first
+    const globalStore: Store = {
+        id: 'global-store',
+        userId: 'system',
+        name: 'CyberPhone Official Store',
+        description: 'Loja oficial da rede CyberPhone.',
+        productIds: sampleProducts.map(p => p.id)
+    };
+    
+    try {
+        await setDoc(doc(db, 'stores', globalStore.id), globalStore);
+        for (const prod of sampleProducts) {
+            await setDoc(doc(db, 'products', prod.id), prod);
+        }
+    } catch (err) {}
+
     console.log("[SEED] Banco de dados populado com sucesso.");
 };
 
@@ -1265,12 +1712,48 @@ export const findStoreById = async (id: string) => {
     return d.exists() ? d.data() as Store : undefined;
 };
 
+// Lista de campos permitidos para atualização de perfil (Sincronizada com firestore.rules)
+export const PROFILE_WHITELIST = [
+    'firstName', 'lastName', 'phone', 'bio', 'profilePicture', 'coverPhoto', 
+    'gender', 'birthDate', 'country', 'address', 'lastSeen', 'isOnline', 
+    'followedUsers', 'followers', 'blockedUserIds', 'idVerificationStatus', 
+    'idVerificationDocs', 'academicRole', 'updatedAt', 'documentId', 'email',
+    'userType', 'monetizationGoals', 'monetizationStatus', 'isVerified', 'monetizationTier',
+    'balance', 'pendingBalance', 'totalEarnings', 'isMonetized', 'isFrozen',
+    'creatorStats', 'isPremium', 'premiumExpiry', 'resellerName', 'resellerBio', 'resellerBanner',
+    'storeId', 'isSuspended', 'verificationFileUrl', 'totalWithdrawn', 'id', 'createdAt', 'isAdmin'
+];
+
+/**
+ * Filtra um objeto mantendo apenas as chaves permitidas no perfil
+ */
+export const filterProfileData = (data: any) => {
+    const filtered: any = {};
+    PROFILE_WHITELIST.forEach(field => {
+        if (data[field] !== undefined) {
+            filtered[field] = data[field];
+        }
+    });
+    return filtered;
+};
+
 export const updateUserProfile = async (uid: string, data: Partial<User>) => {
     if (!db) return;
     try {
-        await updateDoc(doc(db, 'users', uid), data);
+        // Sentinela AI Check for Bio and Names
+        const textToCheck = [data.firstName, data.lastName, data.bio].filter(Boolean).join(' ');
+        if (textToCheck.trim()) {
+            const security = await checkContentSecurity(textToCheck, 'profile info');
+            if (!security.allowed) {
+                throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
+            }
+        }
+
+        const filteredData = filterProfileData(data);
+        await updateDoc(doc(db, 'profiles', uid), filteredData);
     } catch (error) {
-        handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
+        if (error instanceof Error && error.message.startsWith('SENTINEL_BLOCK')) throw error;
+        handleFirestoreError(error, OperationType.UPDATE, `profiles/${uid}`);
     }
 };
 
@@ -1308,11 +1791,16 @@ export const deleteNotification = async (id: string) => {
 
 export const clearAllNotifications = async (uid: string) => {
     if (!isFirebaseConfigured || !db) return;
+    const database = db;
     try {
-        const snap = await getDocs(query(collection(db, 'notifications'), where('recipientId', '==', uid)));
-        for (const d of snap.docs) {
-            await deleteDoc(doc(db, 'notifications', d.id));
-        }
+        const snap = await getDocs(query(collection(database, 'notifications'), where('recipientId', '==', uid)));
+        if (snap.empty) return;
+
+        const batch = writeBatch(database);
+        snap.docs.forEach(d => {
+            batch.delete(doc(database, 'notifications', d.id));
+        });
+        await batch.commit();
     } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, 'notifications');
     }
@@ -1320,11 +1808,16 @@ export const clearAllNotifications = async (uid: string) => {
 
 export const markNotificationsAsRead = async (uid: string) => {
     if (!isFirebaseConfigured || !db) return;
+    const database = db;
     try {
-        const snap = await getDocs(query(collection(db, 'notifications'), where('recipientId', '==', uid), where('isRead', '==', false)));
-        for (const d of snap.docs) {
-            await updateDoc(doc(db, 'notifications', d.id), { isRead: true });
-        }
+        const snap = await getDocs(query(collection(database, 'notifications'), where('recipientId', '==', uid), where('isRead', '==', false)));
+        if (snap.empty) return;
+
+        const batch = writeBatch(database);
+        snap.docs.forEach(d => {
+            batch.update(doc(database, 'notifications', d.id), { isRead: true });
+        });
+        await batch.commit();
     } catch (error) {
         handleFirestoreError(error, OperationType.UPDATE, 'notifications');
     }
@@ -1332,7 +1825,12 @@ export const markNotificationsAsRead = async (uid: string) => {
 export const getSavedPosts = async (uid: string) => {
     if (!isFirebaseConfigured || !db) return [];
     try {
-        const snap = await getDocs(query(collection(db, 'posts'), where('saves', 'array-contains', uid)));
+        const q = query(
+            collection(db, 'posts'), 
+            where('saves', 'array-contains', uid),
+            where('isAnonymous', '==', false) // Filtro adicional por regra
+        );
+        const snap = await getDocs(q);
         return snap.docs.map(d => ({ ...d.data(), id: d.id } as Post)).sort((a,b) => b.timestamp - a.timestamp);
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'posts');
@@ -1454,15 +1952,27 @@ export const updatePostShares = async (pid: string, uid: string) => {
 };
 export const adminDeleteProduct = async (id: string) => {
     if (!db) return;
-    return deleteDoc(doc(db, 'products', id));
+    try {
+        await deleteDoc(doc(db, 'products', id));
+    } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'products/' + id);
+    }
 };
 export const updateSaleStatus = async (id: string, s: any) => {
     if (!db) return;
-    await updateDoc(doc(db, 'sales', id), { status: s });
+    try {
+        await updateDoc(doc(db, 'sales', id), { status: s });
+    } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'sales/' + id);
+    }
 };
 export const updateSaleTracking = async (id: string, c: string, sid?: string) => {
     if (!db) return;
-    await updateDoc(doc(db, 'sales', id), { trackingCode: c, supplierOrderId: sid || '' });
+    try {
+        await updateDoc(doc(db, 'sales', id), { trackingCode: c, supplierOrderId: sid || '' });
+    } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'sales/' + id);
+    }
 };
 
 export const processUserUpgrade = async (uid: string, u: User, f: File, c: string) => {
@@ -1472,8 +1982,9 @@ export const processUserUpgrade = async (uid: string, u: User, f: File, c: strin
 export const updateUserData = async (userId: string, data: Partial<User>) => {
     if (!db) return;
     try {
+        const filteredData = filterProfileData(data);
         await updateDoc(doc(db, 'profiles', userId), {
-            ...data,
+            ...filteredData,
             updatedAt: Date.now()
         });
         
@@ -1489,7 +2000,11 @@ export const updateUserData = async (userId: string, data: Partial<User>) => {
         }
         
         // Se houver mudanças públicas, atualiza public_profiles tbm
-        const publicKeys: (keyof User)[] = ['firstName', 'lastName', 'profilePicture', 'coverPhoto', 'bio', 'isVerified', 'isOnline', 'userType', 'idVerificationStatus', 'balance'];
+        const publicKeys: (keyof User)[] = [
+            'firstName', 'lastName', 'profilePicture', 'coverPhoto', 'bio', 'isVerified', 
+            'isOnline', 'userType', 'idVerificationStatus', 'balance', 'monetizationStatus',
+            'blockedUserIds', 'lastSeen', 'followedUsers', 'followers', 'isPremium'
+        ];
         const publicUpdate: any = {};
         let hasPublicChange = false;
         
@@ -1513,12 +2028,29 @@ export const updateUser = async (u: User) => {
     const publicPath = 'public_profiles';
     if (!db) return;
     try {
+        // Filter data using the whitelist
+        const updateData = filterProfileData(u);
+
         // Update private profile
-        const { email, phone, documentId, birthDate, balance, ...publicData } = u;
-        await updateDoc(doc(db, path, u.id), u as any);
+        await updateDoc(doc(db, 'profiles', u.id), updateData);
 
         // Update public profile (only public fields)
-        await updateDoc(doc(db, publicPath, u.id), publicData as any);
+        const publicFields = [
+            'firstName', 'lastName', 'profilePicture', 'coverPhoto', 'bio', 'isVerified', 
+            'isOnline', 'followedUsers', 'followers', 'idVerificationStatus', 'balance', 
+            'monetizationStatus', 'lastSeen', 'userType', 'address', 'monetizationGoals', 
+            'academicRole', 'id', 'createdAt', 'isSuspended', 'isFrozen', 'isPremium',
+            'birthDate', 'country', 'isAdmin'
+        ];
+        
+        const publicData: any = {};
+        publicFields.forEach(field => {
+            if (u[field as keyof User] !== undefined) {
+                publicData[field] = u[field as keyof User];
+            }
+        });
+
+        await updateDoc(doc(db, 'public_profiles', u.id), publicData);
 
         // Update Firebase Auth profile if it's the current user
         if (auth?.currentUser && auth.currentUser.uid === u.id) {
@@ -1533,7 +2065,43 @@ export const updateUser = async (u: User) => {
 };
 export const deleteUser = async (id: string) => {
     if (!db) return;
-    return deleteDoc(doc(db, 'profiles', id));
+    
+    try {
+        // Fetch user data first to get fields for uniqueness registry cleanup
+        const userDoc = await getDoc(doc(db, 'profiles', id));
+        const userData = userDoc.exists() ? userDoc.data() : null;
+        
+        const batch = writeBatch(db);
+        
+        batch.delete(doc(db, 'profiles', id));
+        batch.delete(doc(db, 'public_profiles', id));
+        batch.delete(doc(db, 'admins', id));
+        
+        // Cleanup uniqueness registry
+        if (userData) {
+            if (userData.email) {
+                batch.delete(doc(db, 'uniqueness_registry', `email_${userData.email.toLowerCase().trim()}`));
+            }
+            if (userData.phone) {
+                batch.delete(doc(db, 'uniqueness_registry', `phone_${userData.phone.toLowerCase().trim()}`));
+            }
+            if (userData.documentId) {
+                batch.delete(doc(db, 'uniqueness_registry', `documentId_${userData.documentId.toLowerCase().trim()}`));
+            }
+        }
+        
+        await batch.commit();
+        await addSystemLog({
+            action: 'DELETE_USER',
+            details: `Admin deletou usuário ID: ${id}${userData?.email ? ` (${userData.email})` : ''}`,
+            adminId: auth?.currentUser?.uid || 'system'
+        });
+        return true;
+    } catch (error) {
+        console.error("[STORAGE] Erro ao deletar usuário:", safeJsonStringify(error));
+        handleFirestoreError(error, OperationType.DELETE, 'profiles/' + id);
+        return false;
+    }
 };
 export const updateUserPassword = async (p: string) => {};
 
@@ -1655,6 +2223,20 @@ export const leaveGroup = async (chatId: string, userId: string) => {
     }
 };
 
+export const getChat = async (chatId: string) => {
+    if (!isFirebaseConfigured || !db) return null;
+    try {
+        const snap = await getDoc(doc(db, 'chats', chatId));
+        if (snap.exists()) {
+            return { ...snap.data(), id: snap.id } as ChatConversation;
+        }
+        return null;
+    } catch (error) {
+        handleFirestoreError(error, OperationType.GET, 'chats/' + chatId);
+        return null;
+    }
+};
+
 export const deleteChat = async (chatId: string) => {
     if (!db) return;
     await deleteDoc(doc(db, 'chats', chatId));
@@ -1765,7 +2347,7 @@ export const incrementWatchTime = async (userId: string, seconds: number, isPrem
             });
         }
     } catch (e) {
-        console.error("Erro ao incrementar tempo de exibição:", e);
+        console.error("Erro ao incrementar tempo de exibição:", safeJsonStringify(e));
     }
 };
 
@@ -1802,7 +2384,7 @@ export const incrementShortsView = async (userId: string) => {
 
         await updateDoc(userRef, updateData);
     } catch (e) {
-        console.error("Erro ao incrementar views de shorts:", e);
+        console.error("Erro ao incrementar views de shorts:", safeJsonStringify(e));
     }
 };
 
@@ -1814,7 +2396,7 @@ export const getActiveAds = async (): Promise<AdCampaign[]> => {
         const snapshot = await getDocs(q);
         return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AdCampaign));
     } catch (e) {
-        console.error("Error getting active ads:", e);
+        console.error("Error getting active ads:", safeJsonStringify(e));
         return [];
     }
 };
@@ -1824,7 +2406,7 @@ export const checkAndProcessAdBilling = async (userId: string) => {
     
     try {
         const adsRef = collection(db, 'ads');
-        const q = query(adsRef, where('professorId', '==', userId), where('isActive', '==', true));
+        const q = query(adsRef, where('userId', '==', userId), where('isActive', '==', true));
         const snap = await getDocs(q);
         const ads = snap.docs.map(d => ({ ...d.data(), id: d.id } as AdCampaign));
         
@@ -1839,78 +2421,105 @@ export const checkAndProcessAdBilling = async (userId: string) => {
 
             // 1. Notificação de término iminente (24h antes do endDate)
             if (endDate - now <= oneDayInMs && endDate - now > 0 && !ad.notifiedRenewal) {
-                await createNotification(
-                    userId,
-                    'SYSTEM_AD',
-                    NotificationType.MESSAGE,
-                    undefined,
-                    'CyberPhone Ads',
-                );
-                
-                // Marcar como notificado
-                await updateDoc(doc(db, 'ads', ad.id), { notifiedRenewal: true });
-                console.log(`[ADS] Usuário ${userId} notificado sobre renovação do anúncio ${ad.id}`);
+                try {
+                    await createNotification(
+                        userId,
+                        'SYSTEM_AD',
+                        NotificationType.MESSAGE,
+                        undefined,
+                        'CyberPhone Ads',
+                    );
+                    
+                    // Marcar como notificado
+                    await updateDoc(doc(db, 'ads', ad.id), { notifiedRenewal: true });
+                    console.log(`[ADS] Usuário ${userId} notificado sobre renovação do anúncio ${ad.id}`);
+                } catch (err) {
+                    console.warn(`[ADS] Erro ao notificar usuário ${userId} sobre anúncio ${ad.id}:`, err);
+                    handleFirestoreError(err, OperationType.WRITE, `ads/${ad.id}/notification`);
+                }
             }
             
             // 2. Processar Expiração ou Renovação
             if (now >= endDate) {
                 if (isAutoRenew) {
                     const user = await findUserById(userId);
-                    if (user && (user.balance || 0) >= renewalAmount && renewalAmount > 0) {
-                        // Débito
-                        const newBalance = (user.balance || 0) - renewalAmount;
-                        await updateDoc(doc(db, 'profiles', userId), { balance: newBalance });
-                        await updateDoc(doc(db, 'public_profiles', userId), { balance: newBalance });
-                        
-                        // Log
-                        const txId = generateUUID();
-                        await setDoc(doc(db, 'transactions', txId), {
-                            id: txId,
-                            userId,
-                            amount: -renewalAmount,
-                            type: TransactionType.PURCHASE,
-                            description: `Renovação Automática de Anúncio: ${ad.title}`,
-                            status: 'COMPLETED',
-                            timestamp: now
-                        });
-                        
-                        // Estender
-                        const cycleDays = ad.billingCycle === 'WEEKLY' ? 7 : 1;
-                        const newDuration = cycleDays * oneDayInMs;
-                        
-                        await updateDoc(doc(db, 'ads', ad.id), {
-                            endDate: endDate + newDuration,
-                            lastBillingDate: now,
-                            notifiedRenewal: false,
-                            budget: increment(renewalAmount) // Incrementa o gasto total reportado
-                        });
-                        
-                        console.log(`[ADS] Anúncio ${ad.id} renovado com sucesso para ${userId}`);
+                    const userBalance = user?.balance || 0;
+                    if (user && userBalance >= renewalAmount && renewalAmount > 0) {
+                        try {
+                            const newBalance = userBalance - renewalAmount;
+                            
+                            // Débito (Profiles)
+                            await updateDoc(doc(db, 'profiles', userId), { 
+                                balance: newBalance,
+                                updatedAt: Date.now() 
+                            });
+                            await updateDoc(doc(db, 'public_profiles', userId), { 
+                                balance: newBalance,
+                                updatedAt: Date.now()
+                            });
+                            
+                            // Log Transação
+                            const txId = generateUUID();
+                            await setDoc(doc(db, 'transactions', txId), {
+                                id: txId,
+                                userId,
+                                amount: -renewalAmount,
+                                type: TransactionType.PURCHASE,
+                                description: `Renovação Automática de Anúncio: ${ad.title}`,
+                                status: 'COMPLETED',
+                                timestamp: now
+                            });
+                            
+                            // Estender Campaign
+                            const cycleDays = ad.billingCycle === 'WEEKLY' ? 7 : 1;
+                            const newDuration = cycleDays * oneDayInMs;
+                            
+                            await updateDoc(doc(db, 'ads', ad.id), {
+                                endDate: endDate + newDuration,
+                                lastBillingDate: now,
+                                notifiedRenewal: false,
+                                budget: increment(renewalAmount)
+                            });
+                            
+                            console.log(`[ADS] Anúncio ${ad.id} renovado com sucesso para ${userId}`);
+                        } catch (err) {
+                             console.error(`[ADS] Erro ao processar renovação do anúncio ${ad.id}:`, safeJsonStringify(err));
+                             handleFirestoreError(err, OperationType.UPDATE, `ads/${ad.id}/billing`);
+                        }
                     } else {
-                        // Saldo insuficiente, desativa
-                        await updateDoc(doc(db, 'ads', ad.id), { isActive: false });
-                        console.log(`[ADS] Anúncio ${ad.id} desativado por falta de saldo`);
-                        
-                        await createNotification(
-                            userId,
-                            'SYSTEM_AD',
-                            NotificationType.MESSAGE,
-                            undefined,
-                            'CyberPhone Ads: Sua campanha foi pausada por falta de saldo.'
-                        );
+                        try {
+                            // Saldo insuficiente, desativa
+                            await updateDoc(doc(db, 'ads', ad.id), { isActive: false });
+                            console.log(`[ADS] Anúncio ${ad.id} desativado por falta de saldo`);
+                            
+                            await createNotification(
+                                userId,
+                                'SYSTEM_AD',
+                                NotificationType.MESSAGE,
+                                undefined,
+                                'CyberPhone Ads: Sua campanha foi pausada por falta de saldo.'
+                            );
+                        } catch (err) {
+                             handleFirestoreError(err, OperationType.UPDATE, `ads/${ad.id}/deactivate`);
+                        }
                     }
                 } else {
-                    // Sem renovação automática, desativa
-                    await updateDoc(doc(db, 'ads', ad.id), { isActive: false });
-                    console.log(`[ADS] Anúncio ${ad.id} expirou e foi desativado (Sem Auto-Renovação)`);
+                    try {
+                        // Sem renovação automática, desativa
+                        await updateDoc(doc(db, 'ads', ad.id), { isActive: false });
+                        console.log(`[ADS] Anúncio ${ad.id} expirou e foi desativado (Sem Auto-Renovação)`);
+                    } catch (err) {
+                         handleFirestoreError(err, OperationType.UPDATE, `ads/${ad.id}/expire`);
+                    }
                 }
-            } else if (isAutoRenew) {
-                // Checagem extra: se já estiver perto do fim (ex: menos de 2h) e o saldo atual for ZERO, podemos alertar mais agressivamente
-                // Mas por enquanto vamos manter a integridade do período pago.
             }
         }
     } catch (err) {
-        console.error("[ADS] Erro ao processar cobrança de anúncios:", err);
+        console.error("[ADS] Erro ao processar cobrança de anúncios:", safeJsonStringify(err));
+        if (err instanceof Error && err.message.includes("permission")) {
+             // Se for erro de permissão, tentamos lançar para capturar no Dialog se possível (embora rode em bg)
+             // Por enquanto só deixamos o handleFirestoreError mostrar no console se for o caso
+        }
     }
 };
 
@@ -1934,9 +2543,49 @@ export const toggleAdActive = async (adId: string, userId: string, active: boole
     await updateDoc(doc(db, 'ads', adId), { isActive: active });
 };
 
+export const requestWithdrawal = async (userId: string, amount: number, paymentDetails: string) => {
+    if (!db) return;
+    const user = await findUserById(userId);
+    if (!user || (user.balance || 0) < amount) {
+        throw new Error("Saldo insuficiente para saque.");
+    }
+
+    // Débito do saldo e aumento do saldo retirado
+    const newBalance = (user.balance || 0) - amount;
+    const newTotalWithdrawn = (user.totalWithdrawn || 0) + amount;
+
+    await updateDoc(doc(db, 'profiles', userId), { 
+        balance: newBalance,
+        totalWithdrawn: newTotalWithdrawn
+    });
+
+    await updateDoc(doc(db, 'public_profiles', userId), { 
+        balance: newBalance
+    });
+
+    const txId = generateUUID();
+    await setDoc(doc(db, 'transactions', txId), {
+        id: txId,
+        userId,
+        amount: -amount,
+        type: TransactionType.WITHDRAWAL,
+        description: `Solicitação de Saque: ${paymentDetails}`,
+        status: 'PENDING',
+        timestamp: Date.now()
+    });
+
+    return txId;
+};
+
 export const createAd = async (ad: AdCampaign) => {
     if (!db) return;
     
+    // Sentinela AI Check
+    const security = await checkContentSecurity(`${ad.title} ${ad.description}`, 'ad campaign');
+    if (!security.allowed) {
+        throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
+    }
+
     // Garantir campos de ciclo de vida no momento da criação
     const now = Date.now();
     const oneDayInMs = 24 * 60 * 60 * 1000;
@@ -1997,50 +2646,143 @@ export const getStores = async () => {
 
 export const createStore = async (store: Store) => {
     if (!db) return false;
-    await checkUserFrozen(store.professorId);
+    await checkUserFrozen(store.userId);
 
-    // Store Creation Fee Check
     try {
-        const settings = await getGlobalSettings();
-        const fee = settings.storeCreationFee || 0;
-        if (fee > 0) {
-            const userRef = doc(db, 'profiles', store.professorId);
-            const userDoc = await getDoc(userRef);
-            if (!userDoc.exists()) return false;
-            
-            const userData = userDoc.data();
-            const balance = userData.balance || 0;
-            
-            if (balance < fee) return false;
-            
-            // Deduct
-            const newBalance = balance - fee;
-            await updateDoc(userRef, { balance: newBalance });
-            await updateDoc(doc(db, 'public_profiles', store.professorId), { balance: newBalance });
-            
-            // Log
-            const txId = generateUUID();
-            await setDoc(doc(db, 'transactions', txId), {
-                id: txId,
-                userId: store.professorId,
-                amount: -fee,
-                type: 'PLATFORM_FEE',
-                description: `Criação de Loja: ${store.name}`,
-                status: 'COMPLETED',
-                timestamp: Date.now()
-            });
-        }
+        await setDoc(doc(db, 'stores', store.id), {
+            ...store,
+            createdAt: Date.now(),
+            status: 'ACTIVE'
+        });
+        return true;
     } catch (e) {
-        console.error("Store fee error:", e);
+        console.error("Store creation error:", safeJsonStringify(e));
+        handleFirestoreError(e, OperationType.WRITE, 'stores');
+        return false;
     }
-
-    await setDoc(doc(db, 'stores', store.id), store);
-    return true;
 };
 
 export const updateStore = async (store: Store) => {
     if (!db) return;
+    
+    // Sentinela AI Check
+    const security = await checkContentSecurity(`${store.name} ${store.description}`, 'store update');
+    if (!security.allowed) {
+        throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
+    }
+
     await updateDoc(doc(db, 'stores', store.id), store as any);
+};
+
+export const verifyStore = async (storeId: string) => {
+    if (!db) return false;
+    try {
+        await updateDoc(doc(db, 'stores', storeId), { 
+            isVerified: true,
+            verificationStatus: 'APPROVED'
+        });
+        return true;
+    } catch (e) {
+        console.error("Error verifying store:", safeJsonStringify(e));
+        return false;
+    }
+};
+
+export const updateStoreVerificationWithDetails = async (storeId: string, status: 'APPROVED' | 'REJECTED' | 'PENDING' | 'NOT_STARTED', performanceScore: number) => {
+    if (!db) return false;
+    try {
+        await updateDoc(doc(db, 'stores', storeId), { 
+            verificationStatus: status,
+            performanceScore: performanceScore,
+            isVerified: status === 'APPROVED'
+        });
+        return true;
+    } catch (e) {
+        console.error("Error updating store verification:", safeJsonStringify(e));
+        return false;
+    }
+};
+
+export const sendAdminSignalToStore = async (storeId: string, signal: AdminSignal) => {
+    if (!db) return false;
+    try {
+        const storeRef = doc(db, 'stores', storeId);
+        const storeDoc = await getDoc(storeRef);
+        if (!storeDoc.exists()) return false;
+        
+        const storeData = storeDoc.data() as Store;
+        const currentSignals = storeData.adminSignals || [];
+        
+        await updateDoc(storeRef, {
+            adminSignals: [...currentSignals, signal],
+            lastSignalAt: Date.now()
+        });
+        return true;
+    } catch (e) {
+        console.error("Error sending admin signal:", safeJsonStringify(e));
+        return false;
+    }
+};
+
+export const payStoreVerificationFee = async (storeId: string, signalId: string, userId: string, amount: number) => {
+    if (!db) return false;
+    try {
+        await checkUserFrozen(userId);
+        
+        const userRef = doc(db, 'profiles', userId);
+        const userDoc = await getDoc(userRef);
+        if (!userDoc.exists()) return false;
+        const balance = userDoc.data()?.balance || 0;
+        
+        if (balance < amount) return false;
+        
+        await updateDoc(userRef, { balance: balance - amount });
+        await updateDoc(doc(db, 'public_profiles', userId), { balance: balance - amount });
+        
+        const storeRef = doc(db, 'stores', storeId);
+        const storeDoc = await getDoc(storeRef);
+        if (!storeDoc.exists()) return false;
+        
+        const storeData = storeDoc.data() as Store;
+        const updatedSignals = (storeData.adminSignals || []).map(s => {
+            if (s.id === signalId) {
+                return { ...s, paymentStatus: 'COMPLETED' as const };
+            }
+            return s;
+        });
+        
+        await updateDoc(storeRef, { 
+            adminSignals: updatedSignals,
+            verificationStatus: 'PENDING'
+        });
+        
+        const tid = `verif_${Date.now()}`;
+        await setDoc(doc(db, 'transactions', tid), {
+            id: tid,
+            userId,
+            amount,
+            type: 'PURCHASE',
+            description: `Taxa de Verificação de Loja: ${storeData.name}`,
+            timestamp: Date.now(),
+            status: 'COMPLETED'
+        });
+        
+        return true;
+    } catch (e) {
+        console.error("Error paying store verification fee:", safeJsonStringify(e));
+        return false;
+    }
+};
+
+export const unverifyStore = async (storeId: string) => {
+    if (!db) return false;
+    try {
+        await updateDoc(doc(db, 'stores', storeId), { isVerified: false });
+        return true;
+    } catch (e) {
+        console.error("Error unverifying store:", safeJsonStringify(e));
+        return false;
+    }
 };
 
 export const getAudioTracks = async () => [];
@@ -2107,7 +2849,7 @@ export const trackAffiliateClick = async (affiliateId: string, productId: string
             });
         }
     } catch (error) {
-        console.error("Erro ao rastrear clique de afiliado:", error);
+        console.error("Erro ao rastrear clique de afiliado:", safeJsonStringify(error));
     }
 };
 
@@ -2158,7 +2900,7 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
             const storeDoc = await getDoc(doc(db, 'stores', product.storeId));
             if (!storeDoc.exists()) continue;
             const store = storeDoc.data() as Store;
-            const sellerId = store.professorId;
+            const sellerId = store.userId;
 
             // Include shipping fee in total calculation for physical products
             const shippingCost = (product.type === ProductType.PHYSICAL && !product.hasFreeShipping) 
@@ -2197,7 +2939,7 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
                 affiliateEarnings, // Guardamos para liberar depois
                 fundsReleased: false, // SISTEMA DE CUSTÓDIA ATIVADO
                 carrierId: carrier?.id || '',
-                carrierName: carrier?.name || ''
+                carrierName: carrier?.name || address.carrierName || ''
             });
 
             // 1.1 Update Pending Balances for Seller
@@ -2251,6 +2993,99 @@ export const processProductPurchase = async (items: CartItem[], buyerId: string,
     }
 };
 
+export const cancelOrder = async (saleId: string, userId: string) => {
+    if (!db) return false;
+    try {
+        const saleRef = doc(db, 'sales', saleId);
+        const saleDoc = await getDoc(saleRef);
+        if (!saleDoc.exists()) throw new Error("Venda não encontrada");
+        const sale = saleDoc.data() as any;
+
+        if (sale.buyerId !== userId) throw new Error("Apenas o comprador pode cancelar esta venda");
+        if (sale.status === OrderStatus.CANCELED) throw new Error("Venda já cancelada");
+        if (sale.fundsReleased) throw new Error("Não é possível cancelar um pedido cujos fundos já foram liberados");
+
+        const saleAmount = Number(sale.saleAmount) || 0;
+        const sellerEarnings = Number(sale.sellerEarnings) || 0;
+        const affiliateEarnings = Number(sale.affiliateEarnings) || 0;
+
+        const settings = await getGlobalSettings();
+        const isWaitlist = sale.status === OrderStatus.WAITLIST;
+        const feePercentage = isWaitlist ? 0 : (settings.orderCancellationFeePercentage ?? 5);
+        const refundPercentage = (100 - feePercentage) / 100;
+        const refundAmount = saleAmount * refundPercentage;
+        const feeAmount = saleAmount - refundAmount;
+
+        const batch = writeBatch(db);
+
+        // 1. Atualizar status da venda
+        batch.update(saleRef, {
+            status: OrderStatus.CANCELED,
+            canceledAt: Date.now(),
+            refundAmount,
+            cancellationFee: feeAmount,
+            updatedAt: serverTimestamp()
+        });
+
+        // 2. Estornar saldos do Vendedor e Afiliado (se houver) no pendingBalance
+        if (sellerEarnings > 0) {
+            const sellerRef = doc(db, 'profiles', sale.sellerId);
+            batch.update(sellerRef, {
+                pendingBalance: increment(-sellerEarnings),
+                totalEarnings: increment(-sellerEarnings)
+            });
+        }
+
+        if (sale.affiliateUserId && affiliateEarnings > 0) {
+            const affiliateRef = doc(db, 'profiles', sale.affiliateUserId);
+            batch.update(affiliateRef, {
+                pendingBalance: increment(-affiliateEarnings),
+                totalEarnings: increment(-affiliateEarnings)
+            });
+        }
+
+        // 3. Reembolsar o comprador no saldo principal
+        const buyerRef = doc(db, 'profiles', sale.buyerId);
+        batch.update(buyerRef, {
+            balance: increment(refundAmount)
+        });
+
+        // 4. Criar transação de reembolso para o comprador
+        const transId = generateUUID();
+        batch.set(doc(db, 'transactions', transId), {
+            id: transId,
+            userId: sale.buyerId,
+            type: TransactionType.REFUND,
+            amount: refundAmount,
+            description: `Reembolso de pedido #${sale.id.slice(-8).toUpperCase()} (com taxa de renúncia de ${feePercentage}%)`,
+            timestamp: Date.now(),
+            status: 'COMPLETED'
+        });
+
+        // 5. Sincronizar saldo público
+        const publicBuyerRef = doc(db, 'public_profiles', sale.buyerId);
+        batch.update(publicBuyerRef, { balance: increment(refundAmount) });
+
+        await batch.commit();
+
+        return true;
+    } catch (error) {
+        console.error("Erro ao cancelar pedido:", safeJsonStringify(error));
+        throw error;
+    }
+};
+
+export const deleteOrder = async (saleId: string) => {
+    if (!db) return false;
+    try {
+        await deleteDoc(doc(db, 'sales', saleId));
+        return true;
+    } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, 'sales/' + saleId);
+        return false;
+    }
+};
+
 export const getDisputedSales = async () => {
     if (!db) return [];
     try {
@@ -2270,82 +3105,91 @@ export const releaseFundsToSeller = async (saleId: string) => {
         if (!saleDoc.exists()) throw new Error("Venda não encontrada");
         const sale = saleDoc.data() as any;
 
-        if (sale.fundsReleased) return; // Já liberado
+        if (sale.fundsReleased) {
+            console.log("[STORAGE] Fundos já liberados para a venda:", saleId);
+            return;
+        }
 
-        // Liberar para o Vendedor
-        if (sale.sellerEarnings > 0) {
+        const sellerEarning = Number(sale.sellerEarnings) || 0;
+        const affiliateEarning = Number(sale.affiliateEarnings) || 0;
+
+        const batch = writeBatch(db);
+
+        // 1. Liberar para o Vendedor
+        if (sellerEarning > 0) {
             const sellerRef = doc(db, 'profiles', sale.sellerId);
-            try {
-                // USANDO increment() PARA EVITAR READ PERMISSION ERROR
-                await updateDoc(sellerRef, { 
-                    balance: increment(sale.sellerEarnings),
-                    pendingBalance: increment(-sale.sellerEarnings)
-                });
-                
-                // Tenta sincronizar com public_profiles
-                try {
-                    const publicSellerRef = doc(db, 'public_profiles', sale.sellerId);
-                    await updateDoc(publicSellerRef, { balance: increment(sale.sellerEarnings) });
-                } catch (pErr) {
-                    console.warn("[STORAGE] Erro ao sincronizar saldo público (não crítico):", pErr);
-                }
+            batch.update(sellerRef, { 
+                balance: increment(sellerEarning),
+                pendingBalance: increment(-sellerEarning)
+            });
+            
+            const publicSellerRef = doc(db, 'public_profiles', sale.sellerId);
+            batch.update(publicSellerRef, { balance: increment(sellerEarning) });
 
-                const transId = generateUUID();
-                await setDoc(doc(db, 'transactions', transId), {
-                    id: transId,
-                    userId: sale.sellerId,
-                    type: TransactionType.SALE,
-                    amount: sale.sellerEarnings,
-                    description: `Fundo liberado da venda: ${saleId}`,
-                    timestamp: Date.now(),
-                    status: 'COMPLETED'
-                });
-            } catch (err) {
-                handleFirestoreError(err, OperationType.WRITE, `profiles/${sale.sellerId}`);
-            }
+            const sTransId = generateUUID();
+            batch.set(doc(db, 'transactions', sTransId), {
+                id: sTransId,
+                userId: sale.sellerId,
+                type: TransactionType.SALE,
+                amount: sellerEarning,
+                description: `Fundo liberado da venda: ${saleId}`,
+                timestamp: Date.now(),
+                status: 'COMPLETED'
+            });
         }
 
-        // Liberar Para o Afiliado
-        if (sale.affiliateEarnings > 0 && sale.affiliateUserId) {
+        // 2. Liberar Para o Afiliado
+        if (affiliateEarning > 0 && sale.affiliateUserId) {
             const affRef = doc(db, 'profiles', sale.affiliateUserId);
-            try {
-                await updateDoc(affRef, { 
-                    balance: increment(sale.affiliateEarnings),
-                    pendingBalance: increment(-sale.affiliateEarnings)
-                });
+            batch.update(affRef, { 
+                balance: increment(affiliateEarning),
+                pendingBalance: increment(-affiliateEarning)
+            });
 
-                // Tenta sincronizar com public_profiles
-                try {
-                    const publicAffRef = doc(db, 'public_profiles', sale.affiliateUserId);
-                    await updateDoc(publicAffRef, { balance: increment(sale.affiliateEarnings) });
-                } catch (pErr) {
-                    console.warn("[STORAGE] Erro ao sincronizar saldo público do afiliado (não crítico):", pErr);
-                }
+            const publicAffRef = doc(db, 'public_profiles', sale.affiliateUserId);
+            batch.update(publicAffRef, { balance: increment(affiliateEarning) });
 
-                const transId = generateUUID();
-                await setDoc(doc(db, 'transactions', transId), {
-                    id: transId,
-                    userId: sale.affiliateUserId,
-                    type: TransactionType.SALE,
-                    amount: sale.affiliateEarnings,
-                    description: `Comissão liberada da venda: ${saleId}`,
-                    timestamp: Date.now(),
-                    status: 'COMPLETED'
-                });
-            } catch (err) {
-                handleFirestoreError(err, OperationType.WRITE, `profiles/${sale.affiliateUserId}`);
-            }
+            const aTransId = generateUUID();
+            batch.set(doc(db, 'transactions', aTransId), {
+                id: aTransId,
+                userId: sale.affiliateUserId,
+                type: TransactionType.SALE,
+                amount: affiliateEarning,
+                description: `Comissão liberada da venda: ${saleId}`,
+                timestamp: Date.now(),
+                status: 'COMPLETED'
+            });
         }
 
-        await updateDoc(saleRef, { fundsReleased: true, status: OrderStatus.COMPLETED });
+        // 3. Atualizar status da venda
+        batch.update(saleRef, { 
+            fundsReleased: true, 
+            status: OrderStatus.COMPLETED,
+            updatedAt: Date.now()
+        });
+
+        await batch.commit();
+        console.log("[STORAGE] Fundos liberados com sucesso (Batch Commit)");
     } catch (error) {
-        console.error("Erro ao liberar fundos:", error);
-        throw error;
+        console.error("Erro ao liberar fundos (Batch):", safeJsonStringify(error));
+        handleFirestoreError(error, OperationType.WRITE, `sales/${saleId}/release`);
     }
 };
 
 export const confirmProductReceipt = async (saleId: string) => {
     await releaseFundsToSeller(saleId);
+};
+
+export const addSystemLog = async (log: Omit<SystemLog, 'id' | 'timestamp'> & { timestamp?: number }) => {
+    if (!db) return;
+    try {
+        await addDoc(collection(db, 'system_logs'), {
+            ...log,
+            timestamp: log.timestamp || Date.now()
+        });
+    } catch (error) {
+        console.warn("[STORAGE] Erro ao registrar log do sistema:", error);
+    }
 };
 
 export const openOrderDispute = async (saleId: string, reason: string) => {
@@ -2376,29 +3220,60 @@ export const cancelPurchaseAndRefund = async (saleId: string) => {
 
         if (sale.fundsReleased) throw new Error("Fundos já foram liberados para o vendedor. Não é possível estornar automaticamente.");
 
-        // Estornar Comprador
+        const batch = writeBatch(db);
+
+        // 1. Estornar Comprador
         const buyerRef = doc(db, 'profiles', sale.buyerId);
-        const buyerDoc = await getDoc(buyerRef);
-        if (buyerDoc.exists()) {
-            const buyer = buyerDoc.data() as User;
-            await updateDoc(buyerRef, { balance: (buyer.balance || 0) + sale.saleAmount });
-            
-            const transId = generateUUID();
-            await setDoc(doc(db, 'transactions', transId), {
-                id: transId,
-                userId: sale.buyerId,
-                type: TransactionType.DEPOSIT,
-                amount: sale.saleAmount,
-                description: `Estorno da compra: ${saleId}`,
-                timestamp: Date.now(),
-                status: 'COMPLETED'
+        const publicBuyerRef = doc(db, 'public_profiles', sale.buyerId);
+        
+        batch.update(buyerRef, { balance: increment(sale.saleAmount) });
+        batch.update(publicBuyerRef, { balance: increment(sale.saleAmount) });
+
+        // 2. Criar Transação de Depósito (Estorno) para o Comprador
+        const transId = generateUUID();
+        batch.set(doc(db, 'transactions', transId), {
+            id: transId,
+            userId: sale.buyerId,
+            type: TransactionType.DEPOSIT,
+            amount: sale.saleAmount,
+            description: `Estorno da compra: ${saleId}`,
+            timestamp: Date.now(),
+            status: 'COMPLETED'
+        });
+
+        // 3. Estornar saldos do Vendedor e Afiliado (se houver) no pendingBalance/totalEarnings
+        // Isso é CRUCIAL para evitar que o vendedor fique com dinheiro de um pedido cancelado
+        const sellerEarnings = Number(sale.sellerEarnings) || 0;
+        const affiliateEarnings = Number(sale.affiliateEarnings) || 0;
+
+        if (sellerEarnings > 0) {
+            const sellerRef = doc(db, 'profiles', sale.sellerId);
+            batch.update(sellerRef, {
+                pendingBalance: increment(-sellerEarnings),
+                totalEarnings: increment(-sellerEarnings)
             });
         }
 
-        await updateDoc(saleRef, { status: OrderStatus.CANCELED });
+        if (sale.affiliateUserId && affiliateEarnings > 0) {
+            const affiliateRef = doc(db, 'profiles', sale.affiliateUserId);
+            batch.update(affiliateRef, {
+                pendingBalance: increment(-affiliateEarnings),
+                totalEarnings: increment(-affiliateEarnings)
+            });
+        }
+
+        // 4. Marcar Venda como Cancelada
+        batch.update(saleRef, { 
+            status: OrderStatus.CANCELED,
+            updatedAt: Date.now(),
+            refundedAt: Date.now(),
+            refundAmount: sale.saleAmount
+        });
+
+        await batch.commit();
         return true;
     } catch (error) {
-        console.error("Erro ao cancelar e estornar:", error);
+        console.error("Erro ao cancelar e estornar:", safeJsonStringify(error));
         return false;
     }
 };
@@ -2424,6 +3299,12 @@ export const getPurchasesByBuyerId = async (uid: string) => {
 export const addProductRating = async (saleId: string, rating: number, comment: string) => {
     if (!db) return;
     try {
+        // IA Sentinela Monitorando Comentários
+        const sentinelResult = await checkContentSecurity(comment, 'AVALIAÇÃO DE PRODUTO');
+        if (!sentinelResult.allowed) {
+            throw new Error(`SENTINELA_BLOQUEIO: ${sentinelResult.reason}`);
+        }
+
         const saleRef = doc(db, 'sales', saleId);
         const saleDoc = await getDoc(saleRef);
         
@@ -2463,7 +3344,7 @@ export const addProductRating = async (saleId: string, rating: number, comment: 
             }
         }
     } catch (error) {
-        console.error("Erro ao adicionar avaliação:", error);
+        console.error("Erro ao adicionar avaliação:", safeJsonStringify(error));
         throw error; // Re-throw to be caught by UI
     }
 };
@@ -2478,18 +3359,22 @@ export const createProduct = async (p: Product) => {
             // Se tentar criar produto fraudulento, bloqueia o vendedor
             const storeDoc = await getDoc(doc(db, 'stores', p.storeId));
             if (storeDoc.exists()) {
-                const sellerId = storeDoc.data().professorId;
+                const sellerId = storeDoc.data().userId;
                 await updateDoc(doc(db, 'profiles', sellerId), { isFrozen: true });
             }
         }
         throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
     }
 
-    await setDoc(doc(db, 'products', p.id), {
-        ...p,
-        soldCount: 0,
-        timestamp: Date.now()
-    });
+    try {
+        await setDoc(doc(db, 'products', p.id), {
+            ...p,
+            soldCount: p.soldCount || 0,
+            timestamp: p.timestamp || Date.now()
+        });
+    } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'products/' + p.id);
+    }
 };
 
 export const getAffiliateSales = async (filters?: { affiliateUserId?: string, storeId?: string, buyerId?: string, sellerId?: string }) => {
@@ -2527,16 +3412,29 @@ export const getAffiliateSales = async (filters?: { affiliateUserId?: string, st
 
 export const addStory = async (uid: string, storyData: Partial<Story>, userName: string, userProfilePic: string) => {
     if (!db) return;
+
+    // Sentinela AI Check
+    if (storyData.text) {
+        const security = await checkContentSecurity(storyData.text, 'story');
+        if (!security.allowed) {
+            throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
+        }
+    }
+
     const id = generateUUID();
-    await setDoc(doc(db, 'stories', id), { 
-        ...storyData, 
-        userId: uid, 
-        userName,
-        userProfilePic,
-        id, 
-        timestamp: Date.now(),
-        views: []
-    });
+    try {
+        await setDoc(doc(db, 'stories', id), { 
+            ...storyData, 
+            userId: uid, 
+            userName,
+            userProfilePic,
+            id, 
+            timestamp: Date.now(),
+            views: []
+        });
+    } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'stories/' + id);
+    }
 };
 
 export const markStoryAsViewed = async (storyId: string, userId: string) => {
@@ -2599,7 +3497,7 @@ export const getTransactions = async (uid?: string, currentAdmin?: User) => {
         const snap = await getDocs(q);
         return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as Transaction));
     } catch (error) {
-        console.error("Erro ao buscar transações:", error);
+        console.error("Erro ao buscar transações:", safeJsonStringify(error));
         return [];
     }
 };
@@ -2615,20 +3513,29 @@ export const getReports = async () => {
 };
 
 export const adminUpdateUser = async (u: User) => {
-    await updateUser(u);
-    if (db) {
-        try {
-            if (u.isAdmin) {
-                await setDoc(doc(db, 'admins', u.id), {
-                    email: u.email,
-                    timestamp: Date.now()
-                }, { merge: true });
-            } else {
-                await deleteDoc(doc(db, 'admins', u.id));
-            }
-        } catch (err) {
-            console.warn("[STORAGE] Erro ao sincronizar status de admin:", err);
+    if (!db) return false;
+    try {
+        await updateUser(u);
+        
+        if (u.isAdmin) {
+            await setDoc(doc(db, 'admins', u.id), {
+                email: u.email,
+                timestamp: Date.now()
+            }, { merge: true });
+        } else {
+            await deleteDoc(doc(db, 'admins', u.id));
         }
+        
+        await addSystemLog({
+            action: 'ADMIN_UPDATE_USER',
+            details: `Admin atualizou permissões do usuário ID: ${u.id} (Novo status Admin: ${u.isAdmin})`,
+            adminId: auth?.currentUser?.uid || 'system'
+        });
+        
+        return true;
+    } catch (err) {
+        console.error("[STORAGE] Erro ao sincronizar status de admin:", err);
+        return false;
     }
 };
 export const adminDeletePost = async (id: string) => await deletePost(id);
@@ -2695,7 +3602,7 @@ export const createTransaction = async (transaction: Transaction) => {
   }
 };
 
-export const boostPost = async (pid: string, uid: string, days: number, amount: number) => {
+export const boostPost = async (pid: string, uid: string, days: number, amount: number, minAge?: number, maxAge?: number, targetLocations?: string[]) => {
     if (!db) return false;
     await checkUserFrozen(uid);
     
@@ -2714,11 +3621,14 @@ export const boostPost = async (pid: string, uid: string, days: number, amount: 
     await updateDoc(userRef, { balance: newBalance });
     await updateDoc(doc(db, 'public_profiles', uid), { balance: newBalance });
     
-    // Boost post with bid
+    // Boost post with bid and targeting
     await updateDoc(doc(db, 'posts', pid), { 
       isBoosted: true, 
       boostExpires: Date.now() + (days * 86400000),
-      boostBid: amount
+      boostBid: amount,
+      minAge: minAge || 0,
+      maxAge: maxAge || 100,
+      targetLocations: targetLocations || []
     });
     
     // Create transaction log
@@ -2728,11 +3638,39 @@ export const boostPost = async (pid: string, uid: string, days: number, amount: 
         userId: uid,
         amount: -amount,
         type: 'PLATFORM_FEE',
-        description: `Boost de publicação (Lance: $${amount.toFixed(2)}) - ${days} dias`,
+        description: `Boost de publicação (Lance: ${amount.toFixed(2)} KZ) - ${days} dias`,
         status: 'COMPLETED',
         timestamp: Date.now()
     });
 
+    return true;
+};
+
+export const promotePostInCarousel = async (pid: string, uid: string, days: number, amount: number) => {
+    if (!db) return false;
+    await checkUserFrozen(uid);
+    
+    // Check user balance
+    const userRef = doc(db, 'profiles', uid);
+    const userDoc = await getDoc(userRef);
+    if (!userDoc.exists()) return false;
+    
+    const userData = userDoc.data();
+    const balance = userData.balance || 0;
+    
+    if (balance < amount) return false;
+    
+    // Deduct balance
+    const newBalance = balance - amount;
+    await updateDoc(userRef, { balance: newBalance });
+    await updateDoc(doc(db, 'public_profiles', uid), { balance: newBalance });
+    
+    // Promote post to carousel
+    await updateDoc(doc(db, 'posts', pid), { 
+      promotedUntil: Date.now() + (days * 86400000),
+      promotionDays: days
+    });
+    
     return true;
 };
 
@@ -2784,12 +3722,12 @@ export const createGroup = async (name: string, members: string[], adminId: stri
         if (fee > 0) {
             const userRef = doc(db, 'profiles', adminId);
             const userDoc = await getDoc(userRef);
-            if (!userDoc.exists()) return false;
+            if (!userDoc.exists()) return null;
             
             const userData = userDoc.data();
             const balance = userData.balance || 0;
             
-            if (balance < fee) return false;
+            if (balance < fee) return null;
             
             // Deduct balance
             const newBalance = balance - fee;
@@ -2809,7 +3747,7 @@ export const createGroup = async (name: string, members: string[], adminId: stri
             });
         }
     } catch (e) {
-        console.error("Error checking group fee:", e);
+        console.error("Error checking group fee:", safeJsonStringify(e));
     }
 
     const id = generateUUID();
@@ -2828,7 +3766,7 @@ export const createGroup = async (name: string, members: string[], adminId: stri
         theme: theme || 'blue',
         timestamp: Date.now()
     });
-    return true;
+    return id;
 };
 
 export const getSupportTickets = async (uid: string) => {
@@ -2838,6 +3776,13 @@ export const getSupportTickets = async (uid: string) => {
 
 export const createSupportTicket = async (data: any, desc: string, url?: string, type?: string) => {
     if (!db) return;
+
+    // Sentinela AI Check
+    const security = await checkContentSecurity(desc, 'support ticket');
+    if (!security.allowed) {
+        throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
+    }
+
     const id = generateUUID();
     const msg: SupportMessage = { id: generateUUID(), senderId: data.userId, text: desc, attachmentUrl: url, attachmentType: type as any, timestamp: Date.now() };
     await setDoc(doc(db, 'tickets', id), {
@@ -2853,6 +3798,15 @@ export const createSupportTicket = async (data: any, desc: string, url?: string,
 
 export const addSupportMessage = async (tid: string, msg: any) => {
     if (!db) return;
+    
+    // Sentinela AI Check
+    if (msg.text) {
+        const security = await checkContentSecurity(msg.text, 'support message');
+        if (!security.allowed) {
+            throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
+        }
+    }
+
     const ref = doc(db, 'tickets', tid);
     const d = await getDoc(ref);
     if(d.exists()){
@@ -2905,7 +3859,7 @@ export const getAdminSupportTickets = async (adminId?: string) => {
         const snap = await getDocs(q);
         return snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as SupportTicket));
     } catch (err) {
-        console.error("[STORAGE] Error fetching admin tickets (likely security restriction):", err);
+        console.error("[STORAGE] Error fetching admin tickets (likely security restriction):", safeJsonStringify(err));
         return [];
     }
 };
@@ -2956,6 +3910,50 @@ export const getSystemLogs = async (): Promise<SystemLog[]> => {
         return snap.docs.map(d => ({ ...d.data(), id: d.id } as SystemLog));
     } catch (error) {
         console.warn("[STORAGE] Error fetching system logs:", error);
+        return [];
+    }
+};
+
+export const getPromotedItems = async () => {
+    if (!isFirebaseConfigured || !db) return [];
+    try {
+        const now = Date.now();
+        
+        // Fetch promoted products
+        const productsQuery = query(
+            collection(db, 'products'),
+            where('promotedUntil', '>', now),
+            limit(10)
+        );
+        const productSnaps = await getDocs(productsQuery);
+        const promotedProducts = productSnaps.docs.map(doc => {
+            const data = doc.data();
+            return {
+                ...data,
+                id: doc.id,
+                imageUrl: data.mainImage || data.imageUrl,
+                promoteType: 'product'
+            };
+        });
+
+        // Fetch promoted ads
+        const adsQuery = query(
+            collection(db, 'ad_campaigns'),
+            where('promotedUntil', '>', now),
+            where('isActive', '==', true),
+            limit(10)
+        );
+        const adSnaps = await getDocs(adsQuery);
+        const promotedAds = adSnaps.docs.map(doc => ({
+            ...doc.data(),
+            id: doc.id,
+            promoteType: 'ad'
+        }));
+
+        // Combine all and shuffle - REMOVED PROMOTED POSTS AS PER REQUEST
+        return [...promotedProducts, ...promotedAds].sort(() => Math.random() - 0.5);
+    } catch (err) {
+        console.warn("[STORAGE] Error fetching promoted items:", err);
         return [];
     }
 };

@@ -7,6 +7,7 @@ import { XMarkIcon, PaperAirplaneIcon, ChatBubbleOvalLeftIcon, FaceSmileIcon, Tr
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { checkContent } from '../services/sentinelService';
 import { useDialog } from '../services/DialogContext';
+import { safeJsonStringify } from '../lib/utils';
 
 interface CommentsModalProps {
   postId: string;
@@ -90,7 +91,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
       await fetchComments();
       onCommentsUpdated();
     } catch (err) {
-      console.error("Erro ao comentar:", err);
+      console.error("Erro ao comentar:", safeJsonStringify(err));
       showAlert("Ocorreu um erro ao enviar seu comentário.", { type: 'error' });
     } finally {
       setSubmitting(false);
@@ -102,7 +103,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
       await toggleReaction(commentId, 'COMMENT', emoji, currentUser.id, postId);
       await fetchComments();
     } catch (err) {
-      console.error("Erro ao reagir:", err);
+      console.error("Erro ao reagir:", safeJsonStringify(err));
     }
   };
 

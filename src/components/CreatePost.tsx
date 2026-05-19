@@ -5,6 +5,7 @@ import { Post, PostType, User } from '../types';
 import { addPost, updatePost, uploadFile, generateUUID, getPostById } from '../services/storageService';
 import { safeJsonStringify } from '../lib/utils';
 import { useDialog } from '../services/DialogContext';
+import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { 
   PhotoIcon, 
   XMarkIcon, 
@@ -17,9 +18,10 @@ import {
   SignalIcon,
   FilmIcon,
   EyeIcon,
-  EyeSlashIcon
+  EyeSlashIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/solid';
-import { checkContent } from '../services/sentinelService';
+import { checkContent, checkImageSecurity } from '../services/sentinelService';
 
 const FONTS = [
   { id: 'font-sans', label: 'Sans' },
@@ -161,6 +163,20 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
         }
       }
 
+      if (imageFile) {
+        // Convert image to base64 for Sentinel check
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(imageFile);
+        });
+        const base64 = await base64Promise;
+        const imageSentinelResult = await checkImageSecurity(base64, imageFile.type);
+        if (!imageSentinelResult.allowed) {
+          throw new Error(`SENTINEL_BLOCK: ${imageSentinelResult.reason || 'Imagem inadequada detectada.'}`);
+        }
+      }
+
       let finalImageUrl = '';
       let finalVideoUrl = '';
       let finalCoverUrl = '';
@@ -262,13 +278,18 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
 
   if (!isExpanded) {
     return (
-      <div className="bg-white dark:bg-darkcard md:rounded-[1.5rem] p-6 border border-gray-200 dark:border-white/5 shadow-sm flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5 transition-all animate-fade-in" onClick={() => setIsExpanded(true)}>
-        <img src={currentUser.profilePicture} className="w-12 h-12 rounded-2xl object-cover" />
-        <div className="flex-1 text-gray-500 dark:text-gray-400 font-bold text-sm">
-          {t('what_thinking')}
+      <div 
+        className="bg-white dark:bg-[#0a0c10] rounded-[2.5rem] p-5 shadow-2xl shadow-black/5 flex items-center gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-all group animate-fade-in border border-gray-100 dark:border-white/5" 
+        onClick={() => setIsExpanded(true)}
+      >
+        <div className="w-14 h-14 rounded-[1.25rem] overflow-hidden shrink-0 shadow-lg">
+          <img src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} className="w-full h-full object-cover" />
         </div>
-        <div className="flex gap-2">
-            <PhotoIcon className="h-6 w-6 text-green-500" />
+        <div className="flex-1 text-gray-400 dark:text-gray-500 font-bold text-base tracking-tight">
+          {t('what_thinking') || "What's on your mind?"}
+        </div>
+        <div className="p-3 bg-gray-50 dark:bg-white/5 rounded-2xl group-hover:bg-brand/10 group-hover:text-brand transition-all">
+          <PhotoIcon className="h-7 w-7 text-green-500/80" />
         </div>
       </div>
     );
@@ -286,6 +307,11 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
           </div>
           <button onClick={() => setIsExpanded(false)} className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"><XMarkIcon className="h-6 w-6"/></button>
        </div>
+
+        <div className="flex items-center gap-3 mb-6 px-4 py-3 bg-blue-50 dark:bg-blue-900/10 rounded-3xl border border-blue-500/10">
+           <ShieldCheckIcon className="w-5 h-5 text-blue-600" />
+           <p className="text-[10px] font-black uppercase text-blue-600 tracking-widest leading-none">{t('sentinel_protocol')}</p>
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
            <div key={fontFamily} className={`rounded-[2rem] p-5 transition-all duration-500 ease-in-out ${backgroundColor} ${fontFamily} ${backgroundColor !== 'bg-transparent' ? 'shadow-inner scale-[1.02]' : ''} animate-fade-in`}>
@@ -333,7 +359,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
                       className="w-20 h-28 rounded-xl border-2 border-dashed border-gray-300 dark:border-white/10 flex flex-col items-center justify-center gap-2 hover:bg-white dark:hover:bg-white/5 transition-all group shrink-0"
                     >
                        <PhotoIcon className="h-6 w-6 text-gray-400 group-hover:text-blue-500" />
-                       <span className="text-[7px] font-black uppercase text-gray-400">Capa</span>
+                       <span className="text-[7px] font-black uppercase text-gray-400">{t('cover')}</span>
                     </button>
                  )}
                  <div className="flex-1">
@@ -382,7 +408,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
              </div>
 
              <div className="flex flex-col gap-3 pt-4 border-t border-gray-200 dark:border-white/5">
-                <p className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">{t('typography') || 'Tipografia'}</p>
+                <p className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">{t('typography')}</p>
                 <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
                    {FONTS.map(f => (
                       <button 

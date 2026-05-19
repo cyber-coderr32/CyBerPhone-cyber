@@ -1,26 +1,40 @@
 
 import React, { useState, useRef } from 'react';
 import { User, Page } from '../types';
-import { loginUser, registerUser, saveCurrentUser, recoverPassword } from '../services/storageService';
+import { loginUser, registerUser, saveCurrentUser, recoverPassword, loginWithGoogle } from '../services/storageService';
 import { COUNTRIES } from '../data/countries';
-import { AcademicCapIcon, UserIcon, CameraIcon, ArrowPathIcon, EyeIcon, EyeSlashIcon, ArrowLeftIcon } from '@heroicons/react/24/solid';
+import { AcademicCapIcon, UserIcon, CameraIcon, ArrowPathIcon, EyeIcon, EyeSlashIcon, ArrowLeftIcon, PhoneIcon, EnvelopeIcon, ChevronDownIcon } from '@heroicons/react/24/solid';
+import { motion, AnimatePresence } from 'motion/react';
 
 import { useTranslation } from 'react-i18next';
+import PhoneInput from 'react-phone-input-2';
+import 'react-phone-input-2/lib/style.css';
+import { GlobeAltIcon } from '@heroicons/react/24/outline';
 
 interface AuthPageProps {
   onLoginSuccess: (user: User) => void;
   onNavigate: (page: Page) => void;
 }
 
+const LANGUAGES = [
+  { id: 'pt', name: 'Português', flag: '🇧🇷' },
+  { id: 'en', name: 'English', flag: '🇺🇸' },
+  { id: 'es', name: 'Español', flag: '🇪🇸' },
+  { id: 'fr', name: 'Français', flag: '🇫🇷' },
+  { id: 'zh', name: 'Chinese', flag: '🇨🇳' },
+];
+
 const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [isRegister, setIsRegister] = useState(false);
   const [isRecovering, setIsRecovering] = useState(false);
   const [recoverySent, setRecoverySent] = useState(false);
+  const [showLanguageDropdown, setShowLanguageDropdown] = useState(false);
   
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [identifier, setIdentifier] = useState('');
+  const [usePhone, setUsePhone] = useState(true);
   const [confirmIdentifier, setConfirmIdentifier] = useState('');
   const [password, setPassword] = useState('');
   
@@ -28,8 +42,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
   const [birthMonth, setBirthMonth] = useState('1');
   const [birthYear, setBirthYear] = useState('2000');
   const [gender, setGender] = useState<'Masculino' | 'Feminino' | 'Personalizado' | ''>('');
-  const [country, setCountry] = useState('Angola');
-  const [academicRole, setAcademicRole] = useState<'PROFESSOR' | 'ALUNO' | 'OUTRO'>('ALUNO');
+  const [country, setCountry] = useState('');
   
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState<string | null>(null);
@@ -41,6 +54,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
   
   const profileImageInputRef = useRef<HTMLInputElement>(null);
 
+  const currentLang = LANGUAGES.find(l => i18n.language.startsWith(l.id)) || LANGUAGES[0];
+
   const handleProfileImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -50,19 +65,70 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
   };
 
   const getFriendlyErrorMessage = (error: any) => {
-    const code = error.code || '';
-    const message = error.message || '';
+    let code = error?.code || '';
+    let message = error?.message || '';
+
+    // If it's already a string, check if it's a JSON error representation
+    if (typeof error === 'string') {
+      if (error.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(error);
+          code = parsed.code || code;
+          message = parsed.message || message;
+          
+          // Se for erro de credencial já no JSON, retorna logo a mensagem limpa
+          if (code === 'auth/invalid-credential' || code === 'invalid-credential' || (message && (message.includes('auth/invalid-credential') || message.includes('invalid-credential')))) {
+            return t('auth_error_invalid_credentials');
+          }
+        } catch (e) {
+          return error;
+        }
+      } else {
+        return error;
+      }
+    }
+
+    // Check for our custom FirestoreErrorInfo in JSON string
+    if (message && message.startsWith('{')) {
+      try {
+        const errInfo = JSON.parse(message);
+        if (errInfo.error && (errInfo.error.includes('permissions') || errInfo.error.includes('permission-denied'))) {
+          return t('auth_error_permission', { path: errInfo.path, op: errInfo.operationType });
+        }
+        if (errInfo.error) return errInfo.error;
+      } catch (e) {
+        // Fallback
+      }
+    }
+
+    if (!code && error?.customData?._tokenResponse?.error?.message === 'EMAIL_EXISTS') {
+      code = 'auth/email-already-in-use';
+    }
     
-    if (code === 'auth/invalid-credential' || message.includes('auth/invalid-credential')) return 'E-mail ou senha incorretos.';
-    if (code === 'auth/user-not-found' || message.includes('auth/user-not-found')) return 'Usuário não encontrado.';
-    if (code === 'auth/wrong-password' || message.includes('auth/wrong-password')) return 'Senha incorreta.';
-    if (code === 'auth/email-already-in-use' || message.includes('auth/email-already-in-use')) return 'Este e-mail ou celular já está em uso. Tente fazer login.';
-    if (code === 'auth/weak-password' || message.includes('auth/weak-password')) return 'A senha deve ter pelo menos 6 caracteres.';
-    if (code === 'auth/invalid-email' || message.includes('auth/invalid-email')) return 'E-mail inválido.';
-    if (code === 'auth/network-request-failed' || message.includes('auth/network-request-failed')) return 'Erro de conexão. Verifique sua internet.';
-    if (code === 'auth/too-many-requests' || message.includes('auth/too-many-requests')) return 'Muitas tentativas. Tente novamente mais tarde.';
+    if (code === 'auth/email-already-in-use' || message.includes('auth/email-already-in-use') || message.includes('EMAIL_EXISTS')) {
+      return t('auth_error_email_in_use');
+    }
+
+    if (code === 'auth/invalid-credential' || code === 'invalid-credential' || message.includes('auth/invalid-credential') || message.includes('invalid-credential')) {
+      return t('auth_error_invalid_credentials');
+    }
+
+    if (code === 'auth/operation-not-allowed' || message.includes('auth/operation-not-allowed')) {
+      return t('auth_error_operation_not_allowed');
+    }
     
-    return message || 'Ocorreu um erro na autenticação.';
+    if (code === 'auth/user-not-found' || message.includes('auth/user-not-found')) return t('auth_error_user_not_found');
+    if (code === 'auth/wrong-password' || message.includes('auth/wrong-password')) return t('auth_error_wrong_password');
+    if (code === 'auth/weak-password' || message.includes('auth/weak-password')) return t('auth_error_weak_password');
+    if (code === 'auth/invalid-email' || message.includes('auth/invalid-email')) return t('auth_error_invalid_email');
+    if (code === 'auth/network-request-failed' || message.includes('auth/network-request-failed')) return t('auth_error_network');
+    if (code === 'auth/too-many-requests' || message.includes('auth/too-many-requests')) return t('auth_error_too_many_requests');
+    if (code === 'auth/user-disabled') return t('auth_error_user_disabled');
+    if (code === 'auth/popup-closed-by-user' || message.includes('auth/popup-closed-by-user')) return t('auth_error_popup_closed');
+    
+    // Default fallback
+    const finalMessage = message.replace('Firebase: ', '').replace('Error ', '');
+    return finalMessage || t('auth_error_default');
   };
 
   const handleRecoverPassword = async (e: React.FormEvent) => {
@@ -71,7 +137,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
     setSuccess('');
     
     if (!identifier) {
-      setError("Insira seu e-mail para recuperação.");
+      setError(t('auth_error_recovery_email'));
       return;
     }
 
@@ -81,7 +147,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
     try {
       await recoverPassword(emailToRecover);
       setRecoverySent(true);
-      setSuccess("E-mail de recuperação enviado! Verifique sua caixa de entrada.");
+      setSuccess(t('auth_success_recovery_sent'));
     } catch (err: any) {
       setError(getFriendlyErrorMessage(err));
     } finally {
@@ -100,17 +166,17 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
     }
     
     if (!identifier || !password) {
-      setError("Preencha e-mail/celular e senha.");
+      setError(t('auth_fill_credentials'));
       return;
     }
 
     if (isRegister) {
       if (!firstName || !lastName || !gender) {
-        setError("Preencha todos os campos obrigatórios.");
+        setError(t('auth_error_fill_fields') || "Por favor, preencha todos os campos obrigatórios.");
         return;
       }
       if (identifier !== confirmIdentifier) {
-        setError("Os e-mails/celulares não coincidem.");
+        setError(t('auth_error_mismatch') || "Os e-mails/telefones não coincidem.");
         return;
       }
     }
@@ -131,13 +197,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
           birthDate,
           gender,
           country,
-          academicRole,
           profileImageFile
         });
         if (newUser) {
           onLoginSuccess(newUser);
         } else {
-          setError("Erro ao criar perfil do usuário.");
+          setError(t('auth_error_create_profile'));
         }
       } else {
         const emailToLogin = identifier.includes('@') ? identifier : `${identifier}@cyberphone.com`;
@@ -145,7 +210,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
         if (user) {
           onLoginSuccess(user);
         } else {
-          setError("Erro ao carregar perfil do usuário.");
+          setError(t('auth_error_create_profile'));
         }
       }
     } catch (err: any) {
@@ -157,7 +222,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
         setTimeout(() => {
           setIsRegister(false);
           setIsRecovering(false);
-          setError('Este e-mail já está em uso. Por favor, faça login.');
+          setError(t('auth_email_in_use_redirect'));
         }, 2000);
       }
     } finally {
@@ -165,10 +230,25 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const user = await loginWithGoogle();
+      if (user) {
+        onLoginSuccess(user);
+      }
+    } catch (err: any) {
+      setError(getFriendlyErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const days = Array.from({ length: 31 }, (_, i) => i + 1);
   const months = [
-    'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun',
-    'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'
+    t('jan'), t('feb'), t('mar'), t('apr'), t('may'), t('jun'),
+    t('jul'), t('aug'), t('sep'), t('oct'), t('nov'), t('dec')
   ];
   const years = Array.from({ length: 100 }, (_, i) => new Date().getFullYear() - i);
 
@@ -187,23 +267,74 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/5 rounded-full blur-[120px]" />
       </div>
 
-      <div className="relative z-10 bg-white dark:bg-[#12161f] w-full max-w-lg rounded-none md:rounded-[2.5rem] shadow-none md:shadow-2xl border-0 md:border md:border-gray-100 md:dark:border-white/5 overflow-hidden transition-all duration-500 min-h-screen md:min-h-0 flex flex-col justify-center">
+      {/* Language Selector Dropdown - Moved to bottom right to avoid blocking the logo */}
+      <div className="fixed bottom-6 right-6 z-[100] flex justify-end">
+        <div className="relative">
+          <button 
+            onClick={() => setShowLanguageDropdown(!showLanguageDropdown)}
+            className="flex items-center gap-2 px-4 py-2 bg-white/90 dark:bg-black/60 shadow-2xl backdrop-blur-xl rounded-full border border-gray-200 dark:border-white/10 text-sm font-bold text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-white/10 transition-all hover:scale-105 active:scale-95 group"
+          >
+            <span className="text-lg group-hover:rotate-12 transition-transform">{currentLang.flag}</span>
+            <span className="hidden sm:inline font-black uppercase text-[10px] tracking-widest">{currentLang.name}</span>
+            <ChevronDownIcon className={`h-4 w-4 transition-transform duration-300 ${showLanguageDropdown ? 'rotate-180' : ''}`} />
+          </button>
+
+          <AnimatePresence>
+            {showLanguageDropdown && (
+              <motion.div 
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                className="absolute right-0 bottom-full mb-4 w-52 bg-white/95 dark:bg-[#1a1f2c]/95 backdrop-blur-2xl rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.3)] border border-gray-100 dark:border-white/10 overflow-hidden z-[101]"
+              >
+                <div className="p-3 space-y-1">
+                  {LANGUAGES.map((lang) => (
+                    <button
+                      key={lang.id}
+                      onClick={() => {
+                        i18n.changeLanguage(lang.id);
+                        setShowLanguageDropdown(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl text-sm font-black uppercase tracking-tight transition-all ${
+                        currentLang.id === lang.id 
+                          ? 'bg-brand text-white shadow-lg shadow-brand/20 scale-[1.02]' 
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/10 hover:translate-x-1'
+                      }`}
+                    >
+                      <span className="flex items-center gap-3">
+                        <span className="text-lg">{lang.flag}</span>
+                        <span className="text-[11px] font-black">{lang.name}</span>
+                      </span>
+                      {currentLang.id === lang.id && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+
+      <div className="relative z-10 bg-white dark:bg-[#12161f] w-full max-w-lg rounded-none md:rounded-[2.5rem] shadow-none md:shadow-2xl border-0 md:border md:border-gray-100 md:dark:border-white/5 overflow-hidden transition-all duration-500 min-h-screen md:min-h-0 flex flex-col justify-center mt-12 md:mt-0">
+        
         <div className="p-8 md:p-12">
           {isRecovering && (
             <button 
               onClick={() => { setIsRecovering(false); setError(''); setSuccess(''); }}
-              className="mb-6 flex items-center gap-2 text-gray-500 hover:text-brand font-bold transition-all"
+              className="mb-6 flex items-center gap-2 text-gray-400 hover:text-brand font-black uppercase text-[10px] tracking-widest transition-all"
             >
               <ArrowLeftIcon className="h-4 w-4" />
-              <span>Voltar ao Login</span>
+              <span>{t('back_to_login')}</span>
             </button>
           )}
 
           <div className="text-center mb-10">
-            <h1 className="text-5xl font-black text-gray-900 dark:text-white tracking-tighter mb-4 drop-shadow-sm">CyberPhone</h1>
-            <p className="text-[11px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-[0.2em] leading-relaxed px-6">
+            <h1 className="text-4xl md:text-5xl font-black text-gray-900 dark:text-white tracking-tighter mb-4 drop-shadow-sm uppercase">CyBerPhone</h1>
+            <p className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-[0.2em] leading-relaxed px-6">
               {isRecovering 
-                ? "Recuperar sua senha"
+                ? t('recover_password_desc')
                 : isRegister 
                   ? t('register_welcome')
                   : t('welcome_back')
@@ -225,18 +356,34 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {isRecovering ? (
-              <>
+              <div className="space-y-4">
                 <p className="text-xs text-gray-500 dark:text-gray-400 text-center mb-4">
-                  Digite o e-mail ou celular vinculado à sua conta. Enviaremos as instruções de recuperação.
+                  {t('recover_password_desc')}
                 </p>
-                <input 
-                  type="text" 
-                  placeholder="Celular ou e-mail" 
-                  value={identifier} 
-                  onChange={e => setIdentifier(e.target.value)} 
-                  className="w-full p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" 
-                />
-              </>
+                {usePhone ? (
+                  <div className="phone-input-container">
+                    <PhoneInput
+                      country={'br'}
+                      value={identifier}
+                      onChange={phone => setIdentifier(phone)}
+                      inputClass="!w-full !p-4 !bg-gray-100 !dark:bg-white/5 !rounded-2xl !text-gray-900 !dark:text-white !outline-none !border-2 !border-transparent !focus:border-[var(--brand-color)] !font-bold !transition-all !h-auto !text-base !pl-14"
+                      buttonClass="!bg-transparent !border-0 !rounded-l-2xl !pl-3"
+                      dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-hidden !border-gray-100 !dark:border-white/10"
+                      placeholder={t('phone_label')}
+                      masks={{ br: '(..) .....-....' }}
+                      containerClass="!w-full"
+                    />
+                  </div>
+                ) : (
+                  <input 
+                    type="email" 
+                    placeholder={t('email_label')} 
+                    value={identifier} 
+                    onChange={e => setIdentifier(e.target.value)} 
+                    className="w-full p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" 
+                  />
+                )}
+              </div>
             ) : (
               <>
                 {isRegister && (
@@ -251,33 +398,86 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                         <input type="file" ref={profileImageInputRef} onChange={handleProfileImageChange} className="hidden" accept="image/*" />
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <input type="text" placeholder="Nome" value={firstName} onChange={e => setFirstName(e.target.value)} className="p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" />
-                      <input type="text" placeholder="Sobrenome" value={lastName} onChange={e => setLastName(e.target.value)} className="p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" />
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <input type="text" placeholder={t('first_name_label')} value={firstName} onChange={e => setFirstName(e.target.value)} className="p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" />
+                      <input type="text" placeholder={t('last_name_label')} value={lastName} onChange={e => setLastName(e.target.value)} className="p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" />
                     </div>
                   </>
                 )}
 
-                <input 
-                  type="text" 
-                  placeholder="Celular ou e-mail" 
-                  value={identifier} 
-                  onChange={e => setIdentifier(e.target.value)} 
-                  className="w-full p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" 
-                />
-                
-                {isRegister && (
-                  <input 
-                    type="text" 
-                    placeholder="Confirmar celular ou e-mail" 
-                    value={confirmIdentifier} 
-                    onChange={e => setConfirmIdentifier(e.target.value)} 
-                    className="w-full p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" 
-                  />
-                )}
+                <div className="flex items-center justify-center gap-4 mb-4">
+                  <button 
+                    type="button"
+                    onClick={() => { setUsePhone(true); setIdentifier(''); setConfirmIdentifier(''); }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${usePhone ? 'bg-brand text-white shadow-lg' : 'bg-gray-100 dark:bg-white/5 text-gray-500'}`}
+                  >
+                    <PhoneIcon className="h-4 w-4" />
+                    <span>{t('phone_label')}</span>
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => { setUsePhone(false); setIdentifier(''); setConfirmIdentifier(''); }}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${!usePhone ? 'bg-brand text-white shadow-lg' : 'bg-gray-100 dark:bg-white/5 text-gray-500'}`}
+                  >
+                    <EnvelopeIcon className="h-4 w-4" />
+                    <span>{t('email_label')}</span>
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {usePhone ? (
+                    <div className="phone-input-container">
+                      <PhoneInput
+                        country={'br'}
+                        value={identifier}
+                        onChange={phone => setIdentifier(phone)}
+                        inputClass="!w-full !p-4 !bg-gray-100 !dark:bg-white/5 !rounded-2xl !text-gray-900 !dark:text-white !outline-none !border-2 !border-transparent !focus:border-[var(--brand-color)] !font-bold !transition-all !h-auto !text-base !pl-14"
+                        buttonClass="!bg-transparent !border-0 !rounded-l-2xl !pl-3"
+                        dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-hidden !border-gray-100 !dark:border-white/10"
+                        placeholder={t('auth_phone_placeholder')}
+                        masks={{ br: '(..) .....-....' }}
+                        containerClass="!w-full"
+                      />
+                    </div>
+                  ) : (
+                    <input 
+                      type="email" 
+                      placeholder={t('email_label')} 
+                      value={identifier} 
+                      onChange={e => setIdentifier(e.target.value)} 
+                      className="w-full p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" 
+                    />
+                  )}
+                  
+                  {isRegister && (
+                    usePhone ? (
+                      <div className="phone-input-container">
+                        <PhoneInput
+                          country={'br'}
+                          value={confirmIdentifier}
+                          onChange={phone => setConfirmIdentifier(phone)}
+                          inputClass="!w-full !p-4 !bg-gray-100 !dark:bg-white/5 !rounded-2xl !text-gray-900 !dark:text-white !outline-none !border-2 !border-transparent !focus:border-[var(--brand-color)] !font-bold !transition-all !h-auto !text-base !pl-14"
+                          buttonClass="!bg-transparent !border-0 !rounded-l-2xl !pl-3"
+                          dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-hidden !border-gray-100 !dark:border-white/10"
+                          placeholder={t('confirm_email_phone')}
+                          masks={{ br: '(..) .....-....' }}
+                          containerClass="!w-full"
+                        />
+                      </div>
+                    ) : (
+                      <input 
+                        type="email" 
+                        placeholder={t('confirm_email_phone')} 
+                        value={confirmIdentifier} 
+                        onChange={e => setConfirmIdentifier(e.target.value)} 
+                        className="w-full p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" 
+                      />
+                    )
+                  )}
+                </div>
 
                 <div className="relative">
-                  <input type={showPassword ? "text" : "password"} placeholder="Sua senha" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" />
+                  <input type={showPassword ? "text" : "password"} placeholder={t('password_label')} value={password} onChange={e => setPassword(e.target.value)} className="w-full p-4 bg-gray-100 dark:bg-white/5 rounded-2xl text-gray-900 dark:text-white outline-none border-2 border-transparent focus:border-[var(--brand-color)] font-bold transition-all" />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
                     {showPassword ? <EyeSlashIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
                   </button>
@@ -290,7 +490,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                       onClick={() => { setIsRecovering(true); setError(''); setSuccess(''); }}
                       className="text-[10px] font-black text-brand uppercase tracking-wider hover:underline"
                     >
-                      Esqueceu sua senha?
+                      {t('forgot_password')}
                     </button>
                   </div>
                 )}
@@ -298,7 +498,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                 {isRegister && (
                   <div className="space-y-4 pt-2">
                     <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">Data de nascimento</label>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">{t('birth_date_label')}</label>
                       <div className="grid grid-cols-3 gap-2">
                         <select value={birthDay} onChange={e => setBirthDay(e.target.value)} className="p-3 bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 rounded-xl text-gray-900 dark:text-white text-sm outline-none focus:border-[var(--brand-color)]">
                           {days.map(d => <option key={d} value={d} className="bg-white dark:bg-[#12161f]">{d}</option>)}
@@ -313,54 +513,34 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">Gênero</label>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">{t('gender_label')}</label>
                       <div className="grid grid-cols-3 gap-2">
                         <label 
                            className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${gender === 'Feminino' ? 'bg-brand/10' : 'bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10'}`}
                            style={gender === 'Feminino' ? { borderColor: 'var(--brand-color)', color: 'var(--brand-color)' } : {}}
                         >
-                          <span className={`text-xs font-bold ${gender === 'Feminino' ? '' : 'text-gray-900 dark:text-white'}`}>Feminino</span>
+                          <span className={`text-xs font-bold ${gender === 'Feminino' ? '' : 'text-gray-900 dark:text-white'}`}>{t('auth_gender_female')}</span>
                           <input type="radio" name="gender" value="Feminino" checked={gender === 'Feminino'} onChange={e => setGender(e.target.value as any)} className="hidden" />
                         </label>
                         <label 
                            className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${gender === 'Masculino' ? 'bg-brand/10' : 'bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10'}`}
                            style={gender === 'Masculino' ? { borderColor: 'var(--brand-color)', color: 'var(--brand-color)' } : {}}
                         >
-                          <span className={`text-xs font-bold ${gender === 'Masculino' ? '' : 'text-gray-900 dark:text-white'}`}>Masculino</span>
+                          <span className={`text-xs font-bold ${gender === 'Masculino' ? '' : 'text-gray-900 dark:text-white'}`}>{t('auth_gender_male')}</span>
                           <input type="radio" name="gender" value="Masculino" checked={gender === 'Masculino'} onChange={e => setGender(e.target.value as any)} className="hidden" />
                         </label>
                         <label 
                            className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${gender === 'Personalizado' ? 'bg-brand/10' : 'bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10'}`}
                            style={gender === 'Personalizado' ? { borderColor: 'var(--brand-color)', color: 'var(--brand-color)' } : {}}
                         >
-                          <span className={`text-xs font-bold ${gender === 'Personalizado' ? '' : 'text-gray-900 dark:text-white'}`}>Outro</span>
+                          <span className={`text-xs font-bold ${gender === 'Personalizado' ? '' : 'text-gray-900 dark:text-white'}`}>{t('auth_gender_other')}</span>
                           <input type="radio" name="gender" value="Personalizado" checked={gender === 'Personalizado'} onChange={e => setGender(e.target.value as any)} className="hidden" />
                         </label>
                       </div>
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">Eu sou...</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <label 
-                           className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${academicRole === 'ALUNO' ? 'bg-brand/10' : 'bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10'}`}
-                           style={academicRole === 'ALUNO' ? { borderColor: 'var(--brand-color)', color: 'var(--brand-color)' } : {}}
-                        >
-                          <span className={`text-xs font-bold ${academicRole === 'ALUNO' ? '' : 'text-gray-900 dark:text-white'}`}>Aluno</span>
-                          <input type="radio" name="academicRole" value="ALUNO" checked={academicRole === 'ALUNO'} onChange={e => setAcademicRole(e.target.value as any)} className="hidden" />
-                        </label>
-                        <label 
-                           className={`flex items-center justify-between p-3 border rounded-xl cursor-pointer transition-all ${academicRole === 'PROFESSOR' ? 'bg-brand/10' : 'bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10'}`}
-                           style={academicRole === 'PROFESSOR' ? { borderColor: 'var(--brand-color)', color: 'var(--brand-color)' } : {}}
-                        >
-                          <span className={`text-xs font-bold ${academicRole === 'PROFESSOR' ? '' : 'text-gray-900 dark:text-white'}`}>Professor</span>
-                          <input type="radio" name="academicRole" value="PROFESSOR" checked={academicRole === 'PROFESSOR'} onChange={e => setAcademicRole(e.target.value as any)} className="hidden" />
-                        </label>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">País</label>
+                      <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-2 block">{t('country_label')}</label>
                       <select 
                         value={country} 
                         onChange={e => setCountry(e.target.value)} 
@@ -376,10 +556,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
 
                 {isRegister && (
                   <p className="text-[10px] text-gray-400 dark:text-gray-500 text-center px-4 leading-relaxed mt-4 font-medium uppercase tracking-tight">
-                    Ao clicar em criar conta, você declara ter lido e concordado com nossos{' '}
-                    <button type="button" onClick={() => onNavigate('terms')} className="text-brand font-black hover:underline underline-offset-4">Termos de Uso</button>{' '}
-                    e nossa{' '}
-                    <button type="button" onClick={() => onNavigate('privacy')} className="text-brand font-black hover:underline underline-offset-4">Diretiva de Privacidade</button>.
+                    {t('terms_agreement')}
                   </p>
                 )}
               </>
@@ -388,15 +565,27 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
             <button 
                type="submit" 
                disabled={loading} 
-               className="w-full py-5 text-white rounded-3xl font-black uppercase text-sm shadow-xl transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+               className="w-full py-5 text-white rounded-3xl font-black uppercase text-sm shadow-xl transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 relative z-10"
                style={{ backgroundColor: 'var(--brand-color)' }}
             >
               {loading ? <ArrowPathIcon className="h-6 w-6 animate-spin" /> : (
                 isRecovering 
-                  ? "Recuperar Agora" 
-                  : isRegister ? 'Criar minha Conta' : 'Entrar na Rede'
+                  ? t('recover_now') 
+                  : isRegister ? t('create_my_account') : t('sign_in_to_network')
               )}
             </button>
+            
+            {!isRecovering && !isRegister && (
+              <button 
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={loading}
+                className="w-full py-4 bg-white dark:bg-white/5 text-gray-700 dark:text-white border border-gray-200 dark:border-white/10 rounded-3xl font-bold text-sm shadow-sm hover:bg-gray-50 dark:hover:bg-white/10 transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
+              >
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
+                <span>{t('google_login')}</span>
+              </button>
+            )}
           </form>
 
 
@@ -406,7 +595,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                 onClick={() => { setIsRegister(!isRegister); setError(''); setSuccess(''); }} 
                 className="text-xs font-bold text-gray-500 hover:text-[var(--brand-color)] transition-colors uppercase tracking-widest block w-full"
               >
-                {isRegister ? 'Já tenho conta? Login' : 'Novo por aqui? Registrar'}
+                {isRegister ? t('already_have_account') : t('new_here')}
               </button>
 
               <div className="flex items-center justify-center gap-6 pt-4 border-t border-gray-100 dark:border-white/5">

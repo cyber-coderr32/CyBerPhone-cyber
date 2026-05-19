@@ -1,5 +1,6 @@
 
 import { db } from './firebaseClient';
+import { safeJsonStringify } from '../lib/utils';
 import { onSnapshot, collection, query, where, limit, orderBy } from 'firebase/firestore';
 import { CallType } from '../types';
 
@@ -33,6 +34,7 @@ export const getNotificationContent = (type: string, actorName: string, context?
       return { title: 'Novo Like! ❤️', body: `${actorName} curtiu sua publicação.` };
     case 'COMMENT':
       return { title: 'Novo Comentário! 💬', body: `${actorName} comentou: "${context || '...'}"` };
+    case 'NEW_FOLLOWER':
     case 'FOLLOW':
       return { title: 'Novo Seguidor! 👤', body: `${actorName} começou a te seguir.` };
     case 'MENTION':
@@ -81,6 +83,6 @@ export const listenForNewSales = (vendorId: string, onNewSale: (sale: any) => vo
         }
     });
   }, (error) => {
-      console.error("Error listening for sales:", error);
+      console.error("Error listening for sales:", safeJsonStringify(error));
   });
 };

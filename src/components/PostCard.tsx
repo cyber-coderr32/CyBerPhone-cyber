@@ -30,7 +30,6 @@ import {
   PauseIcon,
   SpeakerWaveIcon,
   SpeakerXMarkIcon,
-  ArrowsPointingOutIcon,
   LockClosedIcon,
   ArrowPathIcon,
   LanguageIcon,
@@ -46,21 +45,23 @@ import { useDialog } from '../services/DialogContext';
 import { translateText as translateAI } from '../services/translationService';
 import PostDetailModal from './PostDetailModal';
 import BoostPostModal from './BoostPostModal';
-import DeleteConfirmModal from './DeleteConfirmModal';
+import ConfirmationModal, { ConfirmationType } from './ConfirmationModal';
 import EditPostModal from './EditPostModal';
 import PostActionsModal from './PostActionsModal';
 import IndicateModal from './IndicateModal';
 import ShareModal from './ShareModal';
 import VideoPlayer from './VideoPlayer';
+import PromotePostCarouselModal from './PromotePostCarouselModal';
+import { safeJsonStringify } from '../lib/utils';
 
 interface PostCardProps {
   post: Post;
-  currentUser: User;
+  currentUser: User | null;
   onNavigate: (page: Page, params?: Record<string, string>) => void;
-  onFollowToggle: (userIdToFollow: string) => void;
+  onFollowToggle?: (userIdToFollow: string) => void;
   refreshUser: () => void;
-  onPostUpdatedOrDeleted: () => void;
-  onPinToggle: (postId: string, isCurrentlyPinned: boolean) => void;
+  onPostUpdatedOrDeleted?: () => void;
+  onPinToggle?: (postId: string, isCurrentlyPinned: boolean) => void;
 }
 
 const PostCard: React.FC<PostCardProps> = ({ 
@@ -81,20 +82,62 @@ const PostCard: React.FC<PostCardProps> = ({
   const [showEditModal, setShowEditModal] = useState(false);
   const [showIndicateModal, setShowIndicateModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showPromoteModal, setShowPromoteModal] = useState(false);
 
   // Optimistic UI states
   const [localLikes, setLocalLikes] = useState<string[]>(post.likes || []);
-  const [isLiked, setIsLiked] = useState(post.likes?.includes(currentUser.id) || false);
+  const [isLiked, setIsLiked] = useState(currentUser ? (post.likes?.includes(currentUser.id) || false) : false);
   const [localSaves, setLocalSaves] = useState<string[]>(post.saves || []);
-  const [isSaved, setIsSaved] = useState(post.saves?.includes(currentUser.id) || false);
+  const [isSaved, setIsSaved] = useState(currentUser ? (post.saves?.includes(currentUser.id) || false) : false);
   
   const [translatedContent, setTranslatedContent] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isReadingVoice, setIsReadingVoice] = useState(false);
   const [showHeartBurst, setShowHeartBurst] = useState(false);
 
+  // Auto-translation logic
+  useEffect(() => {
+    const shouldAutoTranslate = currentUser?.autoTranslateEnabled && post.content && !translatedContent && !isTranslating;
+    if (shouldAutoTranslate) {
+      // Small delay to avoid hammering the API if multiple posts load at once
+      const timer = setTimeout(() => {
+        handleAutoTranslate();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentUser?.autoTranslateEnabled, i18n.language]);
+
+  const handleAutoTranslate = async () => {
+    if (!post.content || translatedContent || isTranslating) return;
+    
+    // Check if current system language is same as post language (heuristic)
+    // Actually Gemini is good at detecting. We only translate if i18n.language is NOT Portuguese (assuming default is PT)
+    // or if the user changed and wants it.
+    
+    const langMap: Record<string, string> = {
+        'pt': 'Português',
+        'en': 'English',
+        'es': 'Español',
+        'fr': 'Français',
+        'zh': 'Chinese'
+    };
+    const targetLang = langMap[i18n.language.split('-')[0]] || 'English';
+    
+    setIsTranslating(true);
+    try {
+        const translated = await translateText(post.content || '', targetLang);
+        if (translated && translated.toLowerCase() !== post.content?.toLowerCase()) {
+            setTranslatedContent(translated);
+        }
+    } catch (error) {
+        console.error("Auto-translation error:", safeJsonStringify(error));
+    } finally {
+        setIsTranslating(false);
+    }
+  };
+
   const isRecordedLive = post.type === PostType.LIVE && post.liveStream?.status === 'ENDED' && post.liveStream.recordingUrl;
-  const isFollowing = currentUser.followedUsers?.includes(post.userId);
+  const isFollowing = currentUser ? currentUser.followedUsers?.includes(post.userId) : false;
 
   const isAnonymous = post.isAnonymous;
   const authorDisplayName = isAnonymous ? t('anonymous_user') : `${postAuthor?.firstName || ''} ${postAuthor?.lastName || ''}`;
@@ -109,10 +152,10 @@ const PostCard: React.FC<PostCardProps> = ({
 
   useEffect(() => {
     setLocalLikes(post.likes || []);
-    setIsLiked(post.likes?.includes(currentUser.id) || false);
+    setIsLiked(currentUser ? (post.likes?.includes(currentUser.id) || false) : false);
     setLocalSaves(post.saves || []);
-    setIsSaved(post.saves?.includes(currentUser.id) || false);
-  }, [post.likes, post.saves, currentUser.id]);
+    setIsSaved(currentUser ? (post.saves?.includes(currentUser.id) || false) : false);
+  }, [post.likes, post.saves, currentUser?.id]);
 
   useEffect(() => {
     const fetchAuthor = async () => {
@@ -131,8 +174,8 @@ const PostCard: React.FC<PostCardProps> = ({
     } else {
       if (watchStartTimeRef.current) {
         const elapsedSeconds = (Date.now() - watchStartTimeRef.current) / 1000;
-        if (elapsedSeconds > 2 && post.userId !== currentUser.id) {
-          incrementWatchTime(post.userId, elapsedSeconds, currentUser.isPremium);
+        if (elapsedSeconds > 2 && currentUser && post.userId !== currentUser.id) {
+          incrementWatchTime(post.userId, elapsedSeconds, !!currentUser.isPremium);
         }
         watchStartTimeRef.current = null;
       }
@@ -141,12 +184,12 @@ const PostCard: React.FC<PostCardProps> = ({
     return () => {
       if (watchStartTimeRef.current) {
         const elapsedSeconds = (Date.now() - watchStartTimeRef.current) / 1000;
-        if (elapsedSeconds > 2 && post.userId !== currentUser.id) {
-          incrementWatchTime(post.userId, elapsedSeconds, currentUser.isPremium);
+        if (elapsedSeconds > 2 && currentUser && post.userId !== currentUser.id) {
+          incrementWatchTime(post.userId, elapsedSeconds, !!currentUser.isPremium);
         }
       }
     };
-  }, [isPlaying, post.userId, currentUser.id, currentUser.isPremium]);
+  }, [isPlaying, post.userId, currentUser?.id, currentUser?.isPremium]);
 
   // Video Player Logic
   // Handled by VideoPlayer component
@@ -197,7 +240,7 @@ const PostCard: React.FC<PostCardProps> = ({
     } catch (error) {
       setIsLiked(prevIsLiked);
       setLocalLikes(prevLikes);
-      console.error("Falha ao curtir post", error);
+      console.error("Falha ao curtir post", safeJsonStringify(error));
     }
   };
 
@@ -235,13 +278,15 @@ const PostCard: React.FC<PostCardProps> = ({
         const langMap: Record<string, string> = {
             'pt': 'Português',
             'en': 'English',
-            'es': 'Español'
+            'es': 'Español',
+            'fr': 'Français',
+            'zh': 'Chinese'
         };
         const targetLang = langMap[i18n.language.split('-')[0]] || 'Português';
         const translated = await translateText(post.content || '', targetLang);
         setTranslatedContent(translated);
     } catch (error) {
-        showAlert(t('translation_error') || "Erro ao traduzir texto.");
+        showAlert(t('translation_error'));
     } finally {
         setIsTranslating(false);
     }
@@ -265,6 +310,8 @@ const PostCard: React.FC<PostCardProps> = ({
     if (currentLang === 'pt') utterance.lang = 'pt-BR';
     else if (currentLang === 'en') utterance.lang = 'en-US';
     else if (currentLang === 'es') utterance.lang = 'es-ES';
+    else if (currentLang === 'fr') utterance.lang = 'fr-FR';
+    else if (currentLang === 'zh') utterance.lang = 'zh-CN';
 
     utterance.onend = () => setIsReadingVoice(false);
     utterance.onerror = () => setIsReadingVoice(false);
@@ -278,7 +325,7 @@ const PostCard: React.FC<PostCardProps> = ({
   // Lógica Adaptativa de Tamanho (Otimizada para Mobile)
   let fontSizeClass = 'text-[15px] md:text-[17px]';
 
-  if (hasBg) {
+  if (hasBg && post.content) {
     const effectiveTextColor = post.textColor && post.textColor !== 'text-white' 
       ? post.textColor 
       : (post.backgroundColor === 'bg-white' ? 'text-gray-900' : 'text-white');
@@ -291,6 +338,35 @@ const PostCard: React.FC<PostCardProps> = ({
         fontSizeClass = `${effectiveTextColor} text-base md:text-xl leading-relaxed`;
     }
   }
+
+  const isImageUrlVideo = useMemo(() => {
+    if (post.reel?.videoUrl) return true; // If it has a reel object, it's intended to be a video
+    if (!post.imageUrl) return false;
+    const urlToCheck = post.imageUrl || '';
+    const videoExtensions = ['.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v'];
+    return videoExtensions.some(ext => urlToCheck.toLowerCase().includes(ext)) || urlToCheck.includes('blob:');
+  }, [post.imageUrl, post.reel?.videoUrl]);
+
+  const isVideoPost = useMemo(() => {
+    return post.type === PostType.REEL || 
+           post.type === PostType.VIDEO || 
+           isRecordedLive || 
+           post.type?.toString().toUpperCase() === 'REEL' || 
+           post.type?.toString().toUpperCase() === 'VIDEO' ||
+           isImageUrlVideo ||
+           !!post.reel?.videoUrl;
+  }, [post.type, isRecordedLive, isImageUrlVideo, post.reel?.videoUrl]);
+
+  const isReelType = useMemo(() => {
+    // Se o tipo for explicitamente VIDEO, não é um reel.
+    if (post.type === PostType.VIDEO || post.type?.toString().toUpperCase() === 'VIDEO') return false;
+    
+    // Se o tipo for explicitamente REEL, é um reel.
+    if (post.type === PostType.REEL || post.type?.toString().toUpperCase() === 'REEL') return true;
+    
+    // Fallback: se tiver um vídeo mas não for explicitamente REEL, trata como vídeo normal
+    return false;
+  }, [post.type]);
 
   return (
     <>
@@ -313,230 +389,340 @@ const PostCard: React.FC<PostCardProps> = ({
           else if (post.type === PostType.REEL) onNavigate('reels-page', { startPostId: post.id });
           else if (!isRecordedLive) setShowDetailModal(true);
         }}
-        className="bg-white dark:bg-darkcard md:rounded-[1.5rem] border border-gray-100 dark:border-white/5 w-full relative cursor-pointer group hover:bg-gray-50/50 dark:hover:bg-white/[0.02] transition-colors duration-200 shadow-sm md:shadow-md"
+        className="bg-white dark:bg-darkcard md:rounded-[1.5rem] border border-gray-100 dark:border-white/5 w-full relative cursor-pointer group hover:bg-gray-50/50 dark:hover:bg-white/[0.02] transition-colors duration-200 shadow-sm md:shadow-md overflow-hidden"
       >
-        <div className="p-4 flex flex-col">
-          {/* Top Header: Avatar & Info */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-4">
-              {/* Avatar */}
-              <div className={`relative group/avatar shrink-0 ${isAnonymous ? 'cursor-default' : 'cursor-pointer'}`} onClick={(e) => { e.stopPropagation(); if(!isAnonymous) onNavigate('profile', { userId: post.userId }); }}>
-                <img 
-                  src={authorDisplayPic} 
-                  className="w-12 h-12 md:w-14 md:h-14 rounded-full object-cover border-2 border-white dark:border-[#000000] shadow-md transition-transform group-hover/avatar:scale-105" 
-                  referrerPolicy="no-referrer"
-                />
-                {isActuallyOnline && (
-                  <div className="absolute bottom-0 right-0 w-3.5 h-3.5 md:w-4 md:h-4 bg-green-500 rounded-full border-2 border-white dark:border-[#000000] shadow-sm"></div>
-                )}
-              </div>
+        {isReelType && (post.reel?.videoUrl || isImageUrlVideo) ? (
+          /* Instagram Style Layout for Reels */
+          <div className="relative aspect-[9/16] max-h-[700px] bg-black group/reel overflow-hidden md:rounded-[2rem] shadow-2xl">
+            <VideoPlayer 
+              src={post.reel?.videoUrl || post.imageUrl || ''} 
+              poster={post.reel?.coverImageUrl}
+              className="w-full h-full"
+              isReel={true}
+              loop={true}
+              autoPlay={true}
+              onPlayChange={setIsPlaying}
+            />
+            
+            {/* Overlay Gradient - Cleaner Instagram Vibe */}
+            <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80 pointer-events-none" />
 
-              {/* User Info */}
-              <div className="flex flex-col">
-                <div className="flex items-center gap-1.5">
-                  <span className={`font-black text-base md:text-lg text-gray-900 dark:text-white truncate ${isAnonymous ? '' : 'hover:underline cursor-pointer'}`} onClick={(e) => { e.stopPropagation(); if(!isAnonymous) onNavigate('profile', { userId: post.userId }); }}>
-                    {authorDisplayName}
-                  </span>
-                  {!isAnonymous && postAuthor?.isVerified && <BoltIcon className="h-4 w-4 text-brand shrink-0" />}
-                </div>
-                <div className="flex items-center gap-2 text-gray-500 text-[11px] font-bold uppercase tracking-wider">
-                  <span>{new Date(post.timestamp).toLocaleDateString()}</span>
-                  {post.isPinned && (
-                    <>
-                      <span>·</span>
-                      <PinIconSolid className="h-3 w-3" />
-                    </>
-                  )}
-                  {isPostBoosted && (
-                    <>
-                      <span>·</span>
-                      <span className="flex items-center gap-0.5 text-blue-600 dark:text-blue-400">
-                        <BoltIcon className="h-3 w-3" />
-                        <span>Patrocinado</span>
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
+            {/* Header Overlay */}
+            <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
+               <div className="flex items-center gap-2">
+                 <img src={authorDisplayPic} className="w-8 h-8 rounded-full border border-white/20" />
+                 <span className="text-white text-sm font-bold drop-shadow-md">
+                   {authorDisplayName}
+                 </span>
+                 {postAuthor?.isVerified && <BoltIcon className="h-3 w-3 text-brand" />}
+               </div>
+               <div className="flex items-center gap-1">
+                 <button 
+                   onClick={handleTranslate}
+                   className={`p-2 rounded-full transition-all ${isTranslating ? 'animate-pulse' : ''} ${translatedContent ? 'bg-brand text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                   title={t('translate')}
+                 >
+                   <LanguageIcon className="h-5 w-5" />
+                 </button>
+                 <button 
+                   onClick={handleReadAloud}
+                   className={`p-2 rounded-full transition-all ${isReadingVoice ? 'bg-brand text-white' : 'text-white/70 hover:text-white hover:bg-white/10'}`}
+                   title={t('read_aloud')}
+                 >
+                   {isReadingVoice ? <SpeakerXMarkIcon className="h-5 w-5" /> : <SpeakerWaveIcon className="h-5 w-5" />}
+                 </button>
+                 <button 
+                   onClick={(e) => { e.stopPropagation(); setShowActionsModal(true); }}
+                   className="p-1 text-white drop-shadow-md"
+                 >
+                   <EllipsisHorizontalIcon className="h-6 w-6" />
+                 </button>
+               </div>
             </div>
 
-            {/* Menu */}
-            <button 
-              onClick={(e) => { e.stopPropagation(); setShowActionsModal(true); }} 
-              className="p-2.5 rounded-2xl text-gray-500 hover:text-brand hover:bg-brand/10 transition-all bg-gray-50 dark:bg-white/5"
-            >
-              <EllipsisHorizontalIcon className="h-6 w-6" />
-            </button>
-          </div>
-
-          {/* Main Content Area (Full Width) */}
-          <div className="w-full">
-            {/* Post Breadcrumb (Groups) */}
-            {post.groupId && (
-              <div className="flex items-center gap-1 text-[12px] text-brand font-black uppercase tracking-widest mb-3 px-1">
-                <UserGroupIcon className="h-3.5 w-3.5" /> <span>em {post.groupName}</span>
+              {/* Right Side Interaction Bar - More Instagram Style */}
+              <div className="absolute right-3 bottom-20 flex flex-col items-center gap-6 z-10">
+                <div className="flex flex-col items-center">
+                  <button onClick={handleLike} className={`p-2 drop-shadow-xl transition-all active:scale-75 ${isLiked ? 'text-red-500 scale-110' : 'text-white'}`}>
+                    {isLiked ? <HeartIconSolid className="h-9 w-9" /> : <HeartIconOutline className="h-9 w-9" />}
+                  </button>
+                  <span className="text-[11px] text-white font-black drop-shadow-md mt-1">{localLikes.length}</span>
+                </div>
+                <div className="flex flex-col items-center">
+                  <button onClick={(e) => { e.stopPropagation(); setShowDetailModal(true); }} className="p-2 text-white drop-shadow-xl hover:scale-110 transition-transform">
+                    <ChatIconOutline className="h-9 w-9" />
+                  </button>
+                  <span className="text-[11px] text-white font-black drop-shadow-md mt-1">{post.comments?.length || 0}</span>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); setShowShareModal(true); }} className="p-2 text-white drop-shadow-xl hover:scale-110 transition-transform">
+                  <ShareIcon className="h-8 w-8" />
+                </button>
+                <button onClick={handleSave} className={`p-2 drop-shadow-xl transition-all active:scale-75 ${isSaved ? 'text-brand' : 'text-white'}`}>
+                  {isSaved ? <BookmarkIconSolid className="h-8 w-8" /> : <BookmarkIconOutline className="h-8 w-8" />}
+                </button>
+                <div className="mt-2 w-8 h-8 rounded-full border border-white/50 p-1 animate-spin-slow">
+                   <div className="w-full h-full rounded-full bg-white/20"></div>
+                </div>
               </div>
-            )}
 
-            {/* Main Content Body */}
-            <div className="mt-1">
-              {post.content && (
+            {/* Bottom Info Overlay */}
+            <div className="absolute bottom-4 left-4 right-16 z-10">
+               <p className="text-white text-sm font-medium line-clamp-2 leading-snug drop-shadow-md mb-2">
+                 {post.content}
+               </p>
+               <div className="flex items-center gap-2 bg-black/20 backdrop-blur-md rounded-full px-2 py-1 w-fit border border-white/10">
+                 <SignalIcon className="h-3 w-3 text-white" />
+                 <span className="text-[10px] text-white font-bold uppercase tracking-wider">{t('audio_original')}</span>
+               </div>
+            </div>
+          </div>
+        ) : isVideoPost ? (
+          /* YouTube Style Layout for Videos */
+          <div className="flex flex-col bg-white dark:bg-[#0f0f0f] border-b border-gray-100 dark:border-white/5">
+            {/* Video Area */}
+            <div className="w-full relative bg-black aspect-video overflow-hidden">
+              {isRecordedLive ? (
+                <VideoPlayer 
+                  src={post.liveStream!.recordingUrl!} 
+                  className="w-full h-full"
+                  autoPlay={true}
+                  onPlayChange={setIsPlaying}
+                />
+              ) : (
+                <VideoPlayer 
+                  src={post.reel?.videoUrl || post.imageUrl || ''} 
+                  poster={post.reel?.coverImageUrl}
+                  className="w-full h-full"
+                  isReel={post.type === PostType.REEL || post.type?.toString().toUpperCase() === 'REEL'}
+                  loop={false}
+                  autoPlay={true}
+                  onPlayChange={setIsPlaying}
+                />
+              )}
+              {post.type === PostType.LIVE && (
+                <div className="absolute top-3 left-3 z-10">
+                  <div className="bg-red-600 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 uppercase tracking-wider text-white">
+                    <SignalIcon className="h-3 w-3" /> {t('live_badge')}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Info below video (YouTube Style) */}
+            <div className="p-4">
+              <div className="flex gap-3">
                 <div 
-                  className={`w-full transition-all duration-300 relative group/content
-                    ${hasBg ? `${post.backgroundColor} ${post.textColor || 'text-white'} rounded-2xl p-6 text-center my-2 shadow-inner` : 'text-left bg-transparent'} 
-                    ${post.fontFamily || 'font-sans'}`}
+                  className="shrink-0"
+                  onClick={(e) => { e.stopPropagation(); if(!isAnonymous) onNavigate('profile', { userId: post.userId }); }}
                 >
-                  <p 
-                    style={{ fontFamily: `var(--${post.fontFamily || 'font-sans'})` }}
-                    className={`whitespace-pre-wrap break-words w-full transition-all duration-300 ${hasBg ? fontSizeClass : 'text-[15px] md:text-[17px] leading-relaxed tracking-tight text-gray-900 dark:text-gray-100 font-medium'}`}
+                  <img src={authorDisplayPic} className="w-10 h-10 rounded-full border border-gray-100 dark:border-white/10" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-bold text-base text-gray-900 dark:text-white line-clamp-2 leading-snug">
+                    {post.content || ''}
+                  </h3>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1 text-[12px] text-gray-500 font-medium">
+                    <span className="hover:text-brand cursor-pointer" onClick={(e) => { e.stopPropagation(); if(!isAnonymous) onNavigate('profile', { userId: post.userId }); }}>
+                      {authorDisplayName}
+                    </span>
+                    {postAuthor?.isVerified && <BoltIcon className="h-3 w-3 text-brand inline" />}
+                    <span>•</span>
+                    <span>{new Date(post.timestamp).toLocaleDateString()}</span>
+                    {isPostBoosted && (
+                      <>
+                        <span>•</span>
+                        <span className="text-blue-600 font-bold uppercase text-[10px]">{t('sponsored_label')}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button 
+                    onClick={handleTranslate}
+                    className={`p-1.5 rounded-full transition-all ${isTranslating ? 'animate-pulse' : ''} ${translatedContent ? 'text-brand' : 'text-gray-500 hover:text-brand hover:bg-gray-100 dark:hover:bg-white/5'}`}
+                    title={t('translate')}
                   >
-                    {translatedContent || displayContent}
-                  </p>
-                  
-                  {post.content && post.content.length > 3 && (
-                     <div className="flex items-center gap-4">
-                        <button 
-                            onClick={handleTranslate}
-                            className={`mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95 ${hasBg ? 'text-white/80 hover:text-white' : 'text-brand'}`}
-                        >
-                            {isTranslating ? (
-                                <ArrowPathIcon className="h-3 w-3 animate-spin" />
-                            ) : (
-                                <span>{translatedContent ? t('view_original') : t('translate')}</span>
-                            )}
-                        </button>
+                    <LanguageIcon className="h-5 w-5" />
+                  </button>
+                  <button 
+                    onClick={handleReadAloud}
+                    className={`p-1.5 rounded-full transition-all ${isReadingVoice ? 'text-brand' : 'text-gray-500 hover:text-brand hover:bg-gray-100 dark:hover:bg-white/5'}`}
+                    title={t('read_aloud')}
+                  >
+                    {isReadingVoice ? <SpeakerXMarkIcon className="h-5 w-5" /> : <SpeakerWaveIcon className="h-5 w-5" />}
+                  </button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); setShowActionsModal(true); }} 
+                    className="p-1 text-gray-500 hover:text-brand"
+                  >
+                    <EllipsisHorizontalIcon className="h-6 w-6" />
+                  </button>
+                </div>
+              </div>
 
-                        <button 
-                            onClick={handleReadAloud}
-                            className={`mt-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider transition-all hover:scale-105 active:scale-95 ${hasBg ? 'text-white/80 hover:text-white' : 'text-brand'}`}
-                        >
-                            {isReadingVoice ? (
-                                <><div className="flex gap-0.5"><div className="w-0.5 h-2 bg-current animate-bounce" style={{animationDelay: '0s'}}></div><div className="w-0.5 h-2 bg-current animate-bounce" style={{animationDelay: '0.1s'}}></div><div className="w-0.5 h-2 bg-current animate-bounce" style={{animationDelay: '0.2s'}}></div></div> {t('stop_reading')}</>
-                            ) : (
-                                <><SpeakerWaveIcon className="h-3.5 w-3.5" /> {t('read_aloud')}</>
-                            )}
-                        </button>
-                     </div>
-                  )}
-                  {!isTextExpanded && post.content && post.content.length > (hasBg ? 500 : TEXT_LIMIT) && (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setIsTextExpanded(true); }}
-                      className={`${hasBg ? 'text-white/90 underline-offset-4' : 'text-brand'} hover:underline mt-1 inline-block text-[15px] font-bold`}
-                    >
-                      {t('show_more') || 'Mostrar mais'}
-                    </button>
-                  )}
-                  {isTextExpanded && post.content && post.content.length > (hasBg ? 500 : TEXT_LIMIT) && (
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setIsTextExpanded(false); }}
-                      className={`${hasBg ? 'text-white/90 underline-offset-4' : 'text-brand'} hover:underline mt-2 block text-[15px] font-bold mx-auto md:mx-0`}
-                    >
-                      {t('show_less') || 'Mostrar menos'}
-                    </button>
-                  )}
+              {/* Translation/Voice if expanded or available */}
+              {(translatedContent || isTextExpanded) && (
+                <div className="mt-3 text-[14px] text-gray-700 dark:text-gray-300">
+                  {translatedContent || post.content}
                 </div>
               )}
 
-              {/* Media Blocks */}
-              <div className="mt-3">
-                {/* LIVE ATIVA */}
-                {post.type === PostType.LIVE && !post.liveStream?.recordingUrl && post.liveStream ? (
-                   <div className="rounded-2xl overflow-hidden bg-gray-900 text-white p-6 relative border border-white/10">
-                      <div className="absolute top-3 left-3 z-10">
-                         <div className="bg-red-600 px-2 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 uppercase tracking-wider">
-                            <SignalIcon className="h-3 w-3" /> AO VIVO
-                         </div>
-                      </div>
-                      <div className="relative z-10 py-4 flex flex-col items-center text-center">
-                         <h3 className="text-lg font-bold mb-4">{post.liveStream.title}</h3>
-                         <button className="bg-brand text-white px-6 py-2 rounded-full font-bold text-sm">
-                            Assistir agora
-                         </button>
-                      </div>
-                   </div>
-                ) : 
-                
-                /* LIVE GRAVADA */
-                isRecordedLive ? (
-                   <VideoPlayer 
-                     src={post.liveStream!.recordingUrl!} 
-                     className="rounded-2xl shadow-xl aspect-video"
-                     autoPlay={true}
-                     onPlayChange={setIsPlaying}
-                   />
-                ) :
-                
-                /* REEL ou VIDEO */
-                (post.type === PostType.REEL || post.type === PostType.VIDEO) && post.reel ? (
-                   <VideoPlayer 
-                     src={post.reel.videoUrl} 
-                     poster={post.reel.coverImageUrl}
-                     className={`rounded-2xl shadow-xl ${post.type === PostType.REEL ? 'aspect-[9/16] max-h-[550px]' : 'aspect-video'}`}
-                     isReel={post.type === PostType.REEL}
-                     loop={post.type === PostType.REEL}
-                     autoPlay={true}
-                     onPlayChange={setIsPlaying}
-                   />
-                ) : (
-                  /* IMAGE OR OTHER */
-                  post.imageUrl && (
-                    <div className="rounded-2xl overflow-hidden border border-gray-100 dark:border-white/10 bg-gray-50 dark:bg-zinc-900 relative">
-                       <img src={post.imageUrl} className="w-full h-auto object-cover max-h-[512px]" alt="Post" />
-                    </div>
-                  )
-                )}
+              {/* Actions */}
+              <div className="mt-4 pt-4 border-t border-gray-50 dark:border-white/5 flex items-center gap-6 text-gray-500">
+                <button onClick={handleLike} className={`flex items-center gap-1.5 hover:text-brand transition-colors ${isLiked ? 'text-pink-600' : ''}`}>
+                  {isLiked ? <HeartIconSolid className="h-5 w-5" /> : <HeartIconOutline className="h-5 w-5" />}
+                  <span className="text-xs font-bold">{localLikes.length}</span>
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); setShowDetailModal(true); }} className="flex items-center gap-1.5 hover:text-brand transition-colors">
+                  <ChatIconOutline className="h-5 w-5" />
+                  <span className="text-xs font-bold">{post.comments?.length || 0}</span>
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); setShowShareModal(true); }} className="flex items-center gap-1.5 hover:text-brand transition-colors">
+                  <ShareIcon className="h-5 w-5" />
+                  <span className="text-xs font-bold">{post.shares?.length || 0}</span>
+                </button>
+                <button onClick={handleSave} className={`ml-auto hover:text-brand transition-colors ${isSaved ? 'text-brand' : ''}`}>
+                  {isSaved ? <BookmarkIconSolid className="h-5 w-5" /> : <BookmarkIconOutline className="h-5 w-5" />}
+                </button>
               </div>
             </div>
           </div>
+        ) : (
+          /* Standard Social Layout for Images/Text/etc */
+          <div className="p-4 flex flex-col">
+            {/* Header: Avatar & Info */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-4">
+                <div className={`relative group/avatar shrink-0 ${isAnonymous ? 'cursor-default' : 'cursor-pointer'}`} onClick={(e) => { e.stopPropagation(); if(!isAnonymous) onNavigate('profile', { userId: post.userId }); }}>
+                  <img 
+                    src={authorDisplayPic} 
+                    className="w-12 h-12 md:w-14 md:h-14 rounded-full object-cover border-2 border-white dark:border-[#000000] shadow-md transition-transform group-hover/avatar:scale-105" 
+                    referrerPolicy="no-referrer"
+                  />
+                  {isActuallyOnline && (
+                    <div className="absolute bottom-0 right-0 w-3.5 h-3.5 md:w-4 md:h-4 bg-green-500 rounded-full border-2 border-white dark:border-[#000000] shadow-sm"></div>
+                  )}
+                </div>
 
-            {/* Actions Bar (X Style) */}
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`font-black text-base md:text-lg text-gray-900 dark:text-white truncate ${isAnonymous ? '' : 'hover:underline cursor-pointer'}`} onClick={(e) => { e.stopPropagation(); if(!isAnonymous) onNavigate('profile', { userId: post.userId }); }}>
+                      {authorDisplayName}
+                    </span>
+                    {!isAnonymous && postAuthor?.isVerified && <BoltIcon className="h-4 w-4 text-brand shrink-0" />}
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-500 text-[11px] font-bold uppercase tracking-wider">
+                    <span>{new Date(post.timestamp).toLocaleDateString()}</span>
+                    {post.isPinned && (
+                      <>
+                        <span>·</span>
+                        <PinIconSolid className="h-3 w-3" />
+                      </>
+                    )}
+                    {isPostBoosted && (
+                      <>
+                        <span>·</span>
+                        <span className="flex items-center gap-0.5 text-blue-600 dark:text-blue-400">
+                          <BoltIcon className="h-3 w-3" />
+                          <span>{t('sponsored_label')}</span>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={handleTranslate}
+                  className={`p-2.5 rounded-2xl transition-all ${isTranslating ? 'animate-pulse' : ''} ${translatedContent ? 'bg-brand/20 text-brand' : 'text-gray-500 hover:text-brand hover:bg-brand/10 bg-gray-50 dark:bg-white/5'}`}
+                  title={t('translate')}
+                >
+                  <LanguageIcon className="h-5 w-5" />
+                </button>
+                <button 
+                  onClick={handleReadAloud}
+                  className={`p-2.5 rounded-2xl transition-all ${isReadingVoice ? 'bg-brand/20 text-brand' : 'text-gray-500 hover:text-brand hover:bg-brand/10 bg-gray-50 dark:bg-white/5'}`}
+                  title={t('read_aloud')}
+                >
+                  {isReadingVoice ? <SpeakerXMarkIcon className="h-5 w-5" /> : <SpeakerWaveIcon className="h-5 w-5" />}
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setShowActionsModal(true); }} 
+                  className="p-2.5 rounded-2xl text-gray-500 hover:text-brand hover:bg-brand/10 transition-all bg-gray-50 dark:bg-white/5"
+                >
+                  <EllipsisHorizontalIcon className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            <div className="w-full">
+              {post.groupId && (
+                <div className="flex items-center gap-1 text-[12px] text-brand font-black uppercase tracking-widest mb-3 px-1">
+                  <UserGroupIcon className="h-3.5 w-3.5" /> <span>{t('in_group')} {post.groupName}</span>
+                </div>
+              )}
+              <div className="mt-1">
+                {post.content && (
+                  <div className={`w-full relative group/content ${hasBg ? `${post.backgroundColor} ${post.textColor || 'text-white'} rounded-[2.5rem] p-10 md:p-14 text-center my-4 shadow-xl shadow-brand/10` : 'text-left bg-transparent'}`}>
+                    <p className={`whitespace-pre-wrap break-words w-full transition-all duration-300 ${hasBg ? fontSizeClass : 'text-[15px] md:text-[17px] leading-relaxed tracking-tight text-gray-900 dark:text-gray-100 font-medium'}`}>
+                      {translatedContent || displayContent}
+                    </p>
+                    {translatedContent && (
+                      <div className="mt-2 flex items-center gap-1 text-[10px] font-bold text-brand uppercase tracking-widest opacity-80">
+                        <LanguageIcon className="h-3 w-3" />
+                        <span>{t('translation_ai')}</span>
+                        <button 
+                          onClick={(e) => { e.stopPropagation(); setTranslatedContent(null); }}
+                          className="ml-2 hover:underline"
+                        >
+                          ({t('view_original')})
+                        </button>
+                      </div>
+                    )}
+                    {!isTextExpanded && post.content?.length > (hasBg ? 500 : TEXT_LIMIT) && (
+                      <button onClick={(e) => { e.stopPropagation(); setIsTextExpanded(true); }} className={`${hasBg ? 'text-white/90 underline-offset-4' : 'text-brand'} hover:underline mt-1 inline-block text-[15px] font-bold`}>{t('show_more')}</button>
+                    )}
+                  </div>
+                )}
+                <div className="mt-3">
+                  {post.imageUrl && (
+                    <div className="rounded-2xl overflow-hidden border border-gray-100 dark:border-white/10 bg-gray-50 dark:bg-zinc-900 relative">
+                       <img src={post.imageUrl} className="w-full h-auto object-cover max-h-[512px]" alt="Post" />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             <div className="mt-5 pt-4 border-t border-gray-50 dark:border-white/5 flex items-center justify-between max-w-sm text-gray-500">
-               <button 
-                 onClick={(e) => { e.stopPropagation(); setShowDetailModal(true); }}
-                 className="flex items-center gap-1 group"
-               >
+               <button onClick={(e) => { e.stopPropagation(); setShowDetailModal(true); }} className="flex items-center gap-1 group">
                   <div className="p-2 rounded-full group-hover:bg-brand/10 group-hover:text-brand transition-colors">
                     <ChatIconOutline className="h-[18px] w-[18px]" />
                   </div>
                   <span className="text-[13px] group-hover:text-brand">{post.comments?.length || 0}</span>
                </button>
-
-               <button 
-                 onClick={handleLike}
-                 className={`flex items-center gap-1 group transition-all ${isLiked ? 'text-pink-600' : ''}`}
-               >
+               <button onClick={handleLike} className={`flex items-center gap-1 group transition-all ${isLiked ? 'text-pink-600' : ''}`}>
                   <div className={`p-2 rounded-full ${isLiked ? 'group-hover:bg-pink-600/10' : 'group-hover:bg-pink-600/10 group-hover:text-pink-600'} transition-colors`}>
-                    <div>
-                      {isLiked ? <HeartIconSolid className="h-[18px] w-[18px]" /> : <HeartIconOutline className="h-[18px] w-[18px]" />}
-                    </div>
+                    {isLiked ? <HeartIconSolid className="h-[18px] w-[18px]" /> : <HeartIconOutline className="h-[18px] w-[18px]" />}
                   </div>
                   <span className={`text-[13px] ${isLiked ? '' : 'group-hover:text-pink-600'}`}>{localLikes.length}</span>
                </button>
-
-               <button 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    setShowShareModal(true);
-                  }}
-                  className="flex items-center gap-1 group"
-               >
+               <button onClick={(e) => { e.stopPropagation(); setShowShareModal(true); }} className="flex items-center gap-1 group">
                   <div className="p-2 rounded-full group-hover:bg-brand/10 group-hover:text-brand transition-colors">
                     <ShareIcon className="h-[18px] w-[18px]" />
                   </div>
                   <span className="text-[13px] group-hover:text-brand">{post.shares?.length || 0}</span>
                </button>
-
-               <button 
-                 onClick={handleSave}
-                 className={`flex items-center gap-1 group transition-all ${isSaved ? 'text-brand' : ''}`}
-               >
+               <button onClick={handleSave} className={`flex items-center gap-1 group transition-all ${isSaved ? 'text-brand' : ''}`}>
                   <div className={`p-2 rounded-full ${isSaved ? 'group-hover:bg-brand/10' : 'group-hover:bg-brand/10 group-hover:text-brand'} transition-colors`}>
                     {isSaved ? <BookmarkIconSolid className="h-[18px] w-[18px]" /> : <BookmarkIconOutline className="h-[18px] w-[18px]" />}
                   </div>
                </button>
             </div>
           </div>
-        </div>
+        )}
+      </div>
 
       {showActionsModal && (
         <PostActionsModal 
@@ -546,44 +732,52 @@ const PostCard: React.FC<PostCardProps> = ({
           onClose={() => setShowActionsModal(false)} 
           onEdit={() => { setShowActionsModal(false); setShowEditModal(true); }} 
           onDelete={() => { setShowActionsModal(false); setShowDeleteModal(true); }} 
-          onPin={() => { if(post.isPinned) unpinPost(post.id); else pinPost(post.id); onPostUpdatedOrDeleted(); setShowActionsModal(false); }} 
+          onPin={() => { if(post.isPinned) unpinPost(post.id); else pinPost(post.id); onPostUpdatedOrDeleted?.(); setShowActionsModal(false); }} 
           onBoost={() => { setShowActionsModal(false); setShowBoostModal(true); }} 
-          onFollow={() => { onFollowToggle(post.userId); setShowActionsModal(false); }} 
+          onPromoteCarousel={() => { setShowActionsModal(false); setShowPromoteModal(true); }}
+          onFollow={() => { onFollowToggle?.(post.userId); setShowActionsModal(false); }} 
           onIndicate={() => { setShowActionsModal(false); setShowIndicateModal(true); }} 
           isMonetized={!!post.isMonetized}
-          canMonetize={currentUser.isMonetized}
+          canMonetize={!!currentUser?.isMonetized}
           onToggleMonetization={async () => {
             const updated = { ...post, isMonetized: !post.isMonetized };
             await updatePost(updated);
-            onPostUpdatedOrDeleted();
+            onPostUpdatedOrDeleted?.();
             setShowActionsModal(false);
           }}
           onReport={async () => { 
-            if(await showConfirm("Deseja realmente denunciar esta publicação?")) {
+            if(!currentUser) return;
+            if(await showConfirm(t('report_confirm') || "Deseja realmente denunciar esta publicação?")) {
               await createReport({ reporterId: currentUser.id, targetId: post.id, targetType: 'POST', reason: 'DENÚNCIA', details: 'Via PostCard' }); 
-              showAlert("Denúncia enviada com sucesso. Nossa equipe irá analisar.", { type: 'success' });
+              showAlert(t('report_success') || "Denúncia enviada com sucesso. Nossa equipe irá analisar.", { type: 'success' });
               setShowActionsModal(false); 
             }
           }} 
         />
       )}
 
-      {showDetailModal && <PostDetailModal post={post} currentUser={currentUser} onClose={() => setShowDetailModal(false)} onUpdate={onPostUpdatedOrDeleted} onNavigate={onNavigate} refreshUser={refreshUser} />}
-      {showBoostModal && <BoostPostModal post={post} currentUser={currentUser} onClose={() => setShowBoostModal(false)} onSuccess={() => { refreshUser(); onPostUpdatedOrDeleted(); }} />}
+      {showDetailModal && <PostDetailModal post={post} currentUser={currentUser!} onClose={() => setShowDetailModal(false)} onUpdate={onPostUpdatedOrDeleted || (() => {})} onNavigate={onNavigate} refreshUser={refreshUser} />}
+      {showBoostModal && currentUser && <BoostPostModal post={post} currentUser={currentUser} onClose={() => setShowBoostModal(false)} onSuccess={() => { refreshUser(); onPostUpdatedOrDeleted?.(); }} />}
+      {showPromoteModal && currentUser && <PromotePostCarouselModal post={post} currentUser={currentUser} onClose={() => setShowPromoteModal(false)} onSuccess={() => { refreshUser(); onPostUpdatedOrDeleted?.(); }} />}
       
       {showDeleteModal && (
-        <DeleteConfirmModal 
+        <ConfirmationModal 
+          isOpen={showDeleteModal}
           onClose={() => setShowDeleteModal(false)} 
+          title={t('confirm_delete_title')}
+          message={t('delete_confirm')}
+          confirmText={t('delete')}
+          type={ConfirmationType.DANGER}
           onConfirm={async () => { 
             await deletePost(post.id); 
-            onPostUpdatedOrDeleted(); 
+            onPostUpdatedOrDeleted?.(); 
             setShowDeleteModal(false); 
           }} 
         />
       )}
       
-      {showEditModal && <EditPostModal postId={post.id} currentUser={currentUser} onClose={() => setShowEditModal(false)} onSuccess={onPostUpdatedOrDeleted} />}
-      {showIndicateModal && <IndicateModal post={post} currentUser={currentUser} onClose={() => setShowIndicateModal(false)} onPostUpdated={onPostUpdatedOrDeleted} />}
+      {showEditModal && currentUser && <EditPostModal post={post} currentUser={currentUser} onClose={() => setShowEditModal(false)} onSuccess={onPostUpdatedOrDeleted || (() => {})} />}
+      {showIndicateModal && currentUser && <IndicateModal post={post} currentUser={currentUser} onClose={() => setShowIndicateModal(false)} onPostUpdated={onPostUpdatedOrDeleted || (() => {})} />}
       
       {showShareModal && (
         <ShareModal 
@@ -592,7 +786,7 @@ const PostCard: React.FC<PostCardProps> = ({
           currentUser={currentUser}
           onNavigate={onNavigate}
           content={{
-            title: `Post de ${authorDisplayName}`,
+            title: t('post_from_author', { author: authorDisplayName }),
             text: post.content || '',
             url: `${window.location.origin}/?page=post-detail&postId=${post.id}`,
             mediaUrl: post.imageUrl || post.reel?.videoUrl,

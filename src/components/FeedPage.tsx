@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { User, Post, AdCampaign, PostType, Story, GroupedStory, CyberEvent, ChatConversation, Page } from '../types';
-import { getPosts, getAds, getStories, getUsers, toggleFollowUser, getEvents, getChats, joinGroup, markStoryAsViewed } from '../services/storageService';
+import { getPosts, getAds, getStories, getUsers, toggleFollowUser, getEvents, getChats, joinGroup, markStoryAsViewed, getPromotedItems } from '../services/storageService';
 import { safeJsonStringify } from '../lib/utils';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import PostCard from './PostCard';
@@ -18,6 +18,7 @@ interface FeedPageProps {
   currentUser: User;
   onNavigate: (page: Page, params?: Record<string, string>) => void;
   refreshUser: () => void;
+  params?: Record<string, string>;
 }
 
 const ITEMS_PER_PAGE = 10;
@@ -30,7 +31,7 @@ type FeedItem =
   | { type: 'REELS_SHELF'; items: Post[] } 
   | { type: 'GROUPS_SHELF'; items: ChatConversation[] };
 
-const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUser }) => {
+const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUser, params }) => {
   const { t } = useTranslation();
   const [allItems, setAllItems] = useState<FeedItem[]>([]);
   const [visibleItems, setVisibleItems] = useState<FeedItem[]>([]);
@@ -40,13 +41,64 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
   const [showScrollTop, setShowScrollTop] = useState(false);
   
   const [stories, setStories] = useState<GroupedStory[]>([]);
+  const [promotedItems, setPromotedItems] = useState<any[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<User[]>([]);
   const [selectedStoryIndex, setSelectedStoryIndex] = useState<number | null>(null);
   const [isCreatingStory, setIsCreatingStory] = useState(false);
   const [feedError, setFeedError] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   
   const [activeFeedTab, setActiveFeedTab] = useState<'all' | 'reels' | 'videos'>('all');
   const observerTarget = useRef<HTMLDivElement>(null);
+  const createPostRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) {
+        setIsKeyboardVisible(true);
+      }
+    };
+
+    const handleFocusOut = () => {
+      setTimeout(() => {
+        if (document.activeElement?.tagName !== 'INPUT' && 
+            document.activeElement?.tagName !== 'TEXTAREA' && 
+            !(document.activeElement as HTMLElement)?.isContentEditable) {
+          setIsKeyboardVisible(false);
+        }
+      }, 100);
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('focusout', handleFocusOut);
+
+    const handleResize = () => {
+      const visualViewport = window.visualViewport;
+      if (visualViewport) {
+        if (visualViewport.height < window.innerHeight * 0.8) {
+          setIsKeyboardVisible(true);
+        } else if (document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+          setIsKeyboardVisible(false);
+        }
+      }
+    };
+    window.visualViewport?.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('focusout', handleFocusOut);
+      window.visualViewport?.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (params?.showCreate === 'true') {
+      setTimeout(() => {
+        createPostRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 500);
+    }
+  }, [params]);
 
   const loadData = useCallback(async (isRefresh = false) => {
     if (!isRefresh) {
@@ -55,35 +107,70 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
     }
     
     try {
-        const [allPosts, allAds, allUsers, allStories, allChats] = await Promise.all([
-          getPosts(currentUser.id).catch(() => []),
+        const [allPosts, allAds, allUsers, allStories, allChats, promoted] = await Promise.all([
+          getPosts(currentUser).catch(() => []),
           getAds().catch(() => []),
           getUsers(currentUser).catch(() => []),
           getStories(currentUser.id).catch(() => []),
-          getChats(currentUser.id).catch(() => [])
+          getChats(currentUser.id).catch(() => []),
+          getPromotedItems().catch(() => [])
         ]);
 
         // Filtrar Posts Normais e Reels - APENAS SEGUIDOS OU PRÓPRIOS E NÃO BLOQUEADOS
         const myFollows = currentUser.followedUsers || [];
         const myBlocked = currentUser.blockedUserIds || [];
+        const publicPosts = (allPosts || []).filter(p => !myBlocked.includes(p.userId));
+        const userAge = (Date.now() - currentUser.birthDate) / (31557600000); // Years approximation
 
-        const filteredPosts = (allPosts || []).filter(p => {
-          if (myBlocked.includes(p.userId)) return false;
-          return p.userId === currentUser.id || myFollows.includes(p.userId) || p.isBoosted;
+        const filteredPosts = publicPosts.filter(p => {
+          const isOwnOrFollowed = p.userId === currentUser.id || myFollows.includes(p.userId);
+          
+          if (p.isBoosted) {
+              // Targeting for boosted posts (Auction Discovery)
+              if (p.minAge && userAge < p.minAge) return false;
+              if (p.maxAge && userAge > p.maxAge) return false;
+              if (p.targetLocations && p.targetLocations.length > 0 && currentUser.country) {
+                 if (!p.targetLocations.includes(currentUser.country)) return false;
+              }
+              return true;
+          }
+          
+          return isOwnOrFollowed;
         });
 
-        const normalPosts = filteredPosts.filter(p => p.type !== PostType.REEL).sort((a, b) => b.timestamp - a.timestamp);
-        const reelsPosts = filteredPosts.filter(p => p.type === PostType.REEL).sort((a, b) => b.timestamp - a.timestamp);
+        const auctionSort = (a: Post, b: Post) => {
+          const now = Date.now();
+          const bidA = (a.isBoosted && a.boostExpires && a.boostExpires > now) ? (a.boostBid || 0) : 0;
+          const bidB = (b.isBoosted && b.boostExpires && b.boostExpires > now) ? (b.boostBid || 0) : 0;
+          
+          if (bidB !== bidA) return bidB - bidA;
+          return (b.timestamp || 0) - (a.timestamp || 0);
+        };
+
+        const normalPosts = filteredPosts.filter(p => p.type !== PostType.REEL).sort(auctionSort);
+        
+        // Use publicPosts for specialized tabs to allow discovery
+        const globalReels = publicPosts.filter(p => p.type === PostType.REEL).sort(auctionSort);
+        const globalVideos = publicPosts.filter(p => p.type === PostType.VIDEO).sort(auctionSort);
 
         // RIGOROUS AD FILTERING
-        const userAge = (Date.now() - currentUser.birthDate) / (31557600000); // Years approximation
         const activeAds = (allAds || []).filter(a => {
             if (!a.isActive) return false;
             // Age Filtering
             if (a.minAge && userAge < a.minAge) return false;
             if (a.maxAge && userAge > a.maxAge) return false;
+            // Location Filtering
+            if (a.locations && a.locations.length > 0 && currentUser.country) {
+                if (!a.locations.includes(currentUser.country)) return false;
+            }
             return true;
-        }).sort((a, b) => (b.budget || 0) - (a.budget || 0));
+        }).sort((a, b) => {
+            // Auction Logic: Prioritize higher bid, then total budget
+            const bidA = a.bidAmount || 0;
+            const bidB = b.bidAmount || 0;
+            if (bidB !== bidA) return bidB - bidA;
+            return (b.budget || 0) - (a.budget || 0);
+        });
         
         // Filtrar Grupos Públicos
         const publicGroups = (allChats || []).filter(c => 
@@ -102,7 +189,7 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
             if (!groupedStoriesMap[item.userId]) {
                 groupedStoriesMap[item.userId] = {
                     userId: item.userId,
-                    userName: storyUser ? `${storyUser.firstName} ${storyUser.lastName}` : (item.userName || 'Usuário'),
+                    userName: storyUser ? `${storyUser.firstName} ${storyUser.lastName}` : (item.userName || t('feed_user')),
                     userProfilePic: storyUser?.profilePicture || item.userProfilePic || DEFAULT_PROFILE_PIC,
                     items: []
                 };
@@ -116,6 +203,7 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
             return 0;
         });
         setStories(groupedStories);
+        setPromotedItems(promoted || []);
         
         // Safe check for followedUsers array to prevent crash
         // myFollows already declared above
@@ -130,34 +218,52 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
         let adPointer = 0;
 
         if (activeFeedTab === 'reels') {
-          combined = reelsPosts;
+          combined = globalReels;
         } else if (activeFeedTab === 'videos') {
-          combined = filteredPosts.filter(p => p.type === PostType.VIDEO).sort((a, b) => b.timestamp - a.timestamp);
+          combined = globalVideos;
         } else {
-          // Estratégia de Mixagem do Feed (Tab 'all')
-          const firstBatch = normalPosts.slice(0, 3);
-          combined.push(...firstBatch);
-
-          if (reelsPosts.length > 0) {
-            combined.push({ type: 'REELS_SHELF', items: reelsPosts.slice(0, 10) });
-          }
-
-          if (suggestions.length > 0) {
-            combined.push({ type: 'SUGGESTIONS' });
-          }
-
-          if (publicGroups.length > 0) {
-            combined.push({ type: 'GROUPS_SHELF', items: publicGroups.slice(0, 5) });
-          }
-
-          const remainingPosts = normalPosts.slice(3);
-          remainingPosts.forEach((post, idx) => {
-              combined.push(post);
-              // Only inject ads for non-premium users
-              if (!currentUser.isPremium && (idx + 1) % 5 === 0 && adPointer < activeAds.length) {
-                  combined.push(activeAds[adPointer]);
-                  adPointer++;
+          // Estratégia de Mixagem do Feed (Tab 'all') - Injeções a cada 5 posts
+          let injectionPointer = 0;
+          
+          normalPosts.forEach((post, idx) => {
+            combined.push(post);
+            const count = idx + 1;
+            
+            if (count % 5 === 0) {
+              // Alternar entre Reels e Sugestões conforme solicitado
+              const cycle = injectionPointer % 2;
+              
+              if (cycle === 0) {
+                if (globalReels.length > 0) {
+                  combined.push({ type: 'REELS_SHELF', items: globalReels.slice(0, 12) });
+                  injectionPointer++;
+                } else if (suggestions.length > 0) {
+                  // Fallback para sugestões se não houver Reels
+                  combined.push({ type: 'SUGGESTIONS' });
+                  injectionPointer++;
+                }
+              } else {
+                if (suggestions.length > 0) {
+                  combined.push({ type: 'SUGGESTIONS' });
+                  injectionPointer++;
+                } else if (globalReels.length > 0) {
+                  // Fallback para Reels se não houver Sugestões
+                  combined.push({ type: 'REELS_SHELF', items: globalReels.slice(0, 12) });
+                  injectionPointer++;
+                }
               }
+
+              // Injetar Grupos a cada 15 posts se houver
+              if (count % 15 === 0 && publicGroups.length > 0) {
+                combined.push({ type: 'GROUPS_SHELF', items: publicGroups.slice(0, 5) });
+              }
+            }
+
+            // Injeção de ADS para não-premium (intervalo diferente para não encavalar)
+            if (!currentUser.isPremium && count % 7 === 0 && adPointer < activeAds.length) {
+                combined.push(activeAds[adPointer]);
+                adPointer++;
+            }
           });
         }
 
@@ -175,7 +281,7 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
     } finally {
         setLoading(false);
     }
-  }, [currentUser.id, currentUser.isPremium, displayLimit, t, onNavigate, refreshUser, activeFeedTab]);
+  }, [currentUser.id, currentUser.followedUsers, currentUser.blockedUserIds, currentUser.isPremium, displayLimit, t, onNavigate, refreshUser, activeFeedTab]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -213,9 +319,22 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
   };
 
   const handleFollow = async (targetId: string) => {
+    // Optimistic Update
+    const prevFollows = [...(currentUser.followedUsers || [])];
+    const isFollowing = prevFollows.includes(targetId);
+    let newFollows = isFollowing ? prevFollows.filter(id => id !== targetId) : [...prevFollows, targetId];
+    
+    // We can't update currentUser directly here as it's a prop, 
+    // but refreshUser will update it in App.tsx. 
+    // To be "simultaneous", we manually trigger a reload with the NEW following list if possible.
+    
     await toggleFollowUser(currentUser.id, targetId);
-    refreshUser();
-    loadData(true);
+    refreshUser(); 
+    
+    // The key to Request 5: immediate feedback
+    setTimeout(() => {
+        loadData(true);
+    }, 100);
   };
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -229,7 +348,7 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
           // Fix: Pass handleFollow to PostCard so it actually works
           return <PostCard key={item.id} post={item as Post} currentUser={currentUser} onNavigate={onNavigate} onFollowToggle={handleFollow} refreshUser={refreshUser} onPostUpdatedOrDeleted={() => loadData(true)} onPinToggle={() => loadData(true)} />;
         }
-        if (item.professorId) { 
+        if (item.bidAmount !== undefined && item.title) { 
           return <AdCard key={item.id} ad={item as AdCampaign} rank={idx} />;
         }
         if (item.type === 'SUGGESTIONS') {
@@ -248,8 +367,8 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
                   {suggestedUsers.map(u => (
                     <div key={u.id} className="bg-white/10 backdrop-blur-md p-3 rounded-[1.8rem] min-w-[130px] flex flex-col items-center text-center border border-white/20 group hover:bg-white/20 transition-all snap-start shadow-lg">
                         <img src={u.profilePicture || DEFAULT_PROFILE_PIC} className="w-16 h-16 rounded-full object-cover mb-3 border-2 border-white/40 shadow-xl group-hover:scale-110 transition-transform" />
-                        <p className="font-black text-xs truncate w-full mb-0.5 text-white shadow-sm">{u.firstName || 'Membro'}</p>
-                        <p className="text-[9px] font-bold uppercase mb-3 tracking-wide truncate w-full shadow-sm opacity-90" style={{ color: 'var(--brand-light)' }}>{u.lastName || 'Conexão'}</p>
+                        <p className="font-black text-xs truncate w-full mb-0.5 text-white shadow-sm">{u.firstName || t('member')}</p>
+                        <p className="text-[9px] font-bold uppercase mb-3 tracking-wide truncate w-full shadow-sm opacity-90" style={{ color: 'var(--brand-light)' }}>{u.lastName || t('nav_conexoes').toLowerCase()}</p>
                         <button onClick={() => handleFollow(u.id)} className="w-full bg-white py-2.5 rounded-xl font-black text-[9px] uppercase shadow-md active:scale-95 transition-all hover:bg-gray-50" style={{ color: 'var(--brand-color)' }}>{t('follow')}</button>
                     </div>
                   ))}
@@ -307,8 +426,8 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
   }, [visibleItems, currentUser, onNavigate, loadData, refreshUser, suggestedUsers]);
 
   return (
-    <div className="w-full max-w-[1400px] mx-auto px-2 md:px-6 lg:px-8 py-4 md:py-6 relative">
-      <div className="fixed bottom-28 md:bottom-12 right-4 md:right-8 z-[100] flex flex-col gap-3">
+    <div className="w-full max-w-[1400px] mx-auto px-2 md:px-6 lg:px-8 pt-0 pb-4 md:pt-0 md:pb-6 relative">
+      <div className={`fixed bottom-28 md:bottom-12 right-4 md:right-8 z-[100] flex flex-col gap-3 transition-all duration-300 ${isKeyboardVisible ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
         {showScrollTop && (
           <button onClick={scrollToTop} className="bg-white dark:bg-darkcard text-blue-600 p-4 rounded-2xl shadow-2xl border border-gray-100 dark:border-white/10 animate-fade-in active:scale-95 transition-all">
             <ChevronUpIcon className="h-6 w-6 stroke-[3]" />
@@ -323,103 +442,99 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
         </button>
       </div>
 
-      {/* STORIES HEADER */}
-      <div className="mb-4 overflow-x-auto no-scrollbar py-2 -mx-2 px-2 snap-x relative z-10">
-         <div className="flex items-start gap-3 px-2">
-            {/* DEDICATED ADD BUTTON */}
-            <div 
-              onClick={() => setIsCreatingStory(true)} 
-              className="flex flex-col items-center gap-1.5 cursor-pointer group min-w-[70px] flex-shrink-0 snap-start"
-            >
-               <div className="relative">
-                  <div className="w-16 h-16 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center border-2 border-dashed border-emerald-500 group-hover:bg-emerald-200 dark:group-hover:bg-emerald-900/50 transition-all">
-                     <PlusIcon className="h-8 w-8 text-emerald-600 dark:text-emerald-400 stroke-[3]" />
-                  </div>
-               </div>
-               <span className="text-[10px] font-bold text-gray-900 dark:text-white truncate w-full text-center">
-                  {t('add_f')}
-               </span>
-            </div>
-
-            {/* MY STATUS (ONLY IF EXISTS) */}
-            {hasMyStory && (
-              <div 
-                onClick={() => setSelectedStoryIndex(stories.findIndex(s => s.userId === currentUser.id))} 
-                className="flex flex-col items-center gap-1.5 cursor-pointer group min-w-[70px] flex-shrink-0 snap-start active:scale-95 transition-transform"
-              >
-                 <div className="relative p-[2px]">
-                    <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
-                      {(() => {
-                        const myStory = stories.find(s => s.userId === currentUser.id);
-                        const count = myStory?.items.length || 0;
-                        const gap = count > 1 ? 5 : 0;
-                        const segmentLength = (360 - (count * gap)) / count;
-                        return Array.from({ length: count }).map((_, i) => (
-                          <circle
-                            key={i}
-                            cx="50"
-                            cy="50"
-                            r="48"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeDasharray={`${(segmentLength / 360) * 301.59} 301.59`}
-                            strokeDashoffset={-((segmentLength + gap) * i / 360) * 301.59}
-                            className="text-emerald-500"
-                          />
-                        ));
-                      })()}
-                    </svg>
-                    <img src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} className="w-16 h-16 rounded-full border-2 border-white dark:border-darkbg object-cover relative z-10" />
+      {/* PROMOTED & STORIES AREA */}
+      {(promotedItems.length > 0 || stories.length > 0) &&
+        <div className="mb-6 relative z-20">
+          <div className="flex items-center gap-2 mb-3 px-2">
+             <StarIcon className="h-4 w-4 text-emerald-500" />
+             <h3 className="text-[10px] font-black uppercase tracking-widest text-gray-400">Destaques & Conexões</h3>
+          </div>
+          <div className="bg-gray-50/50 dark:bg-white/5 rounded-[2.5rem] p-2">
+            <div className="flex items-center gap-4 overflow-x-auto no-scrollbar snap-x">
+              {/* STICKY ADD STORY BUTTON */}
+              <div className="sticky left-0 z-40 bg-transparent pr-4 flex-shrink-0">
+                 <div 
+                   onClick={() => setIsCreatingStory(true)}
+                   className="flex flex-col items-center gap-1 group cursor-pointer"
+                 >
+                    <div className="w-16 h-16 md:w-20 md:h-20 bg-emerald-500 text-white rounded-full flex items-center justify-center border-4 border-white dark:border-darkcard shadow-xl group-hover:scale-105 active:scale-95 transition-all">
+                       <PlusIcon className="h-8 w-8 md:h-10 md:w-10 stroke-[3]" />
+                    </div>
+                    <span className="text-[9px] md:text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tighter">
+                      {t('feed_add')}
+                    </span>
                  </div>
-                 <span className="text-[10px] font-bold text-gray-900 dark:text-white truncate w-full text-center">
-                    {t('my_status')}
+              </div>
+
+              {/* PROMOTED ITEMS */}
+              {promotedItems.map((item) => (
+                  <div 
+                      key={item.id}
+                      onClick={() => {
+                        if (item.promoteType === 'product') onNavigate?.('product-detail', { productId: item.id });
+                        else if (item.promoteType === 'ad') window.open(item.linkUrl, '_blank');
+                        else if (item.promoteType === 'post') {
+                          if (item.type === PostType.REEL) onNavigate?.('reels-page', { startPostId: item.id });
+                          else onNavigate?.('post-detail', { postId: item.id });
+                        }
+                      }}
+                      className="min-w-[260px] sm:min-w-[300px] bg-white dark:bg-darkcard rounded-[2rem] border border-blue-500/20 overflow-hidden shadow-lg snap-start cursor-pointer group active:scale-[0.98] transition-all"
+                  >
+                      <div className="relative aspect-video">
+                          <img src={item.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" alt="" />
+                          <div className="absolute top-3 left-3 px-3 py-1 bg-blue-600/90 text-white text-[8px] font-black uppercase tracking-widest rounded-full backdrop-blur-md">
+                              {item.promoteType === 'product' ? 'Destaque' : item.promoteType === 'ad' ? 'Anúncio' : 'Patrocinado'}
+                          </div>
+                          {item.promoteType === 'post' && (
+                             <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                                <img src={item.authorProfilePic || item.userProfilePic || DEFAULT_PROFILE_PIC} className="w-6 h-6 rounded-full border border-white/50" />
+                                <span className="text-white text-[9px] font-black drop-shadow-md">@{item.authorName || item.userName}</span>
+                             </div>
+                          )}
+                      </div>
+                  </div>
+              ))}
+
+            {/* STORIES LIST */}
+            {stories.map((story) => (
+              <div 
+                key={story.userId} 
+                onClick={() => setSelectedStoryIndex(stories.findIndex(s => s.userId === story.userId))} 
+                className="flex flex-col items-center gap-2 cursor-pointer group min-w-[70px] md:min-w-[80px] flex-shrink-0 snap-start active:scale-95 transition-all"
+              >
+                 <div className="relative p-0.5">
+                    <div className={`absolute inset-0 rounded-full border-2 ${story.items.every(i => i.views?.includes(currentUser.id)) ? 'border-gray-200 dark:border-white/10' : 'border-emerald-500'}`}></div>
+                    <div className="w-16 h-16 md:w-20 md:h-20 rounded-full overflow-hidden border-2 border-white dark:border-darkbg shadow-lg">
+                      <img src={story.userProfilePic || DEFAULT_PROFILE_PIC} className="w-full h-full object-cover" alt="" />
+                    </div>
+                 </div>
+                 <span className="text-[9px] md:text-[11px] font-black text-gray-900 dark:text-white uppercase tracking-tighter truncate w-[70px] md:w-[80px] text-center">
+                    {(story.userName || t('feed_user')).split(' ')[0]}
                  </span>
               </div>
-            )}
-
-            {stories.filter(s => s.userId !== currentUser.id).map((story) => {
-               const realIndex = stories.findIndex(s => s.userId === story.userId);
-               const count = story.items.length;
-               const gap = count > 1 ? 5 : 0;
-               const segmentLength = (360 - (count * gap)) / count;
-               
-               return (
-                  <div 
-                    key={story.userId} 
-                    onClick={() => setSelectedStoryIndex(realIndex)} 
-                    className="flex flex-col items-center gap-1.5 cursor-pointer group min-w-[70px] flex-shrink-0 snap-start active:scale-95 transition-transform"
-                  >
-                     <div className="relative p-[2px]">
-                        <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
-                          {Array.from({ length: count }).map((_, i) => {
-                            const isViewed = story.items[i].views?.includes(currentUser.id);
-                            return (
-                              <circle
-                                key={i}
-                                cx="50"
-                                cy="50"
-                                r="48"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="3"
-                                strokeDasharray={`${(segmentLength / 360) * 301.59} 301.59`}
-                                strokeDashoffset={-((segmentLength + gap) * i / 360) * 301.59}
-                                className={isViewed ? "text-gray-300 dark:text-white/20" : "text-emerald-500"}
-                              />
-                            );
-                          })}
-                        </svg>
-                        <img src={story.userProfilePic || DEFAULT_PROFILE_PIC} className="w-16 h-16 rounded-full border-2 border-white dark:border-darkbg object-cover relative z-10" />
-                     </div>
-                     <span className="text-[10px] font-bold text-gray-900 dark:text-white truncate w-[70px] text-center">
-                        {(story.userName || 'Usuário').split(' ')[0]}
-                     </span>
-                  </div>
-               );
-            })}
-         </div>
+            ))}
+          </div>
+        </div>
       </div>
+      }
+
+      {/* FALLBACK BUTTON IF NO ITEMS */}
+      {promotedItems.length === 0 && stories.length === 0 && (
+         <div className="mb-6 flex justify-start px-2">
+            <div 
+              onClick={() => setIsCreatingStory(true)}
+              className="flex flex-col items-center gap-1 group cursor-pointer"
+            >
+               <div className="w-16 h-16 bg-emerald-500 text-white rounded-full flex items-center justify-center border-4 border-white dark:border-darkcard shadow-xl group-hover:scale-105 active:scale-95 transition-all">
+                  <PlusIcon className="h-8 w-8 stroke-[3]" />
+               </div>
+               <span className="text-[9px] font-black text-gray-900 dark:text-white uppercase tracking-tighter">
+                 {t('feed_add')}
+               </span>
+            </div>
+         </div>
+      )}
+
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         <main className="lg:col-span-8 space-y-2">
@@ -429,23 +544,25 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
               onClick={() => setActiveFeedTab('all')}
               className={`flex-1 min-w-[80px] py-3 rounded-2xl text-[11px] font-black uppercase tracking-tighter transition-all ${activeFeedTab === 'all' ? 'bg-blue-600 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}
             >
-              Feed Principal
+              {t('feed_for_you')}
             </button>
             <button 
               onClick={() => setActiveFeedTab('reels')}
               className={`flex-1 min-w-[80px] py-3 rounded-2xl text-[11px] font-black uppercase tracking-tighter transition-all ${activeFeedTab === 'reels' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}
             >
-              Reels
+              {t('feed_reels')}
             </button>
             <button 
               onClick={() => setActiveFeedTab('videos')}
               className={`flex-1 min-w-[80px] py-3 rounded-2xl text-[11px] font-black uppercase tracking-tighter transition-all ${activeFeedTab === 'videos' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/10'}`}
             >
-              Vídeos
+              {t('feed_videos')}
             </button>
           </div>
 
-          <CreatePost currentUser={currentUser} onPostCreated={() => loadData(true)} refreshUser={refreshUser} />
+          <div ref={createPostRef}>
+            <CreatePost currentUser={currentUser} onPostCreated={() => loadData(true)} refreshUser={refreshUser} />
+          </div>
           
           <div className="space-y-px">
             {feedError ? (
