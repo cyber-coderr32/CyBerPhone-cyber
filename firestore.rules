@@ -50,14 +50,14 @@ service cloud.firestore {
         && data.firstName is string && data.firstName.size() <= 100
         && data.lastName is string && data.lastName.size() <= 100
         && data.email is string
-        && (request.auth.token.email == null || data.email.lower() == request.auth.token.email.lower())
+        && (request.auth.token.email == null || data.email == request.auth.token.email)
         && (!('phone' in data) || (data.phone is string && data.phone.size() <= 100))
         && (!('birthDate' in data) || data.birthDate is number)
         && (!('country' in data) || (data.country is string && data.country.size() <= 100))
         && (!('bio' in data) || (data.bio is string && data.bio.size() <= 6000))
         && (!('balance' in data) || data.balance is number)
         && (!('isVerified' in data) || data.isVerified is bool)
-        && (!('isAdmin' in data) || data.isAdmin == false || isAdmin() || data.email.lower() == 'alfaajmc@gmail.com' || data.email.lower() == 'ac926815124@gmail.com');
+        && (!('isAdmin' in data) || data.isAdmin == false || isAdmin() || data.email == 'alfaajmc@gmail.com' || data.email == 'ac926815124@gmail.com');
     }
 
     function isValidPublicUser(data) {
@@ -206,8 +206,8 @@ service cloud.firestore {
 
     // Chats
     match /chats/{chatId} {
-      allow get: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.participants || resource.data.isPublic == true);
-      allow list: if isSignedIn() && (isAdmin() || request.auth.uid in resource.data.participants || resource.data.isPublic == true);
+      allow get: if (resource.data.isPublic == true) || (isSignedIn() && (isAdmin() || request.auth.uid in resource.data.participants));
+      allow list: if (resource.data.isPublic == true) || (isSignedIn() && (isAdmin() || request.auth.uid in resource.data.participants));
       allow create: if isSignedIn() && (isAdmin() || request.auth.uid in incoming().participants || incoming().isPublic == true);
       allow update: if isSignedIn() && (
         isAdmin() || 
@@ -222,7 +222,7 @@ service cloud.firestore {
     // Notifications
     match /notifications/{notificationId} {
       allow get: if isSignedIn() && isValidId(notificationId) && (resource.data.recipientId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.recipientId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn();
       allow create: if isSignedIn() && isValidId(notificationId) && (
         (incoming().actorId == request.auth.uid && incoming().recipientId != request.auth.uid)
         || (incoming().actorId in ['SYSTEM', 'SYSTEM_AD'] && incoming().recipientId == request.auth.uid)
@@ -274,7 +274,7 @@ service cloud.firestore {
     // Transactions (Strict but allowing creation)
     match /transactions/{transactionId} {
       allow get: if isOwner(resource.data.userId) || isAdmin();
-      allow list: if isOwner(resource.data.userId) || isAdmin();
+      allow list: if isSignedIn();
       allow create: if isSignedIn() && isValidId(transactionId) && isValidTransaction(incoming());
       allow update, delete: if isAdmin();
     }
@@ -282,7 +282,7 @@ service cloud.firestore {
     // Sales
     match /sales/{saleId} {
       allow get: if isSignedIn() && (request.auth.uid == resource.data.buyerId || request.auth.uid == resource.data.sellerId || request.auth.uid == resource.data.affiliateUserId || isAdmin());
-      allow list: if isSignedIn() && (request.auth.uid == resource.data.buyerId || request.auth.uid == resource.data.sellerId || request.auth.uid == resource.data.affiliateUserId || isAdmin());
+      allow list: if isSignedIn();
       allow create: if isSignedIn() && (isOwner(incoming().buyerId) || isAdmin());
       allow update: if isSignedIn() && (
         isAdmin() || 
@@ -294,8 +294,7 @@ service cloud.firestore {
 
     // Stories
     match /stories/{storyId} {
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
+      allow read: if true;
       allow create: if isOwner(incoming().userId) && incoming().timestamp is number;
       allow update: if isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['views']);
       allow delete: if isOwner(existing().userId) || isAdmin();
@@ -304,14 +303,15 @@ service cloud.firestore {
     // Tickets
     match /tickets/{ticketId} {
       allow get: if isOwner(resource.data.userId) || isAdmin();
-      allow list: if isOwner(resource.data.userId) || isAdmin();
+      allow list: if isSignedIn();
       allow create: if isOwner(incoming().userId);
       allow update: if isOwner(existing().userId) || isAdmin();
     }
 
     // Blocks
     match /blocks/{blockId} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.blockerId || request.auth.uid == resource.data.blockedId || isAdmin());
+      allow get: if isSignedIn() && (request.auth.uid == resource.data.blockerId || request.auth.uid == resource.data.blockedId || isAdmin());
+      allow list: if isSignedIn();
       allow create, update: if isSignedIn() && isValidId(blockId) && isValidBlock(incoming());
       allow delete: if isSignedIn() && (existing().blockerId == request.auth.uid || isAdmin());
     }
@@ -351,7 +351,8 @@ service cloud.firestore {
 
     // Calls
     match /calls/{callId} {
-      allow read: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId);
+      allow get: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId);
+      allow list: if isSignedIn();
       allow create: if isSignedIn() && incoming().callerId == request.auth.uid;
       allow update: if isSignedIn() && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId);
     }

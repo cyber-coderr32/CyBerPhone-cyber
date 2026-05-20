@@ -152,7 +152,6 @@ export const listenForCalls = (userId: string, onCall: (call: Call) => void) => 
     collection(db, CALLS_COLLECTION),
     where('receiverId', '==', userId),
     where('status', '==', CallStatus.RINGING),
-    orderBy('timestamp', 'desc'),
     limit(1)
   );
 
@@ -160,7 +159,6 @@ export const listenForCalls = (userId: string, onCall: (call: Call) => void) => 
     collection(db, CALLS_COLLECTION),
     where('callerId', '==', userId),
     where('status', '==', CallStatus.RINGING),
-    orderBy('timestamp', 'desc'),
     limit(1)
   );
 
@@ -171,6 +169,8 @@ export const listenForCalls = (userId: string, onCall: (call: Call) => void) => 
         onCall({ id: change.doc.id, ...data } as Call);
       }
     });
+  }, (err) => {
+    console.warn("[unsubIncoming Call Listener Error] Query skipped or lacks permission:", safeJsonStringify(err));
   });
 
   const unsubOutgoing = onSnapshot(qOutgoing, (snapshot) => {
@@ -180,6 +180,8 @@ export const listenForCalls = (userId: string, onCall: (call: Call) => void) => 
         onCall({ id: change.doc.id, ...data } as Call);
       }
     });
+  }, (err) => {
+    console.warn("[unsubOutgoing Call Listener Error] Query skipped or lacks permission:", safeJsonStringify(err));
   });
 
   return () => {

@@ -1872,7 +1872,9 @@ export const shareToGroup = async (groupId: string, senderId: string, content: s
 
 export const subscribeToLivePost = (id: string, cb: any) => {
     if (!db) return () => {};
-    return onSnapshot(doc(db, 'posts', id), (d) => cb(d.data()));
+    return onSnapshot(doc(db, 'posts', id), (d) => cb(d.data()), (err) => {
+        handleFirestoreError(err, OperationType.GET, 'posts/' + id);
+    });
 };
 export const sendLiveMessage = async (id: string, msg: any) => {
     if (!db) return;
