@@ -6,7 +6,7 @@ export const generateAdCopy = async (prompt: string) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         contents: [{ role: 'user', parts: [{ text: prompt }] }]
       })
     });
@@ -32,7 +32,7 @@ export const generateCyberResponse = async (history: { role: string, content: st
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         contents: formattedHistory,
         config: {
           systemInstruction: "Você é o CyberAssistant, o assistente oficial inteligente da rede social CyBerPhone. Seu objetivo é ajudar usuários globais a navegar na plataforma, dar dicas de criação de conteúdo, e ser amigável. Use um tom moderno e tecnológico.",

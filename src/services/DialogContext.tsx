@@ -20,21 +20,29 @@ interface DialogContextType {
 const DialogContext = createContext<DialogContextType | undefined>(undefined);
 
 export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [confirmState, setConfirmState] = useState<{
+  const [dialogState, setDialogState] = useState<{
     isOpen: boolean;
     message: string;
+    isConfirm: boolean;
     options?: DialogOptions;
     resolve?: (value: boolean) => void;
   }>({
     isOpen: false,
     message: '',
+    isConfirm: false,
   });
 
   const showAlert = (message: string, options?: DialogOptions) => {
-    // Falls back to window.alert for now but with better formatting
-    const title = options?.title ? `[${options.title}] ` : '';
-    console.log(`Alert: ${title}${message}`);
-    window.alert(`${title}${message}`);
+    setDialogState({
+      isOpen: true,
+      message,
+      isConfirm: false,
+      options: {
+        title: 'Mensagem',
+        type: 'alert',
+        ...options
+      }
+    });
   };
 
   const showError = (message: string) => {
@@ -49,20 +57,25 @@ export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const showConfirm = (message: string, options?: DialogOptions): Promise<boolean> => {
     return new Promise((resolve) => {
-      setConfirmState({
+      setDialogState({
         isOpen: true,
         message,
-        options,
+        isConfirm: true,
+        options: {
+          title: 'Confirmação',
+          type: 'confirm',
+          ...options
+        },
         resolve,
       });
     });
   };
 
-  const handleConfirmAction = (confirmed: boolean) => {
-    if (confirmState.resolve) {
-      confirmState.resolve(confirmed);
+  const handleAction = (confirmed: boolean) => {
+    if (dialogState.resolve) {
+      dialogState.resolve(confirmed);
     }
-    setConfirmState(prev => ({ ...prev, isOpen: false }));
+    setDialogState(prev => ({ ...prev, isOpen: false }));
   };
 
   const showLoading = (message: string) => console.log('Loading:', message);
@@ -72,13 +85,15 @@ export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     <DialogContext.Provider value={{ showAlert, showError, showSuccess, showConfirm, showLoading, hideLoading }}>
       {children}
       <ConfirmationModal
-        isOpen={confirmState.isOpen}
-        title={confirmState.options?.title || 'Confirmação'}
-        message={confirmState.message}
-        confirmText={confirmState.options?.confirmText}
-        cancelText={confirmState.options?.cancelText}
-        onConfirm={() => handleConfirmAction(true)}
-        onClose={() => handleConfirmAction(false)}
+        isOpen={dialogState.isOpen}
+        title={dialogState.options?.title || (dialogState.isConfirm ? 'Confirmação' : 'Aviso')}
+        message={dialogState.message}
+        confirmText={dialogState.options?.confirmText}
+        cancelText={dialogState.options?.cancelText}
+        type={dialogState.options?.type || (dialogState.isConfirm ? 'confirm' : 'alert')}
+        isConfirm={dialogState.isConfirm}
+        onConfirm={() => handleAction(true)}
+        onClose={() => handleAction(false)}
       />
     </DialogContext.Provider>
   );

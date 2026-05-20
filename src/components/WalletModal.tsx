@@ -102,10 +102,10 @@ const WalletModal: React.FC<WalletModalProps> = ({
           initial={{ opacity: 0, scale: 0.9, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.9, y: 20 }}
-          className="relative w-full max-w-sm bg-white dark:bg-[#0a0c10] rounded-[2.5rem] shadow-2xl overflow-hidden border border-gray-100 dark:border-white/10"
+          className="relative w-full max-w-sm bg-white dark:bg-[#0a0c10] rounded-[2.5rem] shadow-2xl overflow-y-auto max-h-[88vh] border border-gray-100 dark:border-white/10 custom-scrollbar"
         >
           {/* Header */}
-          <div className="p-6 pb-0 flex items-center justify-between">
+          <div className="p-5 md:p-6 pb-0 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-3 bg-brand/10 rounded-2xl">
                 <WalletIcon className="w-6 h-6 text-brand" />
@@ -125,18 +125,18 @@ const WalletModal: React.FC<WalletModalProps> = ({
 
           {/* Tabs */}
           {step === 'form' && (
-            <div className="px-6 mt-6">
+            <div className="px-5 md:px-6 mt-4">
               <div className="flex p-1 bg-gray-100 dark:bg-white/5 rounded-2xl">
                 <button 
                   onClick={() => setActiveTab('deposit')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase transition-all ${activeTab === 'deposit' ? 'bg-white dark:bg-white/10 shadow-sm text-brand' : 'text-gray-400 hover:text-gray-600 dark:hover:text-white'}`}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${activeTab === 'deposit' ? 'bg-white dark:bg-white/10 shadow-sm text-brand' : 'text-gray-400 hover:text-gray-600 dark:hover:text-white'}`}
                 >
                   <ArrowUpCircleIcon className="w-4 h-4" />
                   {t('deposit')}
                 </button>
                 <button 
                   onClick={() => setActiveTab('withdraw')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase transition-all ${activeTab === 'withdraw' ? 'bg-white dark:bg-white/10 shadow-sm text-brand' : 'text-gray-400 hover:text-gray-600 dark:hover:text-white'}`}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-black uppercase transition-all ${activeTab === 'withdraw' ? 'bg-white dark:bg-white/10 shadow-sm text-brand' : 'text-gray-400 hover:text-gray-600 dark:hover:text-white'}`}
                 >
                   <ArrowDownCircleIcon className="w-4 h-4" />
                   {t('withdraw')}
@@ -145,9 +145,9 @@ const WalletModal: React.FC<WalletModalProps> = ({
             </div>
           )}
 
-          <div className="p-6">
+          <div className="p-5 md:p-6">
             {step === 'form' && (
-              <div className="space-y-6">
+              <div className="space-y-4 md:space-y-5">
                 <div>
                   <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1">{t('op_value')}</label>
                   <div className="relative group">
@@ -157,38 +157,38 @@ const WalletModal: React.FC<WalletModalProps> = ({
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
                       placeholder="0,00"
-                      className="w-full bg-gray-50 dark:bg-white/5 border-2 border-transparent focus:border-brand/30 focus:bg-white dark:focus:bg-white/10 rounded-3xl py-4 pl-16 pr-6 text-2xl font-black text-gray-900 dark:text-white outline-none transition-all"
+                      className="w-full bg-gray-50 dark:bg-white/5 border-2 border-transparent focus:border-brand/30 focus:bg-white dark:focus:bg-white/10 rounded-3xl py-3 pl-16 pr-6 text-xl font-black text-gray-900 dark:text-white outline-none transition-all"
                     />
                   </div>
                 </div>
 
                 {activeTab === 'withdraw' && (
-                  <div className="animate-fade-in space-y-2">
-                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-2 ml-1">{t('pix_key')}</label>
+                  <div className="animate-fade-in space-y-1.5">
+                    <label className="block text-[10px] font-black uppercase text-gray-400 mb-1.5 ml-1">{t('pix_key')}</label>
                     <input 
                       type="text"
                       value={iban}
                       onChange={(e) => setIban(e.target.value)}
                       placeholder={t('pix_placeholder')}
-                      className="w-full bg-gray-50 dark:bg-white/5 border-2 border-transparent focus:border-brand/30 focus:bg-white dark:focus:bg-white/10 rounded-2xl py-4 px-6 text-sm font-bold text-gray-900 dark:text-white outline-none transition-all"
+                      className="w-full bg-gray-50 dark:bg-white/5 border-2 border-transparent focus:border-brand/30 focus:bg-white dark:focus:bg-white/10 rounded-2xl py-3.5 px-6 text-sm font-bold text-gray-900 dark:text-white outline-none transition-all"
                     />
                     <p className="text-[9px] text-gray-400 font-bold px-2 italic uppercase">{t('check_key_warning')}</p>
                   </div>
                 )}
 
-                <div className="space-y-3">
+                <div className="space-y-2">
                   <label className="block text-[10px] font-black uppercase text-gray-400 ml-1">{t('payment_method')}</label>
                   <div className="grid grid-cols-1 gap-2">
                     <button 
                       onClick={() => setSelectedMethod('express')}
-                      className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${selectedMethod === 'express' ? 'border-brand bg-brand/5 shadow-brand/10' : 'border-transparent bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10'}`}
+                      className={`flex items-center gap-3 p-2.5 rounded-2xl border-2 transition-all ${selectedMethod === 'express' ? 'border-brand bg-brand/5 shadow-brand/10' : 'border-transparent bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10'}`}
                     >
                       <CheckCircleIcon className={`w-4 h-4 ${selectedMethod === 'express' ? 'text-brand' : 'text-gray-400'}`} />
                       <span className={`text-[10px] font-black uppercase ${selectedMethod === 'express' ? 'text-brand' : 'text-gray-500'}`}>MCX Express</span>
                     </button>
                     <button 
                       onClick={() => setSelectedMethod('unitel')}
-                      className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all ${selectedMethod === 'unitel' ? 'border-brand bg-brand/5 shadow-brand/10' : 'border-transparent bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10'}`}
+                      className={`flex items-center gap-3 p-2.5 rounded-2xl border-2 transition-all ${selectedMethod === 'unitel' ? 'border-brand bg-brand/5 shadow-brand/10' : 'border-transparent bg-gray-50 dark:bg-white/5 hover:bg-gray-100 dark:hover:bg-white/10'}`}
                     >
                       <SignalIcon className={`w-4 h-4 ${selectedMethod === 'unitel' ? 'text-brand' : 'text-gray-400'}`} />
                       <span className={`text-[10px] font-black uppercase ${selectedMethod === 'unitel' ? 'text-brand' : 'text-gray-500'}`}>Unitel Money</span>
@@ -197,7 +197,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
                 </div>
 
                 {error && (
-                  <div className="flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-xl">
+                  <div className="flex items-center gap-2 p-2.5 bg-red-50 dark:bg-red-900/20 text-red-600 rounded-xl">
                     <ExclamationCircleIcon className="w-4 h-4 shrink-0" />
                     <p className="text-[10px] font-bold uppercase">{error}</p>
                   </div>
@@ -206,7 +206,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
                 <button 
                   onClick={handleAction}
                   disabled={!amount || parseFloat(amount) <= 0 || (activeTab === 'withdraw' && !iban)}
-                  className="w-full bg-brand text-white py-5 rounded-3xl font-black uppercase tracking-widest text-xs shadow-xl shadow-brand/20 hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:hover:scale-100 transition-all"
+                  className="w-full bg-brand text-white py-4 rounded-3xl font-black uppercase tracking-widest text-xs shadow-xl shadow-brand/20 hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:hover:scale-100 transition-all"
                 >
                   {activeTab === 'deposit' ? t('continue_to_payment') : t('request_withdrawal')}
                 </button>
@@ -214,27 +214,27 @@ const WalletModal: React.FC<WalletModalProps> = ({
             )}
 
             {step === 'payment' && (
-              <div className="text-center space-y-6 py-4">
-                <div className="bg-gray-50 dark:bg-white/5 p-6 rounded-[2rem] text-left space-y-4 border border-gray-100 dark:border-white/10">
-                  <div className="flex items-center gap-3 pb-4 border-b border-gray-200 dark:border-white/10">
-                    <div className="p-2 bg-brand/10 rounded-xl">
-                      {selectedMethod === 'unitel' ? <SignalIcon className="w-5 h-5 text-brand" /> : <CheckCircleIcon className="w-5 h-5 text-brand" />}
+              <div className="text-center space-y-4 py-2">
+                <div className="bg-gray-50 dark:bg-white/5 p-4 md:p-5 rounded-[1.5rem] text-left space-y-3 border border-gray-100 dark:border-white/10">
+                  <div className="flex items-center gap-3 pb-2.5 border-b border-gray-200 dark:border-white/10">
+                    <div className="p-1.5 bg-brand/10 rounded-lg">
+                      {selectedMethod === 'unitel' ? <SignalIcon className="w-4 h-4 text-brand" /> : <CheckCircleIcon className="w-4 h-4 text-brand" />}
                     </div>
                     <p className="text-[10px] font-black uppercase text-gray-400">{t('scan_qr')}</p>
                   </div>
                   
-                  <div className="space-y-4 pt-2">
+                  <div className="space-y-3 pt-1">
                     <div>
-                      <p className="text-[9px] font-black uppercase text-gray-400 mb-1">Banco</p>
+                      <p className="text-[9px] font-black uppercase text-gray-400 mb-0.5">Banco</p>
                       <p className="text-xs font-bold dark:text-white">BANCO BAI / BFA / BIC</p>
                     </div>
                     <div>
-                      <p className="text-[9px] font-black uppercase text-gray-400 mb-1">Conta / Titular</p>
+                      <p className="text-[9px] font-black uppercase text-gray-400 mb-0.5">Conta / Titular</p>
                       <p className="text-xs font-bold dark:text-white uppercase">CyBerPhone Network Angola, Lda</p>
                     </div>
                     <div>
-                      <p className="text-[9px] font-black uppercase text-gray-400 mb-1">IBAN Angolano (CyBerPhone)</p>
-                      <div className="flex items-center justify-between bg-white dark:bg-black/20 p-3 rounded-xl border border-dashed border-brand/30">
+                      <p className="text-[9px] font-black uppercase text-gray-400 mb-0.5">IBAN Angolano (CyBerPhone)</p>
+                      <div className="flex items-center justify-between bg-white dark:bg-black/20 p-2.5 rounded-xl border border-dashed border-brand/30">
                         <code className="text-[10px] font-black text-brand tracking-wider">AO06 0000 0000 0000 0000 01</code>
                         <button className="text-[9px] font-black uppercase text-gray-400 hover:text-brand transition-colors" onClick={() => navigator.clipboard.writeText('AO06 0000 0000 0000 0000 01')}>Copiar</button>
                       </div>
@@ -242,22 +242,22 @@ const WalletModal: React.FC<WalletModalProps> = ({
                   </div>
                 </div>
                 
-                <div className="space-y-2">
-                  <p className="text-2xl font-black dark:text-white">{formatCurrency(parseFloat(amount))}</p>
-                  <p className="text-[9px] text-gray-400 px-8 uppercase font-bold tracking-tight">{t('balance_release_desc')}</p>
+                <div className="space-y-1">
+                  <p className="text-xl font-black dark:text-white">{formatCurrency(parseFloat(amount))}</p>
+                  <p className="text-[9px] text-gray-400 px-6 uppercase font-bold tracking-tight">{t('balance_release_desc')}</p>
                 </div>
 
-                <div className="pt-4 space-y-3">
+                <div className="pt-2 space-y-2">
                   <button 
                     onClick={handleAction}
                     disabled={isProcessing}
-                    className="w-full bg-brand text-white py-4 rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-brand/20 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
+                    className="w-full bg-brand text-white py-3.5 rounded-2xl font-black uppercase text-[10px] shadow-lg shadow-brand/20 transition-all hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-2"
                   >
-                    {isProcessing ? <div className="w-4 h-4 border-2 border-white border-t-transparent animate-spin rounded-full" /> : t('confirm_simulated_payment')}
+                    {isProcessing ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent animate-spin rounded-full" /> : t('confirm_simulated_payment')}
                   </button>
                   <button 
                     onClick={() => setStep('form')}
-                    className="w-full py-4 text-gray-400 font-bold uppercase text-[10px] hover:text-gray-600 transition-all"
+                    className="w-full py-2.5 text-gray-400 font-bold uppercase text-[10px] hover:text-gray-600 transition-all"
                   >
                     {t('back_change_value')}
                   </button>

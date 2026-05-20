@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Post, PostType, User, Page } from '../types';
-import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { DEFAULT_PROFILE_PIC, ANONYMOUS_PROFILE_PIC } from '../data/constants';
 import { 
   findUserById, 
   updatePostLikes, 
@@ -141,7 +141,7 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const isAnonymous = post.isAnonymous;
   const authorDisplayName = isAnonymous ? t('anonymous_user') : `${postAuthor?.firstName || ''} ${postAuthor?.lastName || ''}`;
-  const authorDisplayPic = isAnonymous ? DEFAULT_PROFILE_PIC : (postAuthor?.profilePicture || DEFAULT_PROFILE_PIC);
+  const authorDisplayPic = isAnonymous ? ANONYMOUS_PROFILE_PIC : (postAuthor?.profilePicture || DEFAULT_PROFILE_PIC);
   const isActuallyOnline = !isAnonymous && isUserOnline(postAuthor?.lastSeen, postAuthor?.isOnline);
 
   // Gera um delay aleatório para a animação de flutuação, para que os cards não se movam em uníssono.
@@ -294,6 +294,10 @@ const PostCard: React.FC<PostCardProps> = ({
 
   const handleReadAloud = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      return;
+    }
+
     if (isReadingVoice) {
       window.speechSynthesis.cancel();
       setIsReadingVoice(false);
@@ -303,21 +307,36 @@ const PostCard: React.FC<PostCardProps> = ({
     const textToRead = translatedContent || post.content;
     if (!textToRead) return;
 
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    
-    // Detect language
-    const currentLang = i18n.language.split('-')[0];
-    if (currentLang === 'pt') utterance.lang = 'pt-BR';
-    else if (currentLang === 'en') utterance.lang = 'en-US';
-    else if (currentLang === 'es') utterance.lang = 'es-ES';
-    else if (currentLang === 'fr') utterance.lang = 'fr-FR';
-    else if (currentLang === 'zh') utterance.lang = 'zh-CN';
+    // Reset synthesis queue to fix the stuck bug
+    window.speechSynthesis.cancel();
 
-    utterance.onend = () => setIsReadingVoice(false);
-    utterance.onerror = () => setIsReadingVoice(false);
+    setTimeout(() => {
+      try {
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        
+        // Detect language
+        const currentLang = i18n.language.split('-')[0];
+        if (currentLang === 'pt') utterance.lang = 'pt-BR';
+        else if (currentLang === 'en') utterance.lang = 'en-US';
+        else if (currentLang === 'es') utterance.lang = 'es-ES';
+        else if (currentLang === 'fr') utterance.lang = 'fr-FR';
+        else if (currentLang === 'zh') utterance.lang = 'zh-CN';
 
-    setIsReadingVoice(true);
-    window.speechSynthesis.speak(utterance);
+        utterance.onend = () => setIsReadingVoice(false);
+        utterance.onerror = () => setIsReadingVoice(false);
+
+        setIsReadingVoice(true);
+        window.speechSynthesis.speak(utterance);
+        
+        // Chrome/Firefox speech bug resume
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      } catch (err) {
+        console.error("SpeechSynthesis error:", err);
+        setIsReadingVoice(false);
+      }
+    }, 100);
   };
 
   const contentLength = post.content?.length || 0;
@@ -340,19 +359,23 @@ const PostCard: React.FC<PostCardProps> = ({
   }
 
   const isImageUrlVideo = useMemo(() => {
+    if (post.type === PostType.IMAGE || post.type?.toString().toUpperCase() === 'IMAGE') return false;
     if (post.reel?.videoUrl) return true; // If it has a reel object, it's intended to be a video
     if (!post.imageUrl) return false;
     const urlToCheck = post.imageUrl || '';
     const videoExtensions = ['.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v'];
-    return videoExtensions.some(ext => urlToCheck.toLowerCase().includes(ext)) || urlToCheck.includes('blob:');
-  }, [post.imageUrl, post.reel?.videoUrl]);
+    return videoExtensions.some(ext => urlToCheck.toLowerCase().includes(ext)) || (urlToCheck.includes('blob:') && (post.type === PostType.VIDEO || post.type === PostType.REEL));
+  }, [post.imageUrl, post.reel?.videoUrl, post.type]);
 
   const isVideoPost = useMemo(() => {
+    if (post.type === PostType.IMAGE || post.type?.toString().toUpperCase() === 'IMAGE') return false;
     return post.type === PostType.REEL || 
            post.type === PostType.VIDEO || 
+           post.type === PostType.LIVE ||
            isRecordedLive || 
            post.type?.toString().toUpperCase() === 'REEL' || 
            post.type?.toString().toUpperCase() === 'VIDEO' ||
+           post.type?.toString().toUpperCase() === 'LIVE' ||
            isImageUrlVideo ||
            !!post.reel?.videoUrl;
   }, [post.type, isRecordedLive, isImageUrlVideo, post.reel?.videoUrl]);
@@ -414,7 +437,7 @@ const PostCard: React.FC<PostCardProps> = ({
                  <span className="text-white text-sm font-bold drop-shadow-md">
                    {authorDisplayName}
                  </span>
-                 {postAuthor?.isVerified && <BoltIcon className="h-3 w-3 text-brand" />}
+                 {!isAnonymous && postAuthor?.isVerified && <BoltIcon className="h-3 w-3 text-brand" />}
                </div>
                <div className="flex items-center gap-1">
                  <button 
@@ -488,6 +511,40 @@ const PostCard: React.FC<PostCardProps> = ({
                   autoPlay={true}
                   onPlayChange={setIsPlaying}
                 />
+              ) : post.type === PostType.LIVE && post.liveStream?.status !== 'ENDED' ? (
+                /* GORGEOUS ACTIVE LIVE STREAM FEED PLACEHOLDER CARD */
+                <div className="w-full h-full relative flex flex-col items-center justify-center bg-zinc-950 p-6 overflow-hidden min-h-[220px]">
+                  <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:16px_16px]"></div>
+                  
+                  {/* Glowing Radar Animation */}
+                  <div className="relative z-10 flex items-center justify-center w-20 h-20 mb-4 bg-red-600/15 rounded-full border border-red-500/25 shadow-[0_0_50px_rgba(239,68,68,0.25)] animate-pulse">
+                    <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-20 animate-ping"></span>
+                    <SignalIcon className="h-10 w-10 text-red-500 animate-pulse" />
+                  </div>
+                  
+                  <div className="z-10 text-center max-w-sm px-4">
+                    <span className="inline-flex items-center gap-1.5 bg-red-600 border border-red-500/25 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest text-white mb-2 shadow-lg shadow-red-600/20">
+                      <span className="w-1.5 h-1.5 bg-white rounded-full"></span>
+                      AO VIVO AGORA
+                    </span>
+                    <h4 className="text-sm font-black text-white tracking-wide uppercase line-clamp-1 mb-1">
+                      {post.liveStream?.title || t('starting_live', 'Transmissão Ao Vivo')}
+                    </h4>
+                    <p className="text-[10px] text-gray-400 font-bold tracking-widest uppercase">
+                      Clique para entrar na sala
+                    </p>
+                    {post.liveViewerCount !== undefined && post.liveViewerCount > 0 && (
+                      <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider mt-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg inline-block">
+                        ● {post.liveViewerCount} assistindo
+                      </p>
+                    )}
+                  </div>
+                  
+                  <div className="absolute bottom-2 left-2 right-2 flex justify-between items-center pointer-events-none">
+                    <span className="text-[8px] font-mono text-zinc-500">FEED_STREAM: ACTIVE</span>
+                    <span className="text-[8px] font-mono text-zinc-500">TAP_TO_WATCH</span>
+                  </div>
+                </div>
               ) : (
                 <VideoPlayer 
                   src={post.reel?.videoUrl || post.imageUrl || ''} 
@@ -525,7 +582,7 @@ const PostCard: React.FC<PostCardProps> = ({
                     <span className="hover:text-brand cursor-pointer" onClick={(e) => { e.stopPropagation(); if(!isAnonymous) onNavigate('profile', { userId: post.userId }); }}>
                       {authorDisplayName}
                     </span>
-                    {postAuthor?.isVerified && <BoltIcon className="h-3 w-3 text-brand inline" />}
+                    {!isAnonymous && postAuthor?.isVerified && <BoltIcon className="h-3 w-3 text-brand inline" />}
                     <span>•</span>
                     <span>{new Date(post.timestamp).toLocaleDateString()}</span>
                     {isPostBoosted && (
@@ -665,7 +722,10 @@ const PostCard: React.FC<PostCardProps> = ({
               <div className="mt-1">
                 {post.content && (
                   <div className={`w-full relative group/content ${hasBg ? `${post.backgroundColor} ${post.textColor || 'text-white'} rounded-[2.5rem] p-10 md:p-14 text-center my-4 shadow-xl shadow-brand/10` : 'text-left bg-transparent'}`}>
-                    <p className={`whitespace-pre-wrap break-words w-full transition-all duration-300 ${hasBg ? fontSizeClass : 'text-[15px] md:text-[17px] leading-relaxed tracking-tight text-gray-900 dark:text-gray-100 font-medium'}`}>
+                    <p 
+                      style={post.fontFamily ? { fontFamily: `var(--${post.fontFamily})` } : undefined}
+                      className={`whitespace-pre-wrap break-words w-full transition-all duration-300 ${post.fontFamily || ''} ${hasBg ? fontSizeClass : 'text-[15px] md:text-[17px] leading-relaxed tracking-tight text-gray-900 dark:text-gray-100 font-medium'}`}
+                    >
                       {translatedContent || displayContent}
                     </p>
                     {translatedContent && (

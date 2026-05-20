@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Product, Page, Store } from '../types';
 import { getProduct, getStores, findUserById } from '../services/storageService';
 import { formatCurrency, safeJsonStringify } from '../lib/utils';
+import { Pencil } from 'lucide-react';
 import { 
   ShoppingBagIcon, 
   ArrowLeftIcon,
@@ -175,14 +176,26 @@ const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
 
         {/* Right: Details */}
         <div className="flex flex-col">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="bg-brand/10 text-brand px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest leading-none">
-              {product.category}
-            </span>
-            <div className="flex items-center gap-1 bg-yellow-500/10 text-yellow-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest leading-none">
-              <StarIcon className="w-3 h-3" />
-              {product.averageRating || '4.9'} ({product.ratingCount || '0'})
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="bg-brand/10 text-brand px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest leading-none">
+                {product.category}
+              </span>
+              <div className="flex items-center gap-1 bg-yellow-500/10 text-yellow-500 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest leading-none">
+                <StarIcon className="w-3 h-3" />
+                {product.averageRating || '4.9'} ({product.ratingCount || '0'})
+              </div>
             </div>
+
+            {store?.userId === currentUser.id && (
+              <button 
+                onClick={() => onNavigate('manage-store', { editProductId: product.id })}
+                className="flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest leading-none shadow-lg shadow-indigo-600/20 hover:scale-105 transition-all outline-none"
+              >
+                <Pencil className="w-3 h-3" />
+                Editar Produto
+              </button>
+            )}
           </div>
 
           <h1 className="text-3xl md:text-5xl font-black text-gray-900 dark:text-white uppercase tracking-tighter leading-none mb-6">

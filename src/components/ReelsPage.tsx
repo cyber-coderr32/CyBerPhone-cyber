@@ -63,6 +63,39 @@ const ReelsPage: React.FC<ReelsPageProps> = ({ currentUser, onNavigate, refreshU
     }
   };
 
+  const [activeReelId, setActiveReelId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (reels.length === 0) return;
+    if (!activeReelId) {
+      setActiveReelId(reels[0].id);
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const reelId = entry.target.getAttribute('data-reel-id');
+            if (reelId) {
+              setActiveReelId(reelId);
+            }
+          }
+        });
+      },
+      {
+        root: containerRef.current,
+        threshold: 0.6,
+      }
+    );
+
+    const childElements = containerRef.current?.querySelectorAll('[data-reel-id]');
+    childElements?.forEach((el) => observer.observe(el));
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [reels, activeReelId]);
+
   if (loading) {
       return (
           <div className="h-screen w-full bg-black flex items-center justify-center">
@@ -74,32 +107,31 @@ const ReelsPage: React.FC<ReelsPageProps> = ({ currentUser, onNavigate, refreshU
   return (
     <div 
         ref={containerRef}
-        className="h-screen w-full bg-black overflow-y-scroll snap-y snap-mandatory no-scrollbar flex flex-col items-center"
+        className="h-[calc(100vh-144px)] md:h-[calc(100vh-110px)] w-full max-w-[450px] mx-auto bg-black md:rounded-[2.5rem] md:border md:border-white/10 overflow-y-scroll snap-y snap-mandatory no-scrollbar shadow-2xl relative my-1"
         style={{ scrollBehavior: 'smooth' }}
     >
-      <div className="w-full max-w-[450px] h-full flex flex-col">
-        {reels.length === 0 ? (
-          <div className="h-full w-full flex flex-col items-center justify-center text-white p-10 text-center">
-              <BoltIcon className="w-16 h-16 text-brand mb-4" />
-              <h3 className="text-xl font-black uppercase">{t('no_reels_found')}</h3>
-              <p className="text-sm text-gray-500 mt-2">{t('no_reels_desc', 'Seja o primeiro a postar um Reel!')}</p>
-              <button onClick={() => onNavigate('feed')} className="mt-8 bg-white text-black px-8 py-3 rounded-2xl font-black uppercase text-xs transition-all active:scale-95">{t('back_to_feed')}</button>
-          </div>
-        ) : (
-          reels.map((reel) => (
-            <ReelItem 
-              key={reel.id} 
-              reel={reel} 
-              currentUser={currentUser} 
-              onNavigate={onNavigate}
-              refreshUser={refreshUser}
-              globalMuted={globalMuted}
-              setGlobalMuted={setGlobalMuted}
-              t={t}
-            />
-          ))
-        )}
-      </div>
+      {reels.length === 0 ? (
+        <div className="h-full w-full flex flex-col items-center justify-center text-white p-10 text-center">
+            <BoltIcon className="w-16 h-16 text-brand mb-4" />
+            <h3 className="text-xl font-black uppercase">{t('no_reels_found')}</h3>
+            <p className="text-sm text-gray-500 mt-2">{t('no_reels_desc', 'Seja o primeiro a postar um Reel!')}</p>
+            <button onClick={() => onNavigate('feed')} className="mt-8 bg-white text-black px-8 py-3 rounded-2xl font-black uppercase text-xs transition-all active:scale-95">{t('back_to_feed')}</button>
+        </div>
+      ) : (
+        reels.map((reel, index) => (
+          <ReelItem 
+            key={reel.id} 
+            reel={reel} 
+            currentUser={currentUser} 
+            onNavigate={onNavigate}
+            refreshUser={refreshUser}
+            globalMuted={globalMuted}
+            setGlobalMuted={setGlobalMuted}
+            t={t}
+            isActive={activeReelId === reel.id || (activeReelId === null && index === 0)}
+          />
+        ))
+      )}
     </div>
   );
 };
@@ -111,7 +143,8 @@ const ReelItem = ({
   refreshUser,
   globalMuted,
   setGlobalMuted,
-  t
+  t,
+  isActive
 }: { 
   reel: Post; 
   currentUser: User; 
@@ -120,6 +153,7 @@ const ReelItem = ({
   globalMuted: boolean;
   setGlobalMuted: (m: boolean) => void;
   t: any;
+  isActive: boolean;
 }) => {
   const { i18n } = useTranslation();
   const { showAlert } = useDialog();
@@ -162,6 +196,10 @@ const ReelItem = ({
 
   const handleReadAloud = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      return;
+    }
+
     if (isReadingVoice) {
       window.speechSynthesis.cancel();
       setIsReadingVoice(false);
@@ -171,19 +209,34 @@ const ReelItem = ({
     const textToRead = translatedContent || reel.content;
     if (!textToRead) return;
 
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    const currentLang = i18n.language.split('-')[0];
-    if (currentLang === 'pt') utterance.lang = 'pt-BR';
-    else if (currentLang === 'en') utterance.lang = 'en-US';
-    else if (currentLang === 'es') utterance.lang = 'es-ES';
-    else if (currentLang === 'fr') utterance.lang = 'fr-FR';
-    else if (currentLang === 'zh') utterance.lang = 'zh-CN';
+    // Reset synthesis queue to fix the stuck bug
+    window.speechSynthesis.cancel();
 
-    utterance.onend = () => setIsReadingVoice(false);
-    utterance.onerror = () => setIsReadingVoice(false);
+    setTimeout(() => {
+      try {
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        const currentLang = i18n.language.split('-')[0];
+        if (currentLang === 'pt') utterance.lang = 'pt-BR';
+        else if (currentLang === 'en') utterance.lang = 'en-US';
+        else if (currentLang === 'es') utterance.lang = 'es-ES';
+        else if (currentLang === 'fr') utterance.lang = 'fr-FR';
+        else if (currentLang === 'zh') utterance.lang = 'zh-CN';
 
-    setIsReadingVoice(true);
-    window.speechSynthesis.speak(utterance);
+        utterance.onend = () => setIsReadingVoice(false);
+        utterance.onerror = () => setIsReadingVoice(false);
+
+        setIsReadingVoice(true);
+        window.speechSynthesis.speak(utterance);
+        
+        // Chrome/Firefox speech bug resume
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      } catch (err) {
+        console.error("SpeechSynthesis error:", err);
+        setIsReadingVoice(false);
+      }
+    }, 100);
   };
 
   useEffect(() => {
@@ -191,6 +244,15 @@ const ReelItem = ({
         if (isReadingVoice) window.speechSynthesis.cancel();
     };
   }, [isReadingVoice]);
+
+  useEffect(() => {
+    if (!isActive && isReadingVoice) {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      setIsReadingVoice(false);
+    }
+  }, [isActive, isReadingVoice]);
 
   const handleLike = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -231,13 +293,17 @@ const ReelItem = ({
   };
 
   return (
-    <div className="h-full w-full snap-start relative bg-black flex items-center justify-center overflow-hidden flex-shrink-0" onClick={handleDoubleTap}>
+    <div 
+      data-reel-id={reel.id}
+      className="h-[calc(100vh-144px)] md:h-[calc(100vh-110px)] w-full snap-start relative bg-black flex items-center justify-center overflow-hidden flex-shrink-0" 
+      onClick={handleDoubleTap}
+    >
       <VideoPlayer 
         src={reel.reel?.videoUrl || ''} 
         className="h-full w-full object-cover"
         isReel={true}
         loop={true}
-        autoPlay={true}
+        autoPlay={isActive}
         muted={globalMuted}
         onMuteChange={setGlobalMuted}
         onProgressChange={setProgress}

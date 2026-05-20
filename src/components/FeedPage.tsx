@@ -135,7 +135,7 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
               return true;
           }
           
-          return isOwnOrFollowed;
+          return isOwnOrFollowed || p.isAnonymous;
         });
 
         const auctionSort = (a: Post, b: Post) => {

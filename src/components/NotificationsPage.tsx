@@ -19,6 +19,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { safeJsonStringify } from '../lib/utils';
 
+import { useDialog } from '../services/DialogContext';
+
 interface NotificationsPageProps {
   currentUser: User;
   onNavigate: (page: any, params?: any) => void;
@@ -27,6 +29,7 @@ interface NotificationsPageProps {
 
 const NotificationsPage: React.FC<NotificationsPageProps> = ({ currentUser, onNavigate, refreshUser }) => {
   const { t } = useTranslation();
+  const { showConfirm } = useDialog();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [actors, setActors] = useState<Record<string, User>>({});
   const [loading, setLoading] = useState(true);
@@ -76,7 +79,11 @@ const NotificationsPage: React.FC<NotificationsPageProps> = ({ currentUser, onNa
   };
 
   const handleClearAll = async () => {
-    if (!window.confirm(t('notifications_clear_all_confirm') || "Tem certeza que deseja limpar todas as notificações?")) return;
+    const confirmed = await showConfirm(
+      t('notifications_clear_all_confirm') || "Tem certeza que deseja limpar todas as notificações?",
+      { type: 'confirm', title: t('confirm') || 'Confirmação' }
+    );
+    if (!confirmed) return;
     
     try {
       await clearAllNotifications(currentUser.id);

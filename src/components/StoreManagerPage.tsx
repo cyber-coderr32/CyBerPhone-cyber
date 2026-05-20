@@ -413,7 +413,18 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
         setBrandDesc(myStore.description);
         setBrandColor(myStore.brandColor || BRAND_COLORS[0].hex);
         const allProds = await getProducts();
-        setStoreProducts(allProds.filter((p) => p.storeId === myStore.id));
+        const myProducts = allProds.filter((p) => p.storeId === myStore.id);
+        setStoreProducts(myProducts);
+
+        if (params?.editProductId) {
+          const matchingProduct = myProducts.find(p => p.id === params.editProductId);
+          if (matchingProduct) {
+            setTimeout(() => {
+              openEditModal(matchingProduct);
+            }, 100);
+          }
+        }
+
         const allSales = await getAffiliateSales({ sellerId: currentUser.id });
         const links = await getAffiliateLinks(undefined, currentUser.id);
         setStoreAffiliateLinks(links);

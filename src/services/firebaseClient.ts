@@ -2,11 +2,26 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { initializeFirestore, getDocFromServer, getDoc, getDocs, doc, query, collection, limit, enableNetwork, persistentLocalCache, memoryLocalCache } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-import firebaseConfig from '../../firebase-applet-config.json';
+// Carregar configuração do Firebase dinamicamente ou das variáveis de ambiente
+const configs = import.meta.glob(['../../../firebase-applet-config.json', '/firebase-applet-config.json', '../../firebase-applet-config.json'], { eager: true });
+const configKeys = Object.keys(configs);
+const firebaseConfigFromJson = configKeys.length > 0 ? (configs[configKeys[0]] as any).default : {};
+
+const firebaseConfig = {
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfigFromJson.projectId || "",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfigFromJson.appId || "",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfigFromJson.apiKey || "",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigFromJson.authDomain || "",
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || firebaseConfigFromJson.firestoreDatabaseId || "",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigFromJson.storageBucket || "",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigFromJson.messagingSenderId || "",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfigFromJson.measurementId || ""
+};
+
 import { safeJsonStringify } from "../lib/utils";
 
 // Inicialização segura do Singleton
-export const isFirebaseConfigured = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "TODO_KEYHERE";
+export const isFirebaseConfigured = !!firebaseConfig.apiKey && firebaseConfig.apiKey !== "TODO_KEYHERE" && firebaseConfig.apiKey !== "";
 
 if (isFirebaseConfigured) {
   console.log("ℹ️ [FirebaseConfig] Project:", firebaseConfig.projectId, "API Key (masked):", firebaseConfig.apiKey.substring(0, 5) + "...");

@@ -296,7 +296,7 @@ service cloud.firestore {
     match /stories/{storyId} {
       allow get: if isSignedIn();
       allow list: if isSignedIn();
-      allow create: if isOwner(incoming().userId) && incoming().timestamp == request.time;
+      allow create: if isOwner(incoming().userId) && incoming().timestamp is number;
       allow update: if isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['views']);
       allow delete: if isOwner(existing().userId) || isAdmin();
     }

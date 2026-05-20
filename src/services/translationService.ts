@@ -8,7 +8,7 @@ export const translateText = async (text: string, targetLang: string) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         contents: [{
           parts: [{
             text: `Você é um tradutor profissional. Traduza o seguinte conteúdo para o idioma: ${targetLang}. 

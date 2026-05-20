@@ -54,6 +54,36 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Roboto Mono", monospace;
+  --font-bebas: "Bebas Neue", sans-serif;
+  --font-montserrat: "Montserrat", sans-serif;
+  --font-oswald: "Oswald", sans-serif;
+  --font-playfair: "Playfair Display", serif;
+  --font-pacifico: "Pacifico", cursive;
+  --font-caveat: "Caveat", cursive;
+  --font-lobster: "Lobster", cursive;
+  --font-abril: "Abril Fatface", cursive;
+  --font-righteous: "Righteous", cursive;
+  --font-marker: "Permanent Marker", cursive;
+  --font-special: "Special Elite", cursive;
+  --font-cinzel: "Cinzel", serif;
+  --font-dancing: "Dancing Script", cursive;
+  --font-fredoka: "Fredoka One", cursive;
+  --font-press: "Press Start 2P", cursive;
+  --font-satisfy: "Satisfy", cursive;
+  --font-gothic: "UnifrakturMaguntia", cursive;
+  --font-zilla: "Zilla Slab", serif;
+  --font-inline: "Alumni Sans Inline One", cursive;
+  --font-bungee: "Bungee Shade", cursive;
+  --font-monoton: "Monoton", cursive;
+  --font-vibes: "Great Vibes", cursive;
+  --font-indie: "Indie Flower", cursive;
+  --font-shadows: "Shadows Into Light", cursive;
+  --font-amatic: "Amatic SC", cursive;
+  --font-alex: "Alex Brush", cursive;
+  --font-allura: "Allura", cursive;
 }
 
 :root {

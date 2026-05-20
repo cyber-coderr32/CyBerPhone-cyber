@@ -24,7 +24,7 @@ export const checkContentSecurity = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: "gemini-3-flash-preview",
+                model: "gemini-3.5-flash",
                 contents: [{
                     parts: [{
                         text: `Você é o SENTINELA AI, o sistema de segurança supremo da rede CyBerPhone. 
@@ -85,7 +85,7 @@ export const checkImageSecurity = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: "gemini-3-flash-preview",
+                model: "gemini-3.5-flash",
                 contents: [{
                     parts: [
                         {
@@ -143,7 +143,7 @@ export const verifyIdentityDocuments = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: "gemini-3-flash-preview",
+                model: "gemini-3.5-flash",
                 contents: [{
                     parts: [
                         {
@@ -224,7 +224,7 @@ export const extractIdFromDocument = async (base64Image: string): Promise<string
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                model: "gemini-3-flash-preview",
+                model: "gemini-3.5-flash",
                 contents: [{
                     parts: [
                         {

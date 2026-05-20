@@ -5,7 +5,7 @@ import { Post, User, Comment, Page, NotificationType, PostType } from '../types'
 import { findUserById, addPostComment, deleteComment, updatePostLikes, updatePostSaves, updatePostShares, toggleFollowUser, generateUUID, getPosts, toggleReaction, addCommentReply, createNotification, getMutualBlockedUserIds } from '../services/storageService';
 import { translateText } from '../services/translationService';
 import { useDialog } from '../services/DialogContext';
-import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { DEFAULT_PROFILE_PIC, ANONYMOUS_PROFILE_PIC } from '../data/constants';
 import ShareModal from './ShareModal';
 import VideoPlayer from './VideoPlayer';
 import { useTranslation } from 'react-i18next';
@@ -237,6 +237,10 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
 
   const handleReadAloud = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (typeof window === 'undefined' || !window.speechSynthesis) {
+      return;
+    }
+
     if (isReadingVoice) {
       window.speechSynthesis.cancel();
       setIsReadingVoice(false);
@@ -246,19 +250,34 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     const textToRead = translatedContent || post.content;
     if (!textToRead) return;
 
-    const utterance = new SpeechSynthesisUtterance(textToRead);
-    const currentLang = i18n.language.split('-')[0];
-    if (currentLang === 'pt') utterance.lang = 'pt-BR';
-    else if (currentLang === 'en') utterance.lang = 'en-US';
-    else if (currentLang === 'es') utterance.lang = 'es-ES';
-    else if (currentLang === 'fr') utterance.lang = 'fr-FR';
-    else if (currentLang === 'zh') utterance.lang = 'zh-CN';
+    // Reset synthesis queue to fix the stuck bug
+    window.speechSynthesis.cancel();
 
-    utterance.onend = () => setIsReadingVoice(false);
-    utterance.onerror = () => setIsReadingVoice(false);
+    setTimeout(() => {
+      try {
+        const utterance = new SpeechSynthesisUtterance(textToRead);
+        const currentLang = i18n.language.split('-')[0];
+        if (currentLang === 'pt') utterance.lang = 'pt-BR';
+        else if (currentLang === 'en') utterance.lang = 'en-US';
+        else if (currentLang === 'es') utterance.lang = 'es-ES';
+        else if (currentLang === 'fr') utterance.lang = 'fr-FR';
+        else if (currentLang === 'zh') utterance.lang = 'zh-CN';
 
-    setIsReadingVoice(true);
-    window.speechSynthesis.speak(utterance);
+        utterance.onend = () => setIsReadingVoice(false);
+        utterance.onerror = () => setIsReadingVoice(false);
+
+        setIsReadingVoice(true);
+        window.speechSynthesis.speak(utterance);
+        
+        // Chrome/Firefox speech bug resume
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      } catch (err) {
+        console.error("SpeechSynthesis error:", err);
+        setIsReadingVoice(false);
+      }
+    }, 100);
   };
 
   if (!author) return null;
@@ -299,7 +318,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     return (
       <div className={`p-4 border-b border-gray-100 dark:border-white/10 flex gap-3 group transition-all ${depth > 0 ? 'ml-10 md:ml-12 border-l' : ''}`}>
         <img 
-          src={commentAuthorIsAnonymous ? DEFAULT_PROFILE_PIC : (c.profilePic || DEFAULT_PROFILE_PIC)} 
+          src={commentAuthorIsAnonymous ? ANONYMOUS_PROFILE_PIC : (c.profilePic || DEFAULT_PROFILE_PIC)} 
           className="w-10 h-10 rounded-full object-cover shrink-0 cursor-pointer hover:scale-105 transition-transform" 
           onClick={() => { 
             if (commentAuthorIsAnonymous) return;
@@ -440,7 +459,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                     onNavigate('profile', { userId: post.userId }); 
                  }}>
                     <img 
-                      src={post.isAnonymous ? DEFAULT_PROFILE_PIC : (author.profilePicture || DEFAULT_PROFILE_PIC)} 
+                      src={post.isAnonymous ? ANONYMOUS_PROFILE_PIC : (author.profilePicture || DEFAULT_PROFILE_PIC)} 
                       className="w-12 h-12 rounded-full object-cover border border-gray-100 dark:border-white/10 group-hover:scale-105 transition-transform" 
                       referrerPolicy="no-referrer"
                     />
@@ -479,7 +498,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                     {hasBg && <div className="absolute inset-0 bg-white/5 pointer-events-none" />}
                     <p 
                       style={{ fontFamily: `var(--${post.fontFamily || 'font-sans'})` }}
-                      className={`whitespace-pre-wrap break-words w-full relative z-10 transition-all duration-500 ${hasBg ? fontSizeClass : 'text-[18px] md:text-[22px] leading-relaxed dark:text-gray-100'}`}
+                      className={`whitespace-pre-wrap break-words w-full relative z-10 transition-all duration-500 ${post.fontFamily || ''} ${hasBg ? fontSizeClass : 'text-[18px] md:text-[22px] leading-relaxed dark:text-gray-100'}`}
                     >
                       {translatedContent || post.content}
                     </p>

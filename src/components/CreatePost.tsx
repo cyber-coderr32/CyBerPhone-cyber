@@ -5,7 +5,7 @@ import { Post, PostType, User } from '../types';
 import { addPost, updatePost, uploadFile, generateUUID, getPostById } from '../services/storageService';
 import { safeJsonStringify } from '../lib/utils';
 import { useDialog } from '../services/DialogContext';
-import { DEFAULT_PROFILE_PIC } from '../data/constants';
+import { DEFAULT_PROFILE_PIC, ANONYMOUS_PROFILE_PIC } from '../data/constants';
 import { 
   PhotoIcon, 
   XMarkIcon, 
@@ -299,13 +299,13 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
     <div className="bg-white dark:bg-darkcard md:rounded-[1.5rem] p-8 border border-gray-200 dark:border-white/5 shadow-2xl animate-fade-in relative z-50">
        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-             <img src={currentUser.profilePicture} className="w-10 h-10 rounded-xl object-cover" />
+             <img src={isAnonymous ? ANONYMOUS_PROFILE_PIC : currentUser.profilePicture} className="w-10 h-10 rounded-xl object-cover border border-gray-100 dark:border-white/10 shadow transition-all duration-300" />
              <div>
-                <p className="text-sm font-black text-gray-900 dark:text-white leading-none">{currentUser.firstName}</p>
-                <p className="text-[9px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-widest mt-1">{t('member')}</p>
+                <p className="text-sm font-black text-gray-900 dark:text-white leading-none">{isAnonymous ? (t('anonymous_user') || 'Anônimo') : `${currentUser.firstName} ${currentUser.lastName}`}</p>
+                <p className={`text-[9px] font-bold uppercase tracking-widest mt-1 ${isAnonymous ? 'text-amber-500 animate-pulse' : 'text-gray-500 dark:text-gray-400'}`}>{isAnonymous ? (t('anonymous_active') || 'Modo Anônimo Ativo') : (t('member') || 'Membro')}</p>
              </div>
           </div>
-          <button onClick={() => setIsExpanded(false)} className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"><XMarkIcon className="h-6 w-6"/></button>
+          <button type="button" onClick={() => setIsExpanded(false)} className="p-2 text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors"><XMarkIcon className="h-6 w-6"/></button>
        </div>
 
         <div className="flex items-center gap-3 mb-6 px-4 py-3 bg-blue-50 dark:bg-blue-900/10 rounded-3xl border border-blue-500/10">
@@ -333,7 +333,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
           {imageUrl && (
             <div className="relative rounded-3xl overflow-hidden group">
                <img src={imageUrl} className="w-full h-64 object-cover" />
-               <button type="button" onClick={() => {setImageUrl(''); setImageFile(null);}} className="absolute top-4 right-4 p-2 bg-black/60 rounded-full text-white"><XMarkIcon className="h-5 w-5"/></button>
+               <button type="button" onClick={() => {setImageUrl(''); setImageFile(null); setPostType(PostType.TEXT);}} className="absolute top-4 right-4 p-2 bg-black/60 rounded-full text-white hover:bg-red-500 transition-colors"><XMarkIcon className="h-5 w-5"/></button>
             </div>
           )}
 
@@ -341,7 +341,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
             <div className="space-y-4">
               <div className="relative rounded-3xl overflow-hidden group bg-black">
                  <video src={videoUrl} className="w-full h-64 object-contain" controls />
-                 <button type="button" onClick={() => {setVideoUrl(''); setVideoFile(null); setCoverUrl(''); setCoverFile(null);}} className="absolute top-4 right-4 p-2 bg-black/60 rounded-full text-white hover:bg-red-500 transition-colors"><XMarkIcon className="h-5 w-5"/></button>
+                 <button type="button" onClick={() => {setVideoUrl(''); setVideoFile(null); setCoverUrl(''); setCoverFile(null); setPostType(PostType.TEXT);}} className="absolute top-4 right-4 p-2 bg-black/60 rounded-full text-white hover:bg-red-500 transition-colors"><XMarkIcon className="h-5 w-5"/></button>
               </div>
               
               <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-white/5 rounded-2xl border border-dashed border-gray-200 dark:border-white/10">
@@ -430,24 +430,81 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-gray-200 dark:border-white/5">
-             <div className="flex gap-4">
-                <button type="button" onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 text-gray-500 dark:text-gray-400 hover:text-green-500 transition-all font-black text-[10px] uppercase">
-                   <PhotoIcon className="h-6 w-6" /> {t('photo')}
+             <div className="flex gap-4 items-center flex-wrap">
+                <button 
+                  type="button" 
+                  onClick={() => {
+                     if (postType === PostType.IMAGE) {
+                        setPostType(PostType.TEXT);
+                        setImageUrl('');
+                        setImageFile(null);
+                     } else {
+                        fileInputRef.current?.click();
+                     }
+                  }} 
+                  className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.IMAGE ? 'text-green-500 border border-green-500/20 bg-green-500/5 px-2.5 py-1.5 rounded-xl shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-green-500 border border-transparent'}`}
+                >
+                   <PhotoIcon className="h-5 w-5" /> {t('photo')}
                 </button>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFile} />
 
-                <button type="button" onClick={() => videoInputRef.current?.click()} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.REEL ? 'text-purple-500' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500'}`}>
-                   <VideoCameraIcon className="h-6 w-6" /> {t('reel')}
+                <button 
+                  type="button" 
+                  onClick={() => {
+                     if (postType === PostType.REEL) {
+                        setPostType(PostType.TEXT);
+                        setVideoUrl('');
+                        setVideoFile(null);
+                        setCoverUrl('');
+                        setCoverFile(null);
+                     } else {
+                        videoInputRef.current?.click();
+                     }
+                  }} 
+                  className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.REEL ? 'text-purple-500 border border-purple-500/20 bg-purple-500/5 px-2.5 py-1.5 rounded-xl shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-purple-500 border border-transparent'}`}
+                >
+                   <VideoCameraIcon className="h-5 w-5" /> {t('reel')}
                 </button>
                 <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={e => handleVideoFile(e, PostType.REEL)} />
 
-                <button type="button" onClick={() => videoPostInputRef.current?.click()} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.VIDEO ? 'text-blue-500' : 'text-gray-500 dark:text-gray-400 hover:text-blue-500'}`}>
-                   <FilmIcon className="h-6 w-6" /> {t('video')}
+                <button 
+                  type="button" 
+                  onClick={() => {
+                     if (postType === PostType.VIDEO) {
+                        setPostType(PostType.TEXT);
+                        setVideoUrl('');
+                        setVideoFile(null);
+                        setCoverUrl('');
+                        setCoverFile(null);
+                     } else {
+                        videoPostInputRef.current?.click();
+                     }
+                  }} 
+                  className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.VIDEO ? 'text-blue-500 border border-blue-500/20 bg-blue-500/5 px-2.5 py-1.5 rounded-xl shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-blue-500 border border-transparent'}`}
+                >
+                   <FilmIcon className="h-5 w-5" /> {t('video')}
                 </button>
                 <input type="file" ref={videoPostInputRef} className="hidden" accept="video/*" onChange={e => handleVideoFile(e, PostType.VIDEO)} />
                 
-                <button type="button" onClick={() => {setPostType(PostType.LIVE); setContent(t('starting_live'));}} className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.LIVE ? 'text-red-500' : 'text-gray-500 dark:text-gray-400 hover:text-red-400'}`}>
-                  <span className="flex items-center gap-2 uppercase"><SignalIcon className="h-6 w-6" /> {t('live')}</span>
+                <button 
+                  type="button" 
+                  onClick={() => {
+                    if (postType === PostType.LIVE) {
+                      setPostType(PostType.TEXT);
+                      if (content === t('starting_live') || content === 'Iniciando Transmissão ao Vivo...') {
+                        setContent('');
+                      }
+                    } else {
+                      setPostType(PostType.LIVE);
+                      setContent(t('starting_live') || 'Iniciando Transmissão ao Vivo...');
+                      setImageUrl(''); setImageFile(null);
+                      setVideoUrl(''); setVideoFile(null);
+                      setCoverUrl(''); setCoverFile(null);
+                    }
+                  }} 
+                  className={`flex items-center gap-2 transition-all font-black text-[10px] uppercase ${postType === PostType.LIVE ? 'text-red-500 border border-red-500/20 bg-red-500/5 px-2.5 py-1.5 rounded-xl shadow-sm animate-pulse' : 'text-gray-500 dark:text-gray-400 hover:text-red-400 border border-transparent'}`}
+                >
+                  <span className="flex items-center gap-2 uppercase"><SignalIcon className="h-5 w-5" /> {t('live')}</span>
                 </button>
              </div>
 

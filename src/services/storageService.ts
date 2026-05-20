@@ -4,7 +4,7 @@ import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { safeJsonStringify } from '../lib/utils';
 import { checkContentSecurity } from './sentinelService';
 import { auth, db, storage, isFirebaseConfigured } from './firebaseClient';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider, updatePassword } from 'firebase/auth';
 import { 
   collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, addDoc, onSnapshot,
   getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion, increment, writeBatch, serverTimestamp
@@ -661,7 +661,6 @@ export const getPosts = async (user?: User): Promise<Post[]> => {
   try {
     const q = query(
       collection(db, 'posts'), 
-      where('isAnonymous', '==', false),
       orderBy('timestamp', 'desc')
     );
     
@@ -1547,7 +1546,7 @@ export const seedDatabase = async () => {
             saves: [],
             tags: ['WORLD', 'TRAVEL'],
             reel: {
-                videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-girl-in-neon-light-dancing-alone-31508-large.mp4',
+                videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
                 description: 'Dançando na noite cosmopolita'
             }
         },
@@ -1565,7 +1564,7 @@ export const seedDatabase = async () => {
             saves: [],
             tags: ['TECH', 'REVIEW'],
             reel: {
-                videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-rotating-smartphone-with-a-blue-screen-34444-large.mp4',
+                videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
                 description: 'Gadget do dia'
             }
         }
@@ -1827,8 +1826,7 @@ export const getSavedPosts = async (uid: string) => {
     try {
         const q = query(
             collection(db, 'posts'), 
-            where('saves', 'array-contains', uid),
-            where('isAnonymous', '==', false) // Filtro adicional por regra
+            where('saves', 'array-contains', uid)
         );
         const snap = await getDocs(q);
         return snap.docs.map(d => ({ ...d.data(), id: d.id } as Post)).sort((a,b) => b.timestamp - a.timestamp);
@@ -2103,7 +2101,23 @@ export const deleteUser = async (id: string) => {
         return false;
     }
 };
-export const updateUserPassword = async (p: string) => {};
+export const updateUserPassword = async (p: string) => {
+    if (!isFirebaseConfigured || !auth) {
+        throw new Error("Firebase Auth não está inicializado.");
+    }
+    if (!auth.currentUser) {
+        throw new Error("Usuário não está autenticado.");
+    }
+    try {
+        await updatePassword(auth.currentUser, p);
+    } catch (error: any) {
+        console.error("[STORAGE] Erro ao alterar senha no Firebase Auth:", safeJsonStringify(error));
+        if (error.code === 'auth/requires-recent-login' || error.message?.includes('requires-recent-login')) {
+            throw new Error("Segurança: Para alterar ou definir uma senha, você precisa ter feito login de forma muito recente. Por favor, saia (Logout) e entre novamente antes de tentar definir sua senha.");
+        }
+        throw error;
+    }
+};
 
 // FIX: Added missing exported members
 export const getEvents = async () => {

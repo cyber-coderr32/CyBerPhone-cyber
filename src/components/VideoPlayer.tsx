@@ -30,16 +30,24 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [hasError, setHasError] = useState(false);
   
   useEffect(() => {
     onPlayChange?.(isPlaying);
   }, [isPlaying, onPlayChange]);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
 
   const [isMuted, setIsMuted] = useState(externalMuted ?? true);
   
   useEffect(() => {
     if (externalMuted !== undefined) {
       setIsMuted(externalMuted);
+      if (videoRef.current) {
+        videoRef.current.muted = externalMuted;
+      }
     }
   }, [externalMuted]);
 
@@ -73,31 +81,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isPlaying]);
 
   useEffect(() => {
-    if (!autoPlay || !videoRef.current || !src) return;
+    if (!videoRef.current || !src) return;
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            videoRef.current?.play().catch((err) => {
-              console.warn("Video play failed:", err.message);
-              setIsPlaying(false);
-            });
-            setIsPlaying(true);
-          } else {
-            videoRef.current?.pause();
-            setIsPlaying(false);
-          }
-        });
-      },
-      { threshold: 0.6 }
-    );
-
-    if (containerRef.current) {
-      observer.observe(containerRef.current);
+    if (autoPlay) {
+      videoRef.current.play().catch((err) => {
+        console.warn("Video play failed:", err.message);
+        setIsPlaying(false);
+      });
+      setIsPlaying(true);
+    } else {
+      videoRef.current.pause();
+      setIsPlaying(false);
     }
-
-    return () => observer.disconnect();
   }, [autoPlay, src]);
 
   const togglePlay = (e: React.MouseEvent) => {
@@ -182,6 +177,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
   };
 
+  const handleRetry = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHasError(false);
+    if (videoRef.current) {
+      videoRef.current.load();
+      videoRef.current.play().then(() => {
+        setIsPlaying(true);
+      }).catch((err) => {
+        console.warn("Retry video play failed:", err.message);
+      });
+    }
+  };
+
   return (
     <div 
       ref={containerRef}
@@ -191,7 +199,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onMouseLeave={() => isPlaying && setShowControls(false)}
       onClick={resetControlsTimeout}
     >
-      {src ? (
+      {src && !hasError ? (
         <video 
           ref={videoRef}
           src={src}
@@ -209,8 +217,23 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onLoadedMetadata={handleTimeUpdate}
           onError={() => {
             console.error("Video player error: Failed to load resource");
+            setHasError(true);
           }}
         />
+      ) : src && hasError ? (
+        <div className="w-full h-full flex flex-col items-center justify-center bg-gray-950 text-gray-400 p-4">
+          <SpeakerXMarkIcon className="h-10 w-10 mb-2 opacity-60 text-red-500 animate-pulse" />
+          <p className="text-[11px] uppercase font-black tracking-wider text-center max-w-xs mb-3">
+            Erro ao carregar o vídeo
+          </p>
+          <button 
+            type="button" 
+            onClick={handleRetry} 
+            className="px-4 py-1.5 bg-brand text-white font-extrabold uppercase text-[9px] tracking-widest rounded-xl shadow-lg shadow-brand/20 hover:bg-brand-hover active:scale-95 transition-all outline-none"
+          >
+            Tentar novamente
+          </button>
+        </div>
       ) : (
         <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 text-gray-500 italic">
           <SpeakerXMarkIcon className="h-12 w-12 mb-2 opacity-20" />
