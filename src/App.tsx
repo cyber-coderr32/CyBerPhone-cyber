@@ -707,7 +707,7 @@ const App: React.FC = () => {
         }
 
         return (
-            <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-[#0a0c10] text-gray-900 dark:text-gray-100 transition-colors duration-300">
+            <div className={`min-h-screen flex flex-col ${currentPage === 'reels-page' ? 'bg-black text-white' : 'bg-gray-50 dark:bg-[#0a0c10] text-gray-900 dark:text-gray-100'} transition-colors duration-300`}>
                 {!isOnline && isOfflineModeEnabled && (
                     <div className="bg-orange-500 text-white text-[10px] font-black py-2 px-4 flex items-center justify-between fixed top-0 left-0 w-full z-[1000] animate-pulse uppercase tracking-widest shadow-xl">
                         <div className="flex items-center gap-2">

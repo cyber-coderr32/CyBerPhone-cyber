@@ -107,7 +107,7 @@ const Footer: React.FC<FooterProps> = ({
   return (
     <>
       {/* MOBILE BOTTOM BAR */}
-      <footer className={`md:hidden ${activePage === 'reels-page' ? 'bg-black/90 border-t border-white/15 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]' : 'bg-white/95 dark:bg-[#0a0c10]/95 border-t border-gray-100 dark:border-white/5 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]'} backdrop-blur-xl fixed bottom-0 left-0 right-0 z-[100] pb-safe pt-3 px-4 flex justify-around items-center transition-all duration-300 ${isKeyboardVisible ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
+      <footer className={`md:hidden ${activePage === 'reels-page' ? 'bg-[#000000] border-t border-white/10' : 'bg-white/95 dark:bg-[#0a0c10]/95 border-t border-gray-100 dark:border-white/5 shadow-[0_-10px_40px_rgba(0,0,0,0.05)] backdrop-blur-xl'} fixed bottom-0 left-0 right-0 z-[100] pb-safe pt-3 px-4 flex justify-around items-center transition-all duration-300 ${isKeyboardVisible ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
         {navItems.map((item) => {
           const isActive = activePage === item.id;
           const Icon = isActive ? item.activeIcon : item.icon;
