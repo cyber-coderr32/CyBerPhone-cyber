@@ -731,8 +731,7 @@ export const getReels = async (user?: User): Promise<Post[]> => {
   try {
     const q = query(
       collection(db, 'posts'),
-      where('type', '==', 'REEL'),
-      orderBy('timestamp', 'desc')
+      where('type', '==', 'REEL')
     );
     
     let snap;
@@ -1768,8 +1767,15 @@ export const updatePostSaves = async (pid: string, uid: string) => {
 };
 export const getNotificationsForUser = async (uid: string) => {
     if (!isFirebaseConfigured || !db) return [];
-    const snap = await getDocs(query(collection(db, 'notifications'), where('recipientId', '==', uid), orderBy('timestamp', 'desc')));
+    const snap = await getDocs(query(collection(db, 'notifications'), where('recipientId', '==', uid)));
     let notifications = snap.docs.map(d => ({ ...d.data(), id: d.id } as Notification));
+    
+    // Sort in memory to avoid requiring a composite index
+    notifications.sort((a, b) => {
+        const tA = a.timestamp || 0;
+        const tB = b.timestamp || 0;
+        return tB - tA;
+    });
     
     // Mutual Blocking Filter
     const hiddenIds = await getMutualBlockedUserIds(uid);
@@ -2408,9 +2414,10 @@ export const getActiveAds = async (): Promise<AdCampaign[]> => {
     if (!db) return [];
     try {
         const adsRef = collection(db, 'ads');
-        const q = query(adsRef, where('isActive', '==', true), orderBy('timestamp', 'desc'));
+        const q = query(adsRef, where('isActive', '==', true));
         const snapshot = await getDocs(q);
-        return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AdCampaign));
+        const ads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AdCampaign));
+        return ads.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     } catch (e) {
         console.error("Error getting active ads:", safeJsonStringify(e));
         return [];

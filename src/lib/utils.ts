@@ -29,112 +29,123 @@ export function formatCurrency(amount: number, currency: string = 'KZ') {
  * Especialmente útil para erros do Firebase e do Gemini que podem ter estruturas complexas.
  */
 export const safeJsonStringify = (obj: any, indent = 2): string => {
-  const cache = new WeakSet();
-  
-  const replacer = (key: string, value: any) => {
-    // 1. Basic types
-    if (value === null || value === undefined) return value;
+  const seen = new WeakSet();
+
+  function sanitize(val: any, depth = 0): any {
+    if (val === null || val === undefined) return val;
     
-    // 2. Large strings
-    if (typeof value === 'string' && value.length > 10000) {
-      return `[Large String: ${value.substring(0, 100)}... (${value.length} bytes)]`;
+    // Limit depth to avoid stack overflows or huge outputs
+    if (depth > 12) {
+      return '[Max Depth Reached]';
     }
 
-    if (typeof value === 'object') {
-      // 3. Circular reference check
-      if (cache.has(value)) {
-        return '[Circular Reference]';
+    if (typeof val === 'function') {
+      return `[Function: ${val.name || 'anonymous'}]`;
+    }
+
+    if (typeof val === 'symbol') {
+      return val.toString();
+    }
+
+    if (typeof val !== 'object') {
+      // Large strings
+      if (typeof val === 'string' && val.length > 10000) {
+        return `[Large String: ${val.substring(0, 100)}... (${val.length} bytes)]`;
       }
-      
-      // 4. Browser/DOM objects
-      if (typeof window !== 'undefined' && 
-         (value instanceof Node || value instanceof Window || value instanceof Event)) {
-        return `[Browser Object: ${value.constructor?.name || 'DOM'}]`;
-      }
+      return val;
+    }
 
-      const constructorName = value.constructor?.name;
+    // Check for circular reference in the current trace path
+    if (seen.has(val)) {
+      return '[Circular Reference]';
+    }
 
-      // 5. Aggressive Firebase/Firestore internal object detection
-      const isFirebaseInternal = 
-        constructorName === 'Y2' || 
-        constructorName === 'Ka' || 
-        constructorName === 'Za' || 
-        constructorName === 'Firestore' ||
-        constructorName === 'FirebaseAuthImpl' ||
-        constructorName === 'FirebaseAppImpl' ||
-        constructorName === 'DocumentReference' ||
-        constructorName === 'Query' ||
-        constructorName === 'CollectionReference' ||
-        constructorName === 'DocumentSnapshot' ||
-        constructorName === 'QuerySnapshot' ||
-        constructorName === '_FirebaseAppImpl' ||
-        (value.type && (value.type === 'firestore' || value.type === 'auth')) ||
-        (value._delegate) || 
-        (value.i && (value.i.src || value.i.constructor?.name === 'Ka')) || 
-        (value.src && (value.src.i || value.src.constructor?.name === 'Y2')) ||
-        (value._database && value._path);
-
-      if (isFirebaseInternal) {
-         return `[Firebase Internal Service Object: ${constructorName || 'Object'}]`;
-      }
-
-      // Add to cache to detect sub-branch circularity
-      cache.add(value);
-
-      // 6. Error objects treatment
-      if (value instanceof Error) {
-        const errorObj: any = {
-          name: value.name,
-          message: value.message,
-          code: (value as any).code || (value as any).status,
-        };
-        
-        // Safely extract relevant non-circular properties
-        Object.getOwnPropertyNames(value).forEach(prop => {
-          if (prop !== 'name' && prop !== 'message' && prop !== 'stack') {
-            try {
-              const subVal = (value as any)[prop];
-              if (subVal && typeof subVal === 'object') {
-                errorObj[prop] = `[Object: ${subVal.constructor?.name || 'Object'}]`;
-              } else {
-                errorObj[prop] = subVal;
-              }
-            } catch (e) {
-              errorObj[prop] = "[Unreadable Property]";
+    // Handle standard errors
+    if (val instanceof Error) {
+      const errObj: any = {
+        name: val.name,
+        message: val.message,
+        code: (val as any).code || (val as any).status,
+      };
+      // Prevent infinite recursion on error fields, convert simple fields
+      Object.getOwnPropertyNames(val).forEach(prop => {
+        if (prop !== 'stack') {
+          try {
+            const propVal = (val as any)[prop];
+            if (propVal && typeof propVal === 'object') {
+              errObj[prop] = `[Object: ${propVal.constructor?.name || 'Object'}]`;
+            } else if (typeof propVal === 'function') {
+              errObj[prop] = `[Function]`;
+            } else {
+              errObj[prop] = propVal;
             }
+          } catch (e) {
+            errObj[prop] = "[Unreadable Property]";
           }
-        });
-        return errorObj;
+        }
+      });
+      return errObj;
+    }
+
+    // Check for browser objects
+    if (typeof window !== 'undefined' && 
+        (val instanceof Node || val instanceof Window || val instanceof Event)) {
+      return `[Browser Object: ${val.constructor?.name || 'DOM'}]`;
+    }
+
+    const constructorName = val.constructor?.name;
+
+    // Aggressive Firebase/Firestore internal object detection to prevent reading internally circular trees
+    const isFirebaseInternal = 
+      constructorName === 'Y2' || 
+      constructorName === 'Ka' || 
+      constructorName === 'Za' || 
+      constructorName === 'Firestore' ||
+      constructorName === 'FirebaseAuthImpl' ||
+      constructorName === 'FirebaseAppImpl' ||
+      constructorName === 'DocumentReference' ||
+      constructorName === 'Query' ||
+      constructorName === 'CollectionReference' ||
+      constructorName === 'DocumentSnapshot' ||
+      constructorName === 'QuerySnapshot' ||
+      constructorName === '_FirebaseAppImpl' ||
+      (val.type && (val.type === 'firestore' || val.type === 'auth')) ||
+      (val._delegate) || 
+      (val.i && (val.i.src || val.i.constructor?.name === 'Ka')) || 
+      (val.src && (val.src.i || val.src.constructor?.name === 'Y2')) ||
+      (val._database && val._path);
+
+    if (isFirebaseInternal) {
+      return `[Firebase Internal Service Object: ${constructorName || 'Object'}]`;
+    }
+
+    seen.add(val);
+
+    // Arrays
+    if (Array.isArray(val)) {
+      const arrCopy = val.map(item => sanitize(item, depth + 1));
+      seen.delete(val);
+      return arrCopy;
+    }
+
+    // Objects
+    const objCopy: any = {};
+    const keys = Object.keys(val);
+    for (const key of keys) {
+      try {
+        objCopy[key] = sanitize(val[key], depth + 1);
+      } catch (e) {
+        objCopy[key] = "[Property Retrieve Error]";
       }
     }
-    return value;
-  };
+    seen.delete(val);
+    return objCopy;
+  }
 
   try {
-    return JSON.stringify(obj, replacer, indent);
+    const sanitized = sanitize(obj);
+    return JSON.stringify(sanitized, null, indent);
   } catch (err) {
-    // Ultimate fallback if JSON.stringify still fails (e.g. Proxy traps or depth issues)
-    try {
-      if (!obj || typeof obj !== 'object') return String(obj);
-      
-      const simple: any = {};
-      const keys = Object.keys(obj);
-      for (let i = 0; i < Math.min(keys.length, 30); i++) {
-        const k = keys[i];
-        try {
-          const val = obj[k];
-          if (val === null || (typeof val !== 'object' && typeof val !== 'function')) {
-            simple[k] = val;
-          } else {
-            simple[k] = `[Complex/Circular: ${val?.constructor?.name || typeof val}]`;
-          }
-        } catch (e) {
-          simple[k] = "[Read Error]";
-        }
-      }
-      return JSON.stringify(simple, null, indent);
-    } catch (e) {
-      return "[Unserializable Object]";
-    }
+    return `[Serialization Error: ${err instanceof Error ? err.message : String(err)}]`;
   }
 };

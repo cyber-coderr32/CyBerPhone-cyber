@@ -62,9 +62,7 @@ export const listenForNewSales = (vendorId: string, onNewSale: (sale: any) => vo
   // We look for any sale where sellerId is the user
   const q = query(
     salesRef, 
-    where('sellerId', '==', vendorId),
-    orderBy('timestamp', 'desc'),
-    limit(1)
+    where('sellerId', '==', vendorId)
   );
 
   let initialLoad = true;

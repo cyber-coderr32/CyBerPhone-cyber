@@ -107,7 +107,7 @@ const Footer: React.FC<FooterProps> = ({
   return (
     <>
       {/* MOBILE BOTTOM BAR */}
-      <footer className={`md:hidden bg-white/95 dark:bg-[#0a0c10]/95 backdrop-blur-xl border-t border-gray-100 dark:border-white/5 fixed bottom-0 left-0 right-0 z-[100] pb-safe pt-3 px-4 flex justify-around items-center shadow-[0_-10px_40px_rgba(0,0,0,0.05)] transition-all duration-300 ${isKeyboardVisible ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
+      <footer className={`md:hidden ${activePage === 'reels-page' ? 'bg-black/90 border-t border-white/15 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]' : 'bg-white/95 dark:bg-[#0a0c10]/95 border-t border-gray-100 dark:border-white/5 shadow-[0_-10px_40px_rgba(0,0,0,0.05)]'} backdrop-blur-xl fixed bottom-0 left-0 right-0 z-[100] pb-safe pt-3 px-4 flex justify-around items-center transition-all duration-300 ${isKeyboardVisible ? 'translate-y-full opacity-0 pointer-events-none' : 'translate-y-0 opacity-100'}`}>
         {navItems.map((item) => {
           const isActive = activePage === item.id;
           const Icon = isActive ? item.activeIcon : item.icon;
@@ -115,7 +115,7 @@ const Footer: React.FC<FooterProps> = ({
             <button 
               key={item.id}
               onClick={() => onNavigate(item.id as Page, item.params)} 
-              className={`flex flex-col items-center gap-1.5 p-2 transition-all relative ${isActive ? 'text-brand' : 'text-gray-400'}`}
+              className={`flex flex-col items-center gap-1.5 p-2 transition-all relative ${isActive ? (activePage === 'reels-page' ? 'text-white' : 'text-brand') : (activePage === 'reels-page' ? 'text-white/40 hover:text-white/70' : 'text-gray-400')}`}
             >
               <Icon className={`w-6 h-6 ${isActive ? 'scale-110' : ''}`} />
               {item.id === 'chat' && unreadMessagesCount > 0 && (

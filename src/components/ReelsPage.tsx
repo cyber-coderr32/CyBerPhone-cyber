@@ -107,7 +107,7 @@ const ReelsPage: React.FC<ReelsPageProps> = ({ currentUser, onNavigate, refreshU
   return (
     <div 
         ref={containerRef}
-        className="h-[calc(100vh-144px)] md:h-[calc(100vh-110px)] w-full max-w-[450px] mx-auto bg-black md:rounded-[2.5rem] md:border md:border-white/10 overflow-y-scroll snap-y snap-mandatory no-scrollbar shadow-2xl relative my-1"
+        className="h-[calc(100dvh-72px)] md:h-[780px] md:max-h-[calc(100vh-120px)] w-full md:max-w-[450px] md:aspect-[9/16] mx-auto bg-black md:rounded-[2.5rem] md:border md:border-white/10 overflow-y-scroll snap-y snap-mandatory no-scrollbar shadow-2xl relative"
         style={{ scrollBehavior: 'smooth' }}
     >
       {reels.length === 0 ? (
@@ -295,7 +295,7 @@ const ReelItem = ({
   return (
     <div 
       data-reel-id={reel.id}
-      className="h-[calc(100vh-144px)] md:h-[calc(100vh-110px)] w-full snap-start relative bg-black flex items-center justify-center overflow-hidden flex-shrink-0" 
+      className="h-full w-full snap-start relative bg-black flex items-center justify-center overflow-hidden flex-shrink-0" 
       onClick={handleDoubleTap}
     >
       <VideoPlayer 
@@ -336,7 +336,7 @@ const ReelItem = ({
       </div>
 
       {/* Overlay - Right Bar Interaction - Identical to Instagram */}
-      <div className="absolute right-2 bottom-20 flex flex-col items-center gap-5 z-20">
+      <div className="absolute right-2 bottom-16 md:bottom-20 flex flex-col items-center gap-5 z-20">
          <div className="flex flex-col items-center">
             <button 
                 onClick={handleLike}
@@ -407,7 +407,7 @@ const ReelItem = ({
       </div>
 
       {/* Overlay - Bottom Content (Instagram Style) */}
-      <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10 pt-20">
+      <div className="absolute inset-x-0 bottom-0 pb-3 md:pb-6 p-4 bg-gradient-to-t from-black/80 via-black/20 to-transparent z-10 pt-20">
          <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
                <div 

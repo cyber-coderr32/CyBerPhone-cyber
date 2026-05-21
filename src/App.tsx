@@ -717,7 +717,7 @@ const App: React.FC = () => {
                         <button onClick={() => window.location.reload()} className="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition-all">{t('app_reconnect')}</button>
                     </div>
                 )}
-                {currentUser && currentPage !== 'admin' && (
+                {currentUser && currentPage !== 'admin' && currentPage !== 'reels-page' && (
                     <Header 
                       currentUser={currentUser} 
                       onNavigate={handleNavigate} 
@@ -739,7 +739,7 @@ const App: React.FC = () => {
                         unreadMessagesCount={unreadMessagesCount}
                       />
                     )}
-                    <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? `pt-[64px] md:pt-[72px] ${isKeyboardVisible ? 'pb-0' : 'pb-[80px]'} md:pb-8 md:ml-64 px-0 md:px-8` : ''} transition-all overflow-x-hidden`}>
+                    <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? (currentPage === 'reels-page' ? `pt-0 md:pt-0 ${isKeyboardVisible ? 'pb-0' : 'pb-[72px]'} md:pb-0 md:ml-64 px-0` : `pt-[64px] md:pt-[72px] ${isKeyboardVisible ? 'pb-0' : 'pb-[80px]'} md:pb-8 md:ml-64 px-0 md:px-8`) : ''} transition-all overflow-x-hidden`}>
                         <div className={`w-full ${currentUser ? 'max-w-7xl mx-auto min-h-[calc(100vh-140px)]' : 'h-full'}`}>
                             <AnimatePresence mode="wait">
                                 <motion.div

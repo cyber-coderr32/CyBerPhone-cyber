@@ -250,8 +250,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
       )}
 
-      {/* Mute Toggle Bottom Right (Only if reel or overlay) */}
-      {isReel && (
+      {/* Mute Toggle Bottom Right (Only if reel or overlay) - Handled by ReelsPage */}
+      {false && isReel && (
         <button 
           onClick={toggleMute}
           className="absolute bottom-20 right-4 z-20 p-2 bg-black/40 backdrop-blur-md rounded-full border border-white/10 text-white hover:bg-black/60 transition-all opacity-0 group-hover:opacity-100"
@@ -261,47 +261,49 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       )}
 
       {/* YouTube Style Controls Bar */}
-      <div className={`absolute inset-x-0 bottom-0 px-3 py-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent transition-opacity duration-300 ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'}`}>
-        {/* Progress Bar Container */}
-        <div className="relative w-full h-1 group/progress mb-2 flex items-end cursor-pointer">
-          <input 
-            type="range" 
-            min="0" max="100" step="0.1"
-            value={progress} 
-            onChange={handleSeek}
-            className="absolute inset-0 w-full h-1 opacity-0 cursor-pointer z-30"
-          />
-          {/* Track background */}
-          <div className="absolute inset-x-0 bottom-0 w-full h-1 bg-white/20 transition-all group-hover/progress:h-1.5"></div>
-          {/* Progress fill (YouTube Red for non-reels) */}
-          <div className={`absolute inset-y-0 bottom-0 left-0 h-1 ${isReel ? 'bg-brand' : 'bg-[#FF0000]'} transition-all group-hover/progress:h-1.5`} style={{ width: `${progress}%` }}>
-            <div className={`absolute right-[-7px] top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${isReel ? 'bg-brand' : 'bg-[#FF0000]'} rounded-full scale-0 group-hover/progress:scale-100 transition-transform shadow-lg border-2 border-white/20`}></div>
+      {!isReel && (
+        <div className={`absolute inset-x-0 bottom-0 px-3 py-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent transition-opacity duration-300 ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'}`}>
+          {/* Progress Bar Container */}
+          <div className="relative w-full h-1 group/progress mb-2 flex items-end cursor-pointer">
+            <input 
+              type="range" 
+              min="0" max="100" step="0.1"
+              value={progress} 
+              onChange={handleSeek}
+              className="absolute inset-0 w-full h-1 opacity-0 cursor-pointer z-30"
+            />
+            {/* Track background */}
+            <div className="absolute inset-x-0 bottom-0 w-full h-1 bg-white/20 transition-all group-hover/progress:h-1.5 flex-1"></div>
+            {/* Progress fill (YouTube Red for non-reels) */}
+            <div className="absolute inset-y-0 bottom-0 left-0 h-1 bg-[#FF0000] transition-all group-hover/progress:h-1.5" style={{ width: `${progress}%` }}>
+              <div className="absolute right-[-7px] top-1/2 -translate-y-1/2 w-3.5 h-3.5 bg-[#FF0000] rounded-full scale-0 group-hover/progress:scale-100 transition-transform shadow-lg border-2 border-white/20"></div>
+            </div>
           </div>
-        </div>
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button onClick={togglePlay} className="text-white hover:scale-110 transition-transform p-1">
-              {isPlaying ? <PauseIcon className="h-6 w-6 fill-current" /> : <PlayIcon className="h-6 w-6 fill-current" />}
-            </button>
-            <div className="flex items-center gap-1 group/volume">
-               <button onClick={toggleMute} className="text-white hover:scale-110 transition-transform p-1">
-                 {isMuted ? <SpeakerXMarkIcon className="h-5 w-5" /> : <SpeakerWaveIcon className="h-5 w-5" />}
-               </button>
-            </div>
-            <div className="text-[10px] sm:text-[11px] font-medium text-white/90 tabular-nums ml-1">
-              {formatTime(currentTime)} <span className="text-white/40 mx-0.5">/</span> {formatTime(duration)}
-            </div>
-          </div>
-          {!isReel && (
-            <div className="flex items-center gap-2">
-              <button onClick={handleFullscreen} className="text-white hover:scale-110 transition-transform p-1">
-                <ArrowsPointingOutIcon className="h-5 w-5" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button onClick={togglePlay} className="text-white hover:scale-110 transition-transform p-1">
+                {isPlaying ? <PauseIcon className="h-6 w-6 fill-current" /> : <PlayIcon className="h-6 w-6 fill-current" />}
               </button>
+              <div className="flex items-center gap-1 group/volume">
+                 <button onClick={toggleMute} className="text-white hover:scale-110 transition-transform p-1">
+                   {isMuted ? <SpeakerXMarkIcon className="h-5 w-5" /> : <SpeakerWaveIcon className="h-5 w-5" />}
+                 </button>
+              </div>
+              <div className="text-[10px] sm:text-[11px] font-medium text-white/90 tabular-nums ml-1">
+                {formatTime(currentTime)} <span className="text-white/40 mx-0.5">/</span> {formatTime(duration)}
+              </div>
             </div>
-          )}
+            {!isReel && (
+              <div className="flex items-center gap-2">
+                <button onClick={handleFullscreen} className="text-white hover:scale-110 transition-transform p-1">
+                  <ArrowsPointingOutIcon className="h-5 w-5" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
