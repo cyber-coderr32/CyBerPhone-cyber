@@ -7,9 +7,37 @@ const configs = import.meta.glob(['../../../firebase-applet-config.json', '/fire
 const configKeys = Object.keys(configs);
 const firebaseConfigFromJson = configKeys.length > 0 ? (configs[configKeys[0]] as any).default : {};
 
+// Check for config injected in window by our Express server (for production)
+const windowConfig = typeof window !== 'undefined' ? (window as any).__FIREBASE_CONFIG__ : null;
+
+// Synchronous AJAX fallback read if no static configs are found (important for edge cases like external tabs, shared app instances, etc.)
+let syncedConfig: any = null;
+const hasStaticKeys = (
+  (import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_API_KEY !== "TODO_KEYHERE") ||
+  (firebaseConfigFromJson && firebaseConfigFromJson.apiKey && firebaseConfigFromJson.apiKey !== "TODO_KEYHERE") ||
+  (windowConfig && windowConfig.apiKey)
+);
+
+if (typeof window !== 'undefined' && !hasStaticKeys) {
+  try {
+    const xhr = new XMLHttpRequest();
+    // Synchronous call blocks to make sure config is available before child modules load
+    xhr.open('GET', '/api/firebase-config', false);
+    xhr.send();
+    if (xhr.status === 200) {
+      syncedConfig = JSON.parse(xhr.responseText);
+      console.log("ℹ️ [FirebaseConfig] Configuração carregada via requisição síncrona /api/firebase-config");
+    }
+  } catch (e: any) {
+    console.warn("⚠️ [FirebaseConfig] Falha ao obter configuração do Firebase de forma síncrona:", e.message);
+  }
+}
+
 // Explicit static properties to guarantee Vite compilation replacement in production / Vercel
 const firebaseConfig = {
   projectId: 
+    windowConfig?.projectId ||
+    syncedConfig?.projectId ||
     import.meta.env.VITE_FIREBASE_PROJECT_ID || 
     import.meta.env.VITE_PROJECT_ID ||
     import.meta.env.PROJECT_ID ||
@@ -18,6 +46,8 @@ const firebaseConfig = {
     "",
 
   appId: 
+    windowConfig?.appId ||
+    syncedConfig?.appId ||
     import.meta.env.VITE_FIREBASE_APP_ID || 
     import.meta.env.VITE_APP_ID ||
     import.meta.env.APP_ID ||
@@ -26,6 +56,8 @@ const firebaseConfig = {
     "",
 
   apiKey: 
+    windowConfig?.apiKey ||
+    syncedConfig?.apiKey ||
     import.meta.env.VITE_FIREBASE_API_KEY || 
     import.meta.env.VITE_API_KEY ||
     import.meta.env.API_KEY ||
@@ -34,6 +66,8 @@ const firebaseConfig = {
     "",
 
   authDomain: 
+    windowConfig?.authDomain ||
+    syncedConfig?.authDomain ||
     import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 
     import.meta.env.VITE_AUTH_DOMAIN ||
     import.meta.env.AUTH_DOMAIN ||
@@ -42,6 +76,8 @@ const firebaseConfig = {
     "",
 
   firestoreDatabaseId: 
+    windowConfig?.firestoreDatabaseId ||
+    syncedConfig?.firestoreDatabaseId ||
     import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || 
     import.meta.env.VITE_FIRESTORE_DATABASE_ID ||
     import.meta.env.FIRESTORE_DATABASE_ID ||
@@ -50,6 +86,8 @@ const firebaseConfig = {
     "",
 
   storageBucket: 
+    windowConfig?.storageBucket ||
+    syncedConfig?.storageBucket ||
     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 
     import.meta.env.VITE_STORAGE_BUCKET ||
     import.meta.env.STORAGE_BUCKET ||
@@ -58,6 +96,8 @@ const firebaseConfig = {
     "",
 
   messagingSenderId: 
+    windowConfig?.messagingSenderId ||
+    syncedConfig?.messagingSenderId ||
     import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || 
     import.meta.env.VITE_MESSAGING_SENDER_ID ||
     import.meta.env.MESSAGING_SENDER_ID ||
@@ -66,6 +106,8 @@ const firebaseConfig = {
     "",
 
   measurementId: 
+    windowConfig?.measurementId ||
+    syncedConfig?.measurementId ||
     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || 
     import.meta.env.VITE_MEASUREMENT_ID ||
     import.meta.env.MEASUREMENT_ID ||

@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
@@ -7,6 +8,50 @@ import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+// Helper to load Firebase configuration dynamically from environment variables or file
+function getFirebaseConfig() {
+  const config = {
+    projectId: process.env.VITE_FIREBASE_PROJECT_ID || process.env.VITE_PROJECT_ID || process.env.PROJECT_ID || process.env.FIREBASE_PROJECT_ID || "",
+    appId: process.env.VITE_FIREBASE_APP_ID || process.env.VITE_APP_ID || process.env.APP_ID || process.env.FIREBASE_APP_ID || "",
+    apiKey: process.env.VITE_FIREBASE_API_KEY || process.env.VITE_API_KEY || process.env.API_KEY || process.env.FIREBASE_API_KEY || "",
+    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.VITE_AUTH_DOMAIN || process.env.AUTH_DOMAIN || process.env.FIREBASE_AUTH_DOMAIN || "",
+    firestoreDatabaseId: process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || process.env.FIREBASE_FIRESTORE_DATABASE_ID || "",
+    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.VITE_STORAGE_BUCKET || process.env.STORAGE_BUCKET || process.env.FIREBASE_STORAGE_BUCKET || "",
+    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_MESSAGING_SENDER_ID || process.env.MESSAGING_SENDER_ID || process.env.FIREBASE_MESSAGING_SENDER_ID || "",
+    measurementId: process.env.VITE_FIREBASE_MEASUREMENT_ID || process.env.VITE_MEASUREMENT_ID || process.env.MEASUREMENT_ID || process.env.FIREBASE_MEASUREMENT_ID || ""
+  };
+
+  if (config.apiKey) {
+    return config;
+  }
+
+  // Look for configuration JSON in expected parent levels
+  const possiblePaths = [
+    path.join(process.cwd(), "firebase-applet-config.json"),
+    path.join(process.cwd(), "..", "firebase-applet-config.json"),
+    path.join(process.cwd(), "..", "..", "firebase-applet-config.json"),
+    path.join(process.cwd(), "..", "..", "..", "firebase-applet-config.json"),
+    "/firebase-applet-config.json"
+  ];
+
+  for (const p of possiblePaths) {
+    try {
+      if (fs.existsSync(p)) {
+        const fileContent = fs.readFileSync(p, "utf-8");
+        const parsed = JSON.parse(fileContent);
+        if (parsed && parsed.apiKey) {
+          console.log(`[FirebaseConfig Server] Loaded configuration from: ${p}`);
+          return parsed;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  return config;
+}
 
 // Configure Cloudinary
 const CLOUD_NAME = process.env.CLOUDINARY_CLOUD_NAME || 'dblnktl9m';
@@ -98,6 +143,17 @@ async function startServer() {
     }
   });
 
+  // Firebase config server proxy
+  app.get("/api/firebase-config", (req: Request, res: Response) => {
+    try {
+      const config = getFirebaseConfig();
+      res.json(config);
+    } catch (error: any) {
+      console.error("[PROXY CONFIG] Failed to load config:", error);
+      res.status(500).json({ error: "Failed to load firebase config" });
+    }
+  });
+
   // Health check
   app.get("/api/health", (req: Request, res: Response) => {
     res.json({ status: "ok" });
@@ -114,7 +170,25 @@ async function startServer() {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
     app.get("*", (req: Request, res: Response) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      try {
+        const indexPath = path.join(distPath, "index.html");
+        if (fs.existsSync(indexPath)) {
+          let html = fs.readFileSync(indexPath, "utf-8");
+          const config = getFirebaseConfig();
+          const configScript = `
+  <script>
+    window.__FIREBASE_CONFIG__ = ${JSON.stringify(config)};
+    console.log("🔥 [FirebaseConfig Client] Configuração injetada com sucesso pelo backend!");
+  </script>`;
+          html = html.replace("<head>", `<head>${configScript}`);
+          res.send(html);
+        } else {
+          res.status(404).send("index.html not found");
+        }
+      } catch (err: any) {
+        console.error("Error serving index.html with firebase config:", err);
+        res.sendFile(path.join(distPath, "index.html"));
+      }
     });
   }
 

@@ -8,7 +8,8 @@ import {
   pulseLiveHeart, 
   processDonation, 
   findUserById, 
-  updatePost 
+  updatePost,
+  getUsers
 } from '../services/storageService';
 import { useDialog } from '../services/DialogContext';
 import { DEFAULT_PROFILE_PIC, ANONYMOUS_PROFILE_PIC } from '../data/constants';
@@ -100,6 +101,15 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const [soundMuted, setSoundMuted] = useState<boolean>(false);
   const [currentFilter, setCurrentFilter] = useState<string>('cyber');
   
+  // Co-Hosting (Go Live Together)
+  const [inviteModalOpen, setInviteModalOpen] = useState<boolean>(false);
+  const [platformUsers, setPlatformUsers] = useState<User[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState<boolean>(false);
+  const [inviteSearch, setInviteSearch] = useState<string>('');
+  
+  const [guestVideoActive, setGuestVideoActive] = useState<boolean>(true);
+  const [guestAudioActive, setGuestAudioActive] = useState<boolean>(true);
+  
   // Elementos do Viewer
   const [donationModalOpen, setDonationModalOpen] = useState<boolean>(false);
   const [hearts, setHearts] = useState<FloatingHeart[]>([]);
@@ -110,6 +120,9 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const chatEndRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  
+  const guestVideoRef = useRef<HTMLVideoElement>(null);
+  const guestStreamRef = useRef<MediaStream | null>(null);
 
   const isHost = post ? post.userId === currentUser.id : false;
 
@@ -178,6 +191,279 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       stopCamera();
     };
   }, [isHost, videoActive]);
+
+  // 3b. Autoinicialização do fluxo de câmera/vídeo para o Co-Host/Convidado
+  const isJoinedGuest = useMemo(() => {
+    if (!post || !post.liveStream?.guests) return false;
+    return post.liveStream.guests.some(g => g.userId === currentUser.id && g.status === 'JOINED');
+  }, [post, currentUser.id]);
+
+  useEffect(() => {
+    if (isJoinedGuest && guestVideoActive) {
+      startGuestCamera();
+    } else {
+      stopGuestCamera();
+    }
+    return () => {
+      stopGuestCamera();
+    };
+  }, [isJoinedGuest, guestVideoActive]);
+
+  const startGuestCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 },
+        audio: guestAudioActive
+      });
+      guestStreamRef.current = stream;
+      if (guestVideoRef.current) {
+        guestVideoRef.current.srcObject = stream;
+      }
+    } catch (e: any) {
+      console.error("Guest camera access failed", e);
+    }
+  };
+
+  const stopGuestCamera = () => {
+    if (guestStreamRef.current) {
+      guestStreamRef.current.getTracks().forEach((track) => track.stop());
+      guestStreamRef.current = null;
+    }
+  };
+
+  // 3c. Filtra co-hosts ativos que estão participando ao vivo (status === 'JOINED')
+  const activeGuests = useMemo(() => {
+    if (!post || !post.liveStream?.guests) return [];
+    return post.liveStream.guests.filter((g: any) => g.status === 'JOINED');
+  }, [post]);
+
+  // Convite pendente para o usuário atual
+  const pendingInvitation = useMemo(() => {
+    if (!post || !post.liveStream?.guests) return null;
+    return post.liveStream.guests.find((g: any) => g.userId === currentUser.id && g.status === 'INVITED');
+  }, [post, currentUser.id]);
+
+  // Carregar lista de usuários da plataforma para o host convidar
+  const loadPlatformUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const users = await getUsers(currentUser);
+      setPlatformUsers(users.filter((u: any) => u.id !== currentUser.id));
+    } catch (e) {
+      console.error("Erro ao carregar usuários:", e);
+    }
+    setLoadingUsers(false);
+  };
+
+  useEffect(() => {
+    if (inviteModalOpen) {
+      loadPlatformUsers();
+    }
+  }, [inviteModalOpen]);
+
+  // Enviar convite de Co-Host
+  const handleInviteUser = async (targetUser: User) => {
+    if (!post) return;
+
+    const currentGuests = post.liveStream?.guests || [];
+    const isAlreadyInvited = currentGuests.some((g: any) => g.userId === targetUser.id && (g.status === 'INVITED' || g.status === 'JOINED'));
+    if (isAlreadyInvited) {
+      showAlert(`${targetUser.firstName} já tem um convite ativo ou está participando.`, { type: 'alert' });
+      return;
+    }
+
+    const updatedGuests = [
+      ...currentGuests.filter((g: any) => g.userId !== targetUser.id),
+      {
+        userId: targetUser.id,
+        userName: `${targetUser.firstName} ${targetUser.lastName || ''}`,
+        profilePic: targetUser.profilePicture || DEFAULT_PROFILE_PIC,
+        status: 'INVITED' as const,
+        audioMuted: false,
+        videoMuted: false
+      }
+    ];
+
+    const updatedPost = {
+      ...post,
+      liveStream: {
+        ...post.liveStream,
+        title: post.liveStream?.title || 'Cyber Transmissão',
+        description: post.liveStream?.description || '',
+        guests: updatedGuests
+      }
+    };
+
+    await updatePost(updatedPost);
+
+    // Enviar mensagem no chat anunciando o convite
+    await sendLiveMessage(post.id, {
+      id: 'invite-' + Date.now() + Math.random().toString(36).substr(2, 5),
+      userId: 'system-invite',
+      userName: '★ CyberPhone ★',
+      profilePic: DEFAULT_PROFILE_PIC,
+      text: `🎟️ O host convidou ${targetUser.firstName} para participar da live! Aguardando resposta...`,
+      timestamp: Date.now()
+    });
+
+    showSuccess(`Convite enviado para ${targetUser.firstName}!`);
+  };
+
+  // Aceitar convite de Co-Host
+  const handleAcceptInvite = async () => {
+    if (!post || !post.liveStream?.guests) return;
+
+    const updatedGuests = post.liveStream.guests.map((g: any) => {
+      if (g.userId === currentUser.id) {
+        return { ...g, status: 'JOINED' as const };
+      }
+      return g;
+    });
+
+    const updatedPost = {
+      ...post,
+      liveStream: {
+        ...post.liveStream,
+        title: post.liveStream?.title || 'Cyber Transmissão',
+        description: post.liveStream?.description || '',
+        guests: updatedGuests
+      }
+    };
+
+    await updatePost(updatedPost);
+
+    // Mensagem no chat
+    await sendLiveMessage(post.id, {
+      id: 'accept-' + Date.now(),
+      userId: 'system-accept',
+      userName: '★ CyberPhone ★',
+      profilePic: DEFAULT_PROFILE_PIC,
+      text: `🎤 ${currentUser.firstName} aceitou o convite e está AO VIVO! 🔴`,
+      timestamp: Date.now()
+    });
+
+    showSuccess("Você entrou ao vivo como Co-Host!");
+  };
+
+  // Recusar convite de Co-Host
+  const handleDeclineInvite = async () => {
+    if (!post || !post.liveStream?.guests) return;
+
+    const updatedGuests = post.liveStream.guests.map((g: any) => {
+      if (g.userId === currentUser.id) {
+        return { ...g, status: 'DECLINED' as const };
+      }
+      return g;
+    });
+
+    const updatedPost = {
+      ...post,
+      liveStream: {
+        ...post.liveStream,
+        title: post.liveStream?.title || 'Cyber Transmissão',
+        description: post.liveStream?.description || '',
+        guests: updatedGuests
+      }
+    };
+
+    await updatePost(updatedPost);
+
+    // Mensagem no chat
+    await sendLiveMessage(post.id, {
+      id: 'decline-' + Date.now(),
+      userId: 'system-decline',
+      userName: '★ CyberPhone ★',
+      profilePic: DEFAULT_PROFILE_PIC,
+      text: `🚫 Convite para live recusado por ${currentUser.firstName}.`,
+      timestamp: Date.now()
+    });
+  };
+
+  // Sair da Live como Co-Host
+  const handleLeaveAsGuest = async () => {
+    if (!post || !post.liveStream?.guests) return;
+
+    const confirm = await showConfirm(
+      "Deseja realmente sair da transmissão ao vivo?",
+      { title: "Sair da Live", confirmText: "Sair da Live", cancelText: "Cancelar" }
+    );
+
+    if (confirm) {
+      const updatedGuests = post.liveStream.guests.map((g: any) => {
+        if (g.userId === currentUser.id) {
+          return { ...g, status: 'LEFT' as const };
+        }
+        return g;
+      });
+
+      const updatedPost = {
+        ...post,
+        liveStream: {
+          ...post.liveStream,
+          title: post.liveStream?.title || 'Cyber Transmissão',
+          description: post.liveStream?.description || '',
+          guests: updatedGuests
+        }
+      };
+
+      await updatePost(updatedPost);
+
+      // Mensagem no chat
+      await sendLiveMessage(post.id, {
+        id: 'leave-' + Date.now(),
+        userId: 'system-leave',
+        userName: '★ CyberPhone ★',
+        profilePic: DEFAULT_PROFILE_PIC,
+        text: `🚪 ${currentUser.firstName} saiu da transmissão ao vivo.`,
+        timestamp: Date.now()
+      });
+
+      showSuccess("Você saiu da live.");
+    }
+  };
+
+  // Host remove convidado
+  const handleRemoveGuest = async (guestId: string, guestName: string) => {
+    if (!post || !post.liveStream?.guests) return;
+
+    const confirm = await showConfirm(
+      `Deseja realmente remover ${guestName} da transmissão ao vivo?`,
+      { title: "Remover Participante", confirmText: "Remover", cancelText: "Cancelar" }
+    );
+
+    if (confirm) {
+      const updatedGuests = post.liveStream.guests.map((g: any) => {
+        if (g.userId === guestId) {
+          return { ...g, status: 'LEFT' as const };
+        }
+        return g;
+      });
+
+      const updatedPost = {
+        ...post,
+        liveStream: {
+          ...post.liveStream,
+          title: post.liveStream?.title || 'Cyber Transmissão',
+          description: post.liveStream?.description || '',
+          guests: updatedGuests
+        }
+      };
+
+      await updatePost(updatedPost);
+
+      // Mensagem no chat
+      await sendLiveMessage(post.id, {
+        id: 'remove-' + Date.now(),
+        userId: 'system-remove',
+        userName: '★ CyberPhone ★',
+        profilePic: DEFAULT_PROFILE_PIC,
+        text: `🚫 O anfitrião removeu ${guestName} da live.`,
+        timestamp: Date.now()
+      });
+
+      showSuccess(`${guestName} foi removido.`);
+    }
+  };
 
   // 4. Efeito para rolar o chat até o fim ao receber nova mensagem
   useEffect(() => {
