@@ -1827,6 +1827,15 @@ export const markNotificationsAsRead = async (uid: string) => {
         handleFirestoreError(error, OperationType.UPDATE, 'notifications');
     }
 };
+
+export const updateNotificationReadState = async (id: string, isRead: boolean) => {
+    if (!isFirebaseConfigured || !db) return;
+    try {
+        await updateDoc(doc(db, 'notifications', id), { isRead });
+    } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'notifications');
+    }
+};
 export const getSavedPosts = async (uid: string) => {
     if (!isFirebaseConfigured || !db) return [];
     try {

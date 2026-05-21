@@ -258,6 +258,7 @@ export interface Post {
     description: string;
     status?: 'LIVE' | 'ENDED'; // Status da transmissão
     recordingUrl?: string;     // URL da gravação se for Free
+    guests?: any[];            // Lista de co-hosts convidados ou participando
   };
   // Dados persistentes da Live
   liveChat?: Comment[];

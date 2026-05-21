@@ -115,6 +115,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       try {
         const url = await uploadFile(file, 'profiles');
         setProfilePicture(url);
+        
+        // Auto-save immediately to Firestore so they don't lose the photo on reload
+        const updatedUserRaw = { ...currentUser, profilePicture: url };
+        await updateUser(updatedUserRaw);
+        await refreshUser();
+        showAlert(t('settings_profile_picture_updated', 'Foto de perfil atualizada no banco de dados!'), { type: 'success' });
       } catch (err) {
         showAlert(t('settings_upload_error'), { type: 'error' });
       } finally {
@@ -134,6 +140,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       try {
         const url = await uploadFile(file, 'covers');
         setCoverPhoto(url);
+        
+        // Auto-save immediately to Firestore so they don't lose the photo on reload
+        const updatedUserRaw = { ...currentUser, coverPhoto: url };
+        await updateUser(updatedUserRaw);
+        await refreshUser();
+        showAlert(t('settings_cover_updated_success', 'Foto de capa atualizada no banco de dados!'), { type: 'success' });
       } catch (err) {
         showAlert(t('settings_cover_upload_error'), { type: 'error' });
       } finally {
@@ -144,7 +156,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isUploading) return;
+    if (isUploading || isUploadingCover) {
+      showAlert(t('settings_upload_in_progress', 'Por favor, aguarde o upload terminar'), { type: 'warning' });
+      return;
+    }
     setIsSaving(true);
     
     try {
@@ -306,30 +321,79 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
         <form onSubmit={handleSaveProfile} className="space-y-8">
           {/* IDENTIDADE VISUAL */}
-          <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border border-gray-100 dark:border-white/10">
-            <p className="text-[10px] font-black text-gray-400 dark:text-gray-400 uppercase tracking-widest ml-1 mb-6 flex items-center gap-2">
-              <CameraIcon className="h-4 w-4 text-brand" /> {t('settings_visual_identity')}
-            </p>
+          <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border border-gray-100 dark:border-white/10 animate-fade-in">
+            <div className="flex items-center justify-between mb-8">
+              <p className="text-[10px] font-black text-gray-400 dark:text-gray-400 uppercase tracking-widest ml-1 flex items-center gap-2">
+                <CameraIcon className="h-4 w-4 text-brand" /> {t('settings_visual_identity')}
+              </p>
+              <span className="text-[8px] font-black uppercase tracking-wider text-brand bg-brand/10 dark:bg-brand/20 px-3 py-1 rounded-full">
+                {t('custom_assets', 'Imagens da Conta')}
+              </span>
+            </div>
             
-            <div className="relative h-48 rounded-3xl bg-gray-100 dark:bg-white/5 overflow-hidden group mb-12">
-              {coverPhoto && <img src={coverPhoto} alt="Cover" className="w-full h-full object-cover" referrerPolicy="no-referrer" />}
-              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer" onClick={() => coverInputRef.current?.click()}>
-                <p className="text-xs font-black uppercase text-white tracking-widest">{t('settings_change_cover')}</p>
-              </div>
-              <input type="file" ref={coverInputRef} onChange={handleCoverChange} className="hidden" accept="image/*" />
+            {/* Outer relative container without overflow-hidden so overlapping avatar is never clipped */}
+            <div className="relative mb-14">
               
-              {/* Profile Avatar Container on overlap */}
-              <div className="absolute -bottom-10 left-8 select-none">
-                <div className="w-24 h-24 rounded-full border-4 border-white dark:border-darkbg bg-gray-200 dark:bg-zinc-800 relative group overflow-hidden shadow-xl">
-                  <img src={profilePicture || DEFAULT_PROFILE_PIC} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-                    <CameraIcon className="h-6 w-6 text-white" />
+              {/* Cover Photo Container (handled overflow-hidden inside) */}
+              <div className="relative h-48 md:h-60 rounded-[2.5rem] bg-gray-100 dark:bg-white/5 border border-transparent dark:border-white/5 overflow-hidden group shadow-inner">
+                {coverPhoto ? (
+                  <img src={coverPhoto} alt="Cover" className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-700" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-full h-full bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-800 flex items-center justify-center">
+                    <p className="text-white/30 text-[10px] font-extrabold uppercase tracking-widest">{t('no_cover_photo', 'Sem foto de capa')}</p>
                   </div>
+                )}
+                
+                {isUploadingCover ? (
+                  <div className="absolute inset-x-0 inset-y-0 h-full w-full bg-black/65 backdrop-blur-sm flex flex-col items-center justify-center gap-2 text-white">
+                    <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    <span className="text-[8px] font-black uppercase tracking-widest text-[#ffe07a] animate-pulse">Enviando Capa...</span>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => coverInputRef.current?.click()}
+                    className="absolute bottom-4 right-4 px-4.5 py-2.5 bg-black/60 hover:bg-black/80 backdrop-blur-md border border-white/20 rounded-2xl text-[9px] font-black uppercase text-white tracking-widest shadow-xl flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  >
+                    <CameraIcon className="h-4 w-4 text-white" />
+                    {t('settings_change_cover')}
+                  </button>
+                )}
+                <input type="file" ref={coverInputRef} onChange={handleCoverChange} className="hidden" accept="image/*" />
+              </div>
+              
+              {/* Overlapping Avatar Container (visible in full, no overflow-hidden) */}
+              <div className="absolute -bottom-10 left-6 md:left-10 z-10 flex items-end gap-5 select-none">
+                <div className="relative group w-24 h-24 md:w-28 md:h-28 rounded-[2rem] border-[5px] border-white dark:border-darkcard bg-gray-200 dark:bg-zinc-800 shadow-2xl overflow-hidden transition-transform duration-300 hover:scale-[1.03]">
+                  <img src={profilePicture || DEFAULT_PROFILE_PIC} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  
+                  {isUploading ? (
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+                      <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                    </div>
+                  ) : (
+                    <div 
+                      onClick={() => fileInputRef.current?.click()}
+                      className="absolute inset-0 bg-black/60 hover:bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center cursor-pointer text-white gap-1"
+                    >
+                      <CameraIcon className="h-5.5 w-5.5 text-white animate-pulse" />
+                      <span className="text-[8px] font-black uppercase tracking-wider">Mudar</span>
+                    </div>
+                  )}
                 </div>
                 <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
+                
+                {/* Visual Label text on the side */}
+                <div className="mb-2.5 hidden sm:block">
+                  <p className="text-[11px] font-black uppercase tracking-wider text-gray-800 dark:text-gray-200 leading-none">Foto de Perfil</p>
+                  <p className="text-[9px] text-gray-400 mt-1">{t('settings_click_to_change')}</p>
+                </div>
               </div>
             </div>
-            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-bold ml-1">{t('settings_click_to_change')}</p>
+            
+            <div className="sm:hidden mt-12 mb-2 px-1">
+              <p className="text-[9px] text-gray-400 dark:text-gray-500 font-bold">{t('settings_click_to_change')}</p>
+            </div>
           </div>
 
           {/* DADOS PESSOAIS */}

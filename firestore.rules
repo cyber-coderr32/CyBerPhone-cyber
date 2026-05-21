@@ -190,8 +190,15 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn() && isValidId(postId) && isValidPost(incoming());
       allow update: if isSignedIn() && (
-        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly(['content', 'imageUrl', 'isPinned', 'disableComments', 'isMonetized', 'isAnonymous'])) ||
-        (incoming().diff(existing()).affectedKeys().hasOnly(['likes', 'comments', 'shares', 'reactions', 'views', 'saves', 'indicatedUserIds']))
+        (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly([
+          'content', 'imageUrl', 'isPinned', 'disableComments', 'isMonetized', 'isAnonymous', 
+          'liveStream', 'liveChat', 'liveViewerCount', 'liveHeartCount', 'likes', 'comments', 
+          'shares', 'reactions', 'views', 'saves', 'indicatedUserIds'
+        ])) ||
+        (!isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly([
+          'likes', 'comments', 'shares', 'reactions', 'views', 'saves', 'indicatedUserIds',
+          'liveChat', 'liveViewerCount', 'liveHeartCount', 'liveStream'
+        ]))
       );
       allow delete: if isOwner(existing().userId) || isAdmin();
     }

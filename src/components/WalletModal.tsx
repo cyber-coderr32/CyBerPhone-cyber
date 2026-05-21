@@ -243,7 +243,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
                 </div>
                 
                 <div className="space-y-1">
-                  <p className="text-xl font-black dark:text-white">{formatCurrency(parseFloat(amount))}</p>
+                  <p className="text-base sm:text-xl font-black dark:text-white break-all leading-tight">{formatCurrency(parseFloat(amount))}</p>
                   <p className="text-[9px] text-gray-400 px-6 uppercase font-bold tracking-tight">{t('balance_release_desc')}</p>
                 </div>
 
@@ -285,7 +285,7 @@ const WalletModal: React.FC<WalletModalProps> = ({
 
                 <div className="p-4 bg-gray-50 dark:bg-white/5 rounded-2xl inline-block mx-auto min-w-[200px]">
                    <p className="text-[8px] font-black text-gray-400 uppercase mb-1">{t('new_balance')}</p>
-                   <p className="text-2xl font-black text-brand">{formatCurrency(currentUser.balance || 0)}</p>
+                   <p className="text-base sm:text-2xl font-black text-brand break-all leading-tight">{formatCurrency(currentUser.balance || 0)}</p>
                 </div>
 
                 <button 

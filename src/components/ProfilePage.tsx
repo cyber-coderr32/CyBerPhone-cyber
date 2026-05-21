@@ -247,27 +247,51 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
  
        <div className="bg-white dark:bg-[#1a1c23] rounded-[3rem] shadow-2xl border border-gray-100 dark:border-white/5 mb-8 relative flex flex-col">
           
-          <div className="h-40 md:h-64 relative shrink-0 overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-700 to-purple-900 rounded-t-[3rem]">
+          <div className="h-40 md:h-64 relative shrink-0 overflow-hidden bg-gradient-to-br from-blue-600 via-indigo-700 to-purple-900 rounded-t-[3rem] group">
              {profile.coverPhoto ? (
                 <img 
                   src={profile.coverPhoto} 
-                  className="absolute inset-0 w-full h-full object-cover" 
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.01] transition-transform duration-700" 
                   alt={t('cover')} 
                   referrerPolicy="no-referrer"
                 />
              ) : (
                 <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
              )}
+             
+             {/* Quick change cover overlay link */}
+             {isOwnProfile && (
+               <button
+                 type="button"
+                 onClick={() => onNavigate('settings')}
+                 className="absolute bottom-4 right-4 px-3.5 py-2 bg-black/60 hover:bg-black/85 backdrop-blur-md border border-white/20 rounded-xl text-[9px] font-black uppercase text-white tracking-widest transition-all shadow-lg hover:scale-105 active:scale-95 cursor-pointer z-20 flex items-center gap-1.5"
+                 title={t('settings_change_cover', 'Alterar Capa')}
+               >
+                 <span>📸</span>
+                 <span>{t('settings_change_cover', 'Alterar Capa')}</span>
+               </button>
+             )}
           </div>
           
           <div className="absolute top-40 md:top-64 -mt-16 left-1/2 -translate-x-1/2 md:left-12 md:translate-x-0 z-30">
-             <div className="relative group">
+             <div 
+                className={`relative group ${isOwnProfile ? 'cursor-pointer' : ''}`}
+                onClick={() => isOwnProfile ? onNavigate('settings') : null}
+             >
                 <img 
                   src={profile.profilePicture || DEFAULT_PROFILE_PIC} 
-                  className="w-32 h-32 md:w-44 md:h-44 rounded-[2.5rem] border-[6px] border-white dark:border-[#1a1c23] shadow-2xl object-cover bg-gray-200" 
+                  className="w-32 h-32 md:w-44 md:h-44 rounded-[2.5rem] border-[6px] border-white dark:border-[#1a1c23] shadow-2xl object-cover bg-gray-200 transition-all duration-300 group-hover:scale-[1.02]" 
                   alt={profile.firstName}
                   referrerPolicy="no-referrer"
                 />
+                
+                {isOwnProfile && (
+                  <div className="absolute inset-0 bg-black/45 rounded-[2.5rem] opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white gap-1 border-[6px] border-transparent">
+                    <span className="text-xl">📸</span>
+                    <span className="text-[8px] font-black uppercase tracking-widest text-[#ffe07a]">{t('change', 'Mudar')}</span>
+                  </div>
+                )}
+
                 {isUserOnline(profile.lastSeen, profile.isOnline) && (
                   <div className="absolute bottom-2 right-2 w-6 h-6 md:w-8 md:h-8 bg-green-500 rounded-full border-4 border-white dark:border-[#1a1c23] shadow-lg animate-pulse"></div>
                 )}
@@ -420,7 +444,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ currentUser, onNavigate, refr
                       </div>
                       <div>
                          <p className="text-[10px] font-black text-blue-800 dark:text-blue-300 uppercase tracking-widest">{t('current_balance')}</p>
-                         <p className="text-3xl font-black text-blue-900 dark:text-white">{formatCurrency(currentUser.balance || 0)}</p>
+                         <p className="text-lg xs:text-xl sm:text-2xl md:text-3xl font-black text-blue-900 dark:text-white tracking-tight break-all leading-tight">{formatCurrency(currentUser.balance || 0)}</p>
                       </div>
                    </div>
 

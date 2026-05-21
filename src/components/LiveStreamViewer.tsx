@@ -112,8 +112,15 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   
   // Elementos do Viewer
   const [donationModalOpen, setDonationModalOpen] = useState<boolean>(false);
+  const [customAmount, setCustomAmount] = useState<string>('');
+  const [customMessage, setCustomMessage] = useState<string>('');
+  
+  const [donationAlert, setDonationAlert] = useState<{ donor: string; amount: number; message: string } | null>(null);
+  const lastAlertIdRef = useRef<string | null>(null);
+  const alertTimerRef = useRef<any>(null);
+  
   const [hearts, setHearts] = useState<FloatingHeart[]>([]);
-  const [lastHeartCount, setLastHeartCount] = useState<number>(0);
+  const lastHeartCountRef = useRef<number>(0);
   
   // Referências
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -142,11 +149,12 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         setComments(updatedPost.liveChat || []);
         
         // Disparar corações se o número aumentou
-        const diff = (updatedPost.liveHeartCount || 0) - lastHeartCount;
-        if (diff > 0 && lastHeartCount > 0) {
+        const currentHeartCount = updatedPost.liveHeartCount || 0;
+        const diff = currentHeartCount - lastHeartCountRef.current;
+        if (diff > 0 && lastHeartCountRef.current > 0) {
           triggerHearts(diff > 5 ? 5 : diff);
         }
-        setLastHeartCount(updatedPost.liveHeartCount || 0);
+        lastHeartCountRef.current = currentHeartCount;
 
         // Se o host encerrou a stream, alertar o viewer
         if (updatedPost.liveStream?.status === 'ENDED' && updatedPost.userId !== currentUser.id) {
@@ -167,7 +175,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       unsubscribe();
       manageLiveViewers(postId, 'leave');
     };
-  }, [postId, lastHeartCount]);
+  }, [postId]);
 
   // 2. Carregar perfil do Host
   useEffect(() => {
@@ -465,9 +473,74 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     }
   };
 
-  // 4. Efeito para rolar o chat até o fim ao receber nova mensagem
+  // 4. Efeito para rolar o chat até o fim ao receber nova mensagem e detectar doações
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    
+    if (comments.length > 0) {
+      const lastComment = comments[comments.length - 1];
+      if (lastComment.isDonation && lastComment.id !== lastAlertIdRef.current) {
+        lastAlertIdRef.current = lastComment.id;
+        
+        let displayMessage = 'Sem mensagem';
+        const rawText = lastComment.text || '';
+        // Extract content inside double quotes if possible
+        const quoteMatch = rawText.match(/"([^"]+)"/);
+        if (quoteMatch && quoteMatch[1]) {
+          displayMessage = quoteMatch[1];
+        } else {
+          displayMessage = rawText;
+        }
+
+        setDonationAlert({
+          donor: lastComment.userName || 'Doador Secreto',
+          amount: lastComment.amount || 0,
+          message: displayMessage
+        });
+        
+        // Citar o nome do doador e o valor em voz alta (Speech Synthesis)
+        try {
+          if ('speechSynthesis' in window) {
+            window.speechSynthesis.cancel(); // Cancel any existing speech
+            const donorName = lastComment.userName || 'Um doador';
+            const donorAmount = lastComment.amount || 0;
+            const speechText = `${donorName} enviou uma gorjeta de ${donorAmount} Kwanzas! Mensagem: ${displayMessage}`;
+            const utterance = new SpeechSynthesisUtterance(speechText);
+            utterance.lang = 'pt-PT'; // Portuguese audio
+            window.speechSynthesis.speak(utterance);
+          }
+        } catch (speechErr) {
+          console.warn('Silent fallback for SpeechSynthesis error', speechErr);
+        }
+
+        // Ativar estrelas douradas/corações de comemoração
+        triggerHearts(6);
+        
+        // Cancel previous timer
+        if (alertTimerRef.current) {
+          clearTimeout(alertTimerRef.current);
+        }
+
+        // Auto-dismiss após 10 segundos
+        alertTimerRef.current = setTimeout(() => {
+          setDonationAlert(null);
+          alertTimerRef.current = null;
+        }, 10000);
+      }
+    }
+
+    return () => {
+      if (alertTimerRef.current) {
+        clearTimeout(alertTimerRef.current);
+      }
+    };
+  }, [comments]);
+
+  // Total acumulado em gorjetas durante esta sessão
+  const totalTipsSession = useMemo(() => {
+    return comments
+      .filter((c: any) => c.isDonation)
+      .reduce((acc: number, curr: any) => acc + (curr.amount || 0), 0);
   }, [comments]);
 
   // 5. Canvas Simulado para Cyberpunk Grid / Visualizador Ambientador (Viewers)
@@ -569,7 +642,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     return () => {
       cancelAnimationFrame(animFrame);
     };
-  }, [isHost, post]);
+  }, [isHost, post?.id]);
 
   // Chat simulator effect for active rooms (Simulated viewer interaction)
   useEffect(() => {
@@ -673,37 +746,44 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     }, 3000);
   };
 
-  // Funcionalidade de Doação de Apoio
-  const handleDonate = async (tier: typeof DONATION_TIERS[0]) => {
+  // Funcionalidade de Doação de Apoio (Gorjetas)
+  const handleDonate = async (amount: number, message: string) => {
     if (!post || !hostProfile) return;
 
-    if ((currentUser.balance || 0) < tier.amount) {
+    if (isNaN(amount) || amount <= 0) {
+      showError('Por favor, informe um valor válido para a gorjeta.');
+      return;
+    }
+
+    if ((currentUser.balance || 0) < amount) {
       showError(t('insufficient_balance_donation', 'Saldo insuficiente para esta doação. Carregue a sua carteira CyberPhone Primeiro!'));
       return;
     }
 
     const confirm = await showConfirm(
-      `Você deseja apoiar ${hostProfile.firstName} enviando ${tier.amount} KZ de apoio?`,
-      { title: 'Confirmar Doação', confirmText: 'Apoiar', cancelText: 'Cancelar' }
+      `Você deseja apoiar ${hostProfile.firstName} enviando uma gorjeta de ${amount} KZ?`,
+      { title: 'Confirmar Gorjeta', confirmText: 'Apoiar', cancelText: 'Cancelar' }
     );
 
     if (confirm) {
-      const ok = await processDonation(currentUser.id, post.userId, tier.amount, `Suporte à transmissão ao vivo: ${post.liveStream?.title}`);
+      const ok = await processDonation(currentUser.id, post.userId, amount, `Gorjeta na transmissão: ${post.liveStream?.title || ''}`);
       if (ok) {
-        showSuccess(`Obrigado! Enviou ${tier.amount} KZ de apoio para ${hostProfile.firstName}.`);
+        showSuccess(`Obrigado! Enviou ${amount} KZ de gorjeta para ${hostProfile.firstName}.`);
         setDonationModalOpen(false);
+        setCustomAmount('');
+        setCustomMessage('');
         await refreshUser();
 
         // Mandar anúncio para o liveChat
         const donationAnnouncement = {
           id: 'don-' + Date.now(),
           userId: 'system-donation',
-          userName: `★ CyberPhone ★`,
-          profilePic: DEFAULT_PROFILE_PIC,
-          text: `💎 ${currentUser.firstName} enviou ${tier.amount} KZ de Apoio com a mensagem: "${tier.desc}"! 🚀`,
+          userName: currentUser.firstName,
+          profilePic: currentUser.profilePicture || DEFAULT_PROFILE_PIC,
+          text: `💎 ${currentUser.firstName} enviou ${amount} KZ com a mensagem: "${message || 'O stream está excelente!'}"! 🚀`,
           timestamp: Date.now(),
           isDonation: true,
-          amount: tier.amount
+          amount: amount
         };
         await sendLiveMessage(post.id, donationAnnouncement);
       } else {
@@ -790,6 +870,17 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
           {/* Botão de Encerrar ou Filtros */}
           <div className="flex items-center gap-1.5 md:gap-2 pointer-events-auto">
+            {isHost && (
+              <button 
+                onClick={() => setInviteModalOpen(true)}
+                className="px-2.5 md:px-3.5 py-1 md:py-1.5 bg-[#0e0e15]/90 hover:bg-neutral-900 text-emerald-400 border border-emerald-500/20 rounded-full text-[8.5px] md:text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 transition-all animate-fade-in"
+                title="Convidar Co-Host"
+              >
+                <Users className="w-3 h-3 shrink-0" />
+                Convidar
+              </button>
+            )}
+
             {isHost ? (
               <button 
                 onClick={handleEndStream}
@@ -803,48 +894,200 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                 className="px-2.5 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-900 rounded-full text-[8px] md:text-[9px] font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-1"
               >
                 <Coins className="w-2.5 h-2.5 md:w-3 md:h-3 shrink-0" />
-                Apoiar
+                Apoiar (Gorjeta)
               </button>
             )}
           </div>
         </div>
 
-        {/* ÁREA DE EXIBIÇÃO DO VÍDEO (REVOLUCIONÁRIA) */}
+        {/* ÁREA DE EXIBIÇÃO DO VÍDEO (SPLIT SCREEN PARA CO-HOSTS) */}
         <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center">
           
-          {/* Visualizadores dinâmicos */}
-          {isHost ? (
-            /* FEED DA CÂMERA LOCAL DA PESSOA */
-            <div className="w-full h-full flex items-center justify-center bg-zinc-950 relative">
-              {videoActive ? (
-                <video 
-                  ref={videoRef} 
-                  autoPlay 
-                  playsInline 
-                  muted 
-                  className={`w-full h-full object-cover transform -scale-x-100 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center gap-3 text-neutral-500">
-                  <VideoOff className="w-12 h-12 text-red-500 animate-pulse" />
-                  <p className="text-[10px] uppercase font-bold tracking-widest">Câmera desativada</p>
+          {/* O Alerta de Gorjetas foi movido para o rodapé por solicitação do usuário */}
+
+          {/* CONVITE DE CO-HOST RECEBIDO (Para Espectadores Convidados) */}
+          {pendingInvitation && (
+            <div className="absolute inset-x-4 bottom-18 z-30 p-4 bg-gradient-to-r from-indigo-950/95 via-purple-950/95 to-indigo-950/95 border-2 border-emerald-500 rounded-3xl shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3 animate-slide-up pointer-events-auto">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+                  <Radio className="w-5 h-5 animate-pulse" />
                 </div>
-              )}
+                <div>
+                  <h4 className="text-xs font-black text-white uppercase tracking-wider">Convite para participar ao vivo!</h4>
+                  <p className="text-[9px] text-gray-300 mt-0.5">O anfitrião te convidou para participar e aparecer na janela desta transmissão.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button 
+                  onClick={handleAcceptInvite}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-[9px] font-black uppercase tracking-wider shadow-lg shadow-emerald-500/10 transition-transform active:scale-95"
+                >
+                  Aceitar e Entrar
+                </button>
+                <button 
+                  onClick={handleDeclineInvite}
+                  className="px-3 py-1.5 bg-zinc-900 border border-white/10 hover:border-red-500/30 hover:bg-red-500/5 text-gray-400 hover:text-red-400 rounded-xl text-[9px] font-bold uppercase tracking-wider transition-all"
+                >
+                  Recusar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Botão de sair da live se já estiver participando ao vivo como Guest */}
+          {isJoinedGuest && (
+            <button 
+              onClick={handleLeaveAsGuest}
+              className="absolute bottom-20 left-4 z-35 px-3 py-1.5 bg-red-600 hover:bg-red-700 border border-red-500/20 hover:scale-105 active:scale-95 text-white rounded-full text-[8px] font-black uppercase tracking-wider shadow-lg pointer-events-auto flex items-center gap-1"
+            >
+              🎤 Sair da Live
+            </button>
+          )}
+
+          {/* Visualizadores dinâmicos */}
+          {activeGuests.length > 0 ? (
+            /* GRID SPLIT SCREEN (YouTube / Stream Together style) */
+            <div className="w-full h-full grid grid-cols-1 md:grid-cols-2 gap-2 p-2 bg-neutral-950/90 relative">
+              {/* Painel 1: O Host Principal */}
+              <div className="relative w-full h-full rounded-2xl overflow-hidden bg-black border border-white/5 flex items-center justify-center">
+                {isHost ? (
+                  videoActive ? (
+                    <video 
+                      ref={videoRef} 
+                      autoPlay 
+                      playsInline 
+                      muted 
+                      className={`w-full h-full object-cover transform -scale-x-100 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-2 text-neutral-500">
+                      <VideoOff className="w-8 h-8 text-red-500 animate-pulse" />
+                      <p className="text-[9px] uppercase font-bold tracking-widest text-neutral-400">Câmera desativada</p>
+                    </div>
+                  )
+                ) : (
+                  <div className="w-full h-full relative">
+                    <canvas 
+                      ref={canvasRef} 
+                      className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                    />
+                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded text-[7px] font-black uppercase tracking-wider border border-white/10 text-emerald-400">
+                      Anfitrião
+                    </div>
+                  </div>
+                )}
+                {/* HUD Label do Host */}
+                <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg text-[8.5px] font-black tracking-wider text-neutral-200">
+                  {hostProfile?.firstName ? `${hostProfile.firstName} (Host)` : 'Anfitrião'}
+                </div>
+              </div>
+
+              {/* Painéis para os Co-Hosts/Guests */}
+              {activeGuests.map((g: any) => {
+                const isThisGuestMe = g.userId === currentUser.id;
+                return (
+                  <div key={g.userId} className="relative w-full h-full rounded-2xl overflow-hidden bg-zinc-950 border border-emerald-500/20 flex flex-col items-center justify-center">
+                    {isThisGuestMe ? (
+                      /* Câmera real do Convidado participando */
+                      guestVideoActive ? (
+                        <video 
+                          ref={guestVideoRef} 
+                          autoPlay 
+                          playsInline 
+                          muted 
+                          className="w-full h-full object-cover transform -scale-x-100"
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center gap-2 text-neutral-500">
+                          <VideoOff className="w-8 h-8 text-red-400 animate-pulse" />
+                          <p className="text-[9px] uppercase font-bold tracking-widest">A tua câmera está off</p>
+                        </div>
+                      )
+                    ) : (
+                      /* Stream simulada com alta fidelidade para os outros */
+                      <div className="w-full h-full bg-gradient-to-br from-[#07070e] via-[#0e0e1a] to-[#07070e] flex flex-col items-center justify-center p-4 relative">
+                        {/* Círculo com foto de perfil e ondas de pulso neon */}
+                        <div className="relative mb-2">
+                          <div className="absolute inset-0 w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500 animate-pulse opacity-40"></div>
+                          <img 
+                            src={g.profilePic || DEFAULT_PROFILE_PIC} 
+                            alt={g.userName} 
+                            className="w-12 h-12 rounded-full object-cover relative z-10 border-2 border-emerald-400 shadow-xl shadow-emerald-500/15" 
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+
+                        {/* Ondas Sonoras Equalizadoras Animadas */}
+                        <div className="flex items-end gap-0.5 h-4 mb-2">
+                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-1"></span>
+                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-2"></span>
+                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-3"></span>
+                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-4"></span>
+                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-5"></span>
+                        </div>
+
+                        <span className="text-[7.5px] tracking-widest leading-none font-bold text-emerald-400 uppercase bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
+                          🎤 Co-Host Ao Vivo
+                        </span>
+                      </div>
+                    )}
+
+                    {/* HUD Label do Convidado */}
+                    <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg text-[8.5px] font-black tracking-wider text-neutral-200">
+                      {g.userName}
+                    </div>
+
+                    {/* Controles rápidos de Host para remover o convidado */}
+                    {isHost && (
+                      <button 
+                        onClick={() => handleRemoveGuest(g.userId, g.userName)}
+                        className="absolute top-2 right-2 px-2 py-0.5 bg-red-650 hover:bg-red-750 text-white rounded-lg text-[8px] font-black uppercase tracking-wider border border-red-500/20 shadow-lg pointer-events-auto transition-colors"
+                        title="Remover Co-Host"
+                      >
+                        Remover
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            /* CANVA DE STREAM SIMULADA CIBERNÉTICA */
-            <div className="w-full h-full relative">
-              <canvas 
-                ref={canvasRef} 
-                className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
-              />
-              {/* Moldura Cyber HUD nos cantos extra */}
-              <div className="absolute inset-0 pointer-events-none border-[3px] border-indigo-500/15"></div>
-              <div className="absolute top-2 left-2 w-12 h-12 border-t border-l border-emerald-400 pointer-events-none"></div>
-              <div className="absolute top-2 right-2 w-12 h-12 border-t border-r border-emerald-400 pointer-events-none"></div>
-              <div className="absolute bottom-2 left-2 w-12 h-12 border-b border-l border-emerald-400 pointer-events-none"></div>
-              <div className="absolute bottom-2 right-2 w-12 h-12 border-b border-r border-emerald-400 pointer-events-none"></div>
-            </div>
+            /* SINGLE STREAM AREA (Original) */
+            <>
+              {isHost ? (
+                /* FEED DA CÂMERA LOCAL DA PESSOA */
+                <div className="w-full h-full flex items-center justify-center bg-zinc-950 relative">
+                  {videoActive ? (
+                    <video 
+                      ref={videoRef} 
+                      autoPlay 
+                      playsInline 
+                      muted 
+                      className={`w-full h-full object-cover transform -scale-x-100 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center gap-3 text-neutral-500">
+                      <VideoOff className="w-12 h-12 text-red-500 animate-pulse" />
+                      <p className="text-[10px] uppercase font-bold tracking-widest">Câmera desativada</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* CANVA DE STREAM SIMULADA CIBERNÉTICA */
+                <div className="w-full h-full relative">
+                  <canvas 
+                    ref={canvasRef} 
+                    className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                  />
+                  {/* Moldura Cyber HUD nos cantos extra */}
+                  <div className="absolute inset-0 pointer-events-none border-[3px] border-indigo-500/15"></div>
+                  <div className="absolute top-2 left-2 w-12 h-12 border-t border-l border-emerald-400 pointer-events-none"></div>
+                  <div className="absolute top-2 right-2 w-12 h-12 border-t border-r border-emerald-400 pointer-events-none"></div>
+                  <div className="absolute bottom-2 left-2 w-12 h-12 border-b border-l border-emerald-400 pointer-events-none"></div>
+                  <div className="absolute bottom-2 right-2 w-12 h-12 border-b border-r border-emerald-400 pointer-events-none"></div>
+                </div>
+              )}
+            </>
           )}
 
           {/* Animação de Corações Flutuantes no Canto Inferior Direito do Vídeo */}
@@ -864,6 +1107,26 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             ))}
           </div>
         </div>
+
+        {/* ALERTA DE GORJETA NO RODAPÉ COM TTS (10 segundos) */}
+        {donationAlert && (
+          <div className="absolute bottom-16 md:bottom-20 left-2 md:left-4 right-2 md:right-4 z-30 pointer-events-auto select-none animate-slide-up">
+            <div className="mx-auto max-w-lg bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-500 border-2 border-amber-300 shadow-2xl rounded-2xl p-3 flex items-center justify-between gap-3 text-slate-950 font-sans">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="text-base shrink-0 animate-bounce">💎</span>
+                <div className="min-w-0">
+                  <p className="text-[10.5px] font-black uppercase tracking-wider leading-none">NOVA GORJETA!</p>
+                  <p className="text-[11px] font-extrabold mt-0.5 truncate text-slate-900">
+                    <span className="underline font-black">{donationAlert.donor}</span> enviou <span className="font-mono bg-black/10 px-1.5 py-0.5 rounded-md font-black">{donationAlert.amount} KZ</span>
+                  </p>
+                </div>
+              </div>
+              <div className="text-[10px] font-bold italic truncate max-w-[180px] sm:max-w-[280px] border-l border-amber-600/30 pl-3 leading-tight self-center text-slate-800">
+                "{donationAlert.message || 'Sem mensagem'}"
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* OVERLAYS E CONTROLES DE MÍDIA HUD */}
         <div className="absolute bottom-2 md:bottom-4 left-2 md:left-4 right-2 md:right-4 z-20 flex items-center justify-between p-2 md:p-3 rounded-xl md:rounded-2xl bg-black/60 backdrop-blur-md border border-white/5 shadow-2xl">
@@ -1027,10 +1290,10 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         </form>
       </div>
 
-      {/* 3. MODAL DE DOAÇÃO DE INCENTIVOS (Viewers) */}
+      {/* 3. MODAL DE DOAÇÃO DE INCENTIVOS / GORJETAS (Viewers) */}
       {donationModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-sm bg-[#0d0d12] border border-white/10 rounded-3xl p-6 shadow-2xl relative animate-scale-up">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="w-full max-w-sm bg-[#0d0d12] border border-white/10 rounded-[28px] p-6 shadow-2xl relative animate-scale-up">
             <button 
               onClick={() => setDonationModalOpen(false)}
               className="absolute top-4 right-4 p-2 rounded-full hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
@@ -1038,47 +1301,178 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               <X className="w-4 h-4" />
             </button>
 
-            <div className="flex flex-col items-center text-center mb-6">
-              <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-3">
-                <Coins className="w-6 h-6" />
+            <div className="flex flex-col items-center text-center mb-5">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-900 flex items-center justify-center mb-2.5 shadow-lg shadow-amber-500/20">
+                <Coins className="w-5.5 h-5.5" />
               </div>
-              <h3 className="text-sm font-black text-white uppercase tracking-wider mb-1">Apoiar Transmissor</h3>
+              <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">Apoiar Transmissor</h3>
               <p className="text-[10px] text-gray-400 max-w-xs leading-normal">
-                Faça uma doação direta em KZ de sua carteira digital para apoiar o anfitrião.
+                Envie uma gorjeta instantânea para o anfitrião. Seu apoio aparecerá destacado no chat e na tela!
               </p>
             </div>
 
             {/* Saldo da pessoa */}
-            <div className="flex items-center justify-between bg-zinc-950/40 border border-white/5 rounded-2xl px-4 py-3 mb-4">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-neutral-400">Teu Saldo:</span>
+            <div className="flex items-center justify-between bg-zinc-950/50 border border-white/5 rounded-2xl px-4 py-2.5 mb-4">
+              <span className="text-[9px] uppercase font-black tracking-widest text-neutral-400">Teu Saldo:</span>
               <span className="text-xs font-black text-emerald-400 font-mono">
                 {(currentUser.balance || 0).toLocaleString('pt-AO', { minimumFractionDigits: 2 })} KZ
               </span>
             </div>
 
-            {/* Lista de Tiers */}
-            <div className="space-y-2 mb-6">
+            {/* Lista de Tiers Rápidos */}
+            <p className="text-[8.5px] font-black text-neutral-450 uppercase tracking-widest mb-2 px-1">Selecione uma Oferta Rápida:</p>
+            <div className="grid grid-cols-2 gap-2 mb-4">
               {DONATION_TIERS.map((tier) => (
                 <button 
                   key={tier.amount}
-                  onClick={() => handleDonate(tier)}
-                  className="w-full flex items-center justify-between p-3.5 rounded-2xl bg-zinc-900/60 border border-white/5 hover:border-amber-500/30 hover:bg-amber-500/5 hover:-translate-y-0.5 active:translate-y-0 transition-all text-left group"
+                  type="button"
+                  onClick={() => {
+                    setCustomAmount(tier.amount.toString());
+                    setCustomMessage(`Enviou ${tier.name}!`);
+                  }}
+                  className={`flex flex-col p-2.5 rounded-xl border text-left transition-all group ${
+                    customAmount === tier.amount.toString() 
+                      ? 'bg-amber-500/10 border-amber-500 shadow-md shadow-amber-500/5' 
+                      : 'bg-zinc-900/60 border-white/5 hover:border-white/10 hover:bg-zinc-800/40'
+                  }`}
                 >
-                  <div>
-                    <p className="text-[11px] font-black text-white group-hover:text-amber-400 uppercase tracking-widest">{tier.name}</p>
-                    <p className="text-[9px] text-gray-500 mt-1">{tier.desc}</p>
-                  </div>
-                  <span className="px-3 py-1 bg-amber-500/10 group-hover:bg-amber-500/20 rounded-full text-[10px] font-mono font-black text-amber-400">
-                    {tier.amount} KZ
-                  </span>
+                  <span className="text-[10px] font-extrabold text-white leading-tight group-hover:text-amber-400">{tier.name.split(' ')[0]}</span>
+                  <span className="text-[10.5px] font-mono font-black text-amber-500 mt-1">{tier.amount} KZ</span>
                 </button>
               ))}
             </div>
 
-            <div className="text-center">
-              <p className="text-[8px] text-gray-500 uppercase tracking-widest">
-                A CyberPhone processa transferências digitais de forma instantânea.
+            {/* Custom Amount input e custom message */}
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="text-[8.5px] font-black text-neutral-450 uppercase tracking-widest block mb-1.5 px-1">Valor Personalizado (KZ):</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  value={customAmount}
+                  onChange={(e) => setCustomAmount(e.target.value)}
+                  placeholder="Por ex: 250"
+                  className="w-full bg-neutral-900 border border-white/10 text-[11px] text-white rounded-xl px-3.5 py-2.5 font-mono focus:outline-none focus:border-amber-500 hover:bg-neutral-800 transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="text-[8.5px] font-black text-neutral-450 uppercase tracking-widest block mb-1.5 px-1">Mensagem de Apoio:</label>
+                <textarea 
+                  rows={2}
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  placeholder="Deixe um incentivo que todos vão ler na transmissão!"
+                  className="w-full bg-neutral-900 border border-white/10 text-[11px] text-white rounded-xl px-3.5 py-2 focus:outline-none focus:border-amber-500 hover:bg-neutral-800 transition-colors resize-none leading-relaxed"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={() => handleDonate(Number(customAmount), customMessage)}
+              disabled={!customAmount || Number(customAmount) <= 0}
+              className="w-full py-3 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 disabled:opacity-30 disabled:pointer-events-none text-slate-950 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-amber-500/15 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              Confirmar e Enviar Gorjeta 💎
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4. MODAL DE CONVIDAR CO-HOSTS (Host Only) */}
+      {inviteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="w-full max-w-sm bg-[#0d0d12] border border-white/10 rounded-[28px] p-6 shadow-2xl relative animate-scale-up">
+            <button 
+              onClick={() => setInviteModalOpen(false)}
+              className="absolute top-4 right-4 p-2 rounded-full hover:bg-white/5 text-gray-400 hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex flex-col items-center text-center mb-5">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 text-white flex items-center justify-center mb-2.5 shadow-lg shadow-emerald-500/20">
+                <Users className="w-5.5 h-5.5" />
+              </div>
+              <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">Transmitir Juntos</h3>
+              <p className="text-[10px] text-gray-400 max-w-xs leading-normal">
+                Convide outros usuários da plataforma para entrar na sua transmissão. A tela dividirá automaticamente!
               </p>
+            </div>
+
+            {/* Barra de Busca */}
+            <div className="mb-4">
+              <input 
+                type="text" 
+                value={inviteSearch}
+                onChange={(e) => setInviteSearch(e.target.value)}
+                placeholder="Buscar usuário por nome..."
+                className="w-full bg-neutral-900 border border-white/10 text-[11px] text-white rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-emerald-500 hover:bg-neutral-800 transition-colors"
+              />
+            </div>
+
+            {/* Lista com Scroll */}
+            <div className="max-h-56 overflow-y-auto space-y-2 mb-2 pr-1 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent">
+              {loadingUsers ? (
+                <div className="py-8 text-center text-xs text-neutral-500 animate-pulse">
+                  Carregando usuários...
+                </div>
+              ) : platformUsers.filter(u => {
+                const s = inviteSearch.toLowerCase();
+                return (u.firstName || '').toLowerCase().includes(s) || (u.lastName || '').toLowerCase().includes(s);
+              }).length === 0 ? (
+                <div className="py-8 text-center text-[10px] font-bold uppercase tracking-wider text-neutral-600">
+                  Nenhum usuário encontrado
+                </div>
+              ) : (
+                platformUsers
+                  .filter(u => {
+                    const s = inviteSearch.toLowerCase();
+                    return (u.firstName || '').toLowerCase().includes(s) || (u.lastName || '').toLowerCase().includes(s);
+                  })
+                  .map((u) => {
+                    const isAlreadyJoined = post.liveStream?.guests?.some(g => g.userId === u.id && g.status === 'JOINED');
+                    const isAlreadyInvited = post.liveStream?.guests?.some(g => g.userId === u.id && g.status === 'INVITED');
+                    
+                    return (
+                      <div 
+                        key={u.id}
+                        className="flex items-center justify-between p-2.5 rounded-xl bg-zinc-900/40 border border-white/5 hover:bg-zinc-800/20 transition-all"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <img 
+                            src={u.profilePicture || DEFAULT_PROFILE_PIC} 
+                            alt={u.firstName} 
+                            className="w-8 h-8 rounded-full object-cover border border-white/10"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="min-w-0">
+                            <p className="text-[10.5px] font-black text-white truncate uppercase tracking-wide">
+                              {u.firstName} {u.lastName}
+                            </p>
+                            <p className="text-[8px] text-neutral-500 truncate font-mono">
+                              {u.email}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleInviteUser(u)}
+                          disabled={isAlreadyJoined || isAlreadyInvited}
+                          className={`px-3 py-1.5 rounded-xl text-[8.5px] font-black uppercase tracking-wider transition-all shrink-0 ${
+                            isAlreadyJoined 
+                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-default' 
+                              : isAlreadyInvited 
+                              ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 cursor-default' 
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md active:scale-95'
+                          }`}
+                        >
+                          {isAlreadyJoined ? 'AO VIVO' : isAlreadyInvited ? 'ENVIADO' : 'CONVIDAR'}
+                        </button>
+                      </div>
+                    );
+                  })
+              )}
             </div>
           </div>
         </div>

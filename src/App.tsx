@@ -308,6 +308,13 @@ const App: React.FC = () => {
                         prevUser.isAdmin !== user.isAdmin ||
                         prevUser.isVerified !== user.isVerified ||
                         prevUser.profilePicture !== user.profilePicture ||
+                        prevUser.coverPhoto !== user.coverPhoto ||
+                        prevUser.bio !== user.bio ||
+                        prevUser.phone !== user.phone ||
+                        prevUser.country !== user.country ||
+                        prevUser.birthDate !== user.birthDate ||
+                        prevUser.gender !== user.gender ||
+                        prevUser.preferredLanguage !== user.preferredLanguage ||
                         prevUser.userType !== user.userType ||
                         safeJsonStringify(prevUser.followedUsers) !== safeJsonStringify(user.followedUsers) ||
                         safeJsonStringify(prevUser.followers) !== safeJsonStringify(user.followers) ||
