@@ -126,7 +126,18 @@ const CallModal: React.FC<CallModalProps> = ({
             setStatus('calling');
             return;
          } catch (fErr) {
-            console.error("[CALL] Falha total na captura de vídeo:", safeJsonStringify(fErr));
+            console.warn("[CALL] Falha na captura de vídeo + áudio básico, tentando APENAS VÍDEO...", fErr);
+            try {
+               const videoOnlyStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+               streamRef.current = videoOnlyStream;
+               if (localVideoRef.current) {
+                  localVideoRef.current.srcObject = videoOnlyStream;
+               }
+               setStatus('calling');
+               return;
+            } catch (vErr) {
+               console.error("[CALL] Falha total no vídeo:", vErr);
+            }
          }
       }
       setStatus('calling'); 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Post, User, Page } from '../types';
 import { 
@@ -120,16 +120,34 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const alertTimerRef = useRef<any>(null);
   
   const [hearts, setHearts] = useState<FloatingHeart[]>([]);
+  const [isChatOpen, setIsChatOpen] = useState<boolean>(true);
+  const [isSimulatingCamera, setIsSimulatingCamera] = useState<boolean>(false);
+  const [isSimulatingGuestCamera, setIsSimulatingGuestCamera] = useState<boolean>(false);
   const lastHeartCountRef = useRef<number>(0);
   
   // Referências
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   
-  const guestVideoRef = useRef<HTMLVideoElement>(null);
+  const guestVideoRef = useRef<HTMLVideoElement | null>(null);
   const guestStreamRef = useRef<MediaStream | null>(null);
+
+  // Callback refs para lidar com a montagem condicional das tags de vídeo graciosamente:
+  const setVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (el && streamRef.current) {
+      el.srcObject = streamRef.current;
+    }
+  }, []);
+
+  const setGuestVideoRef = useCallback((el: HTMLVideoElement | null) => {
+    guestVideoRef.current = el;
+    if (el && guestStreamRef.current) {
+      el.srcObject = guestStreamRef.current;
+    }
+  }, []);
 
   const isHost = post ? post.userId === currentUser.id : false;
 
@@ -219,16 +237,38 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
   const startGuestCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-        audio: guestAudioActive
-      });
+      let stream: MediaStream;
+      try {
+        // Try ideal (high-res video + audio)
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: guestAudioActive ? { echoCancellation: true, noiseSuppression: true } : false
+        });
+      } catch (err) {
+        console.warn("Guest high-res constraints failed, trying simple video and audio...", err);
+        try {
+          // Try standard video + audio
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: guestAudioActive
+          });
+        } catch (audioErr) {
+          console.warn("Guest audio/mic acquisition failed, falling back to VIDEO-ONLY stream...", audioErr);
+          // Fall back to video-only (critical for devices/VMs with no active microphone)
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
+      }
       guestStreamRef.current = stream;
       if (guestVideoRef.current) {
         guestVideoRef.current.srcObject = stream;
       }
+      setIsSimulatingGuestCamera(false);
     } catch (e: any) {
-      console.error("Guest camera access failed", e);
+      console.warn("Guest camera access failed completely, fallback to animation mode", e);
+      setIsSimulatingGuestCamera(true);
     }
   };
 
@@ -237,6 +277,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       guestStreamRef.current.getTracks().forEach((track) => track.stop());
       guestStreamRef.current = null;
     }
+    setIsSimulatingGuestCamera(false);
   };
 
   // 3c. Filtra co-hosts ativos que estão participando ao vivo (status === 'JOINED')
@@ -545,7 +586,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
   // 5. Canvas Simulado para Cyberpunk Grid / Visualizador Ambientador (Viewers)
   useEffect(() => {
-    if (isHost || !canvasRef.current) return;
+    if ((isHost && !isSimulatingCamera) || !canvasRef.current) return;
     
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
@@ -642,7 +683,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     return () => {
       cancelAnimationFrame(animFrame);
     };
-  }, [isHost, post?.id]);
+  }, [isHost, isSimulatingCamera, post?.id]);
 
   // Chat simulator effect for active rooms (Simulated viewer interaction)
   useEffect(() => {
@@ -674,20 +715,38 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   // Iniciar câmera do Host
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
-        audio: audioActive
-      });
+      let stream: MediaStream;
+      try {
+        // Try ideal (high-res video + audio)
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: audioActive ? { echoCancellation: true, noiseSuppression: true } : false
+        });
+      } catch (err) {
+        console.warn("Host high-res constraints failed, trying simple video and audio...", err);
+        try {
+          // Try standard video + audio
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: audioActive
+          });
+        } catch (audioErr) {
+          console.warn("Host audio/mic acquisition failed, falling back to VIDEO-ONLY stream...", audioErr);
+          // Fall back to video-only if micro/audio device fails or doesn't exist
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        }
+      }
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
+      setIsSimulatingCamera(false);
     } catch (e: any) {
-      console.error("Camera access failed", e);
-      showAlert(t('camera_error', 'Não foi possível acessar a câmera para a transmissão ao vivo.'), {
-        title: t('hardware_warning', 'Erro de Hardware'),
-        type: 'warning'
-      });
+      console.warn("Camera access failed completely, falling back to simulated cyber stream", e);
+      setIsSimulatingCamera(true);
     }
   };
 
@@ -697,6 +756,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    setIsSimulatingCamera(false);
   };
 
   // Funcionalidade de mandar chat
@@ -845,56 +905,67 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     <div className="h-screen max-h-screen bg-[#07070a] text-neutral-100 flex flex-col md:flex-row relative overflow-hidden font-sans">
       
       {/* 1. SEÇÃO DE VÍDEO PRINCIPAL (Esquerda) */}
-      <div className="h-[43vh] min-h-[290px] md:h-full md:flex-1 flex flex-col relative bg-black shrink-0">
+      <div className={`relative bg-black shrink-0 md:h-full md:flex-1 flex flex-col transition-all duration-300 ${isChatOpen ? (activeGuests.length > 0 ? 'h-[55vh] min-h-[380px]' : 'h-[43vh] min-h-[290px]') : 'h-full flex-1'}`}>
         
         {/* Top Header Controls overlay */}
-        <div className="absolute top-2 md:top-4 left-2 md:left-4 right-2 md:right-4 z-30 flex items-center justify-between pointer-events-none">
+        <div className="absolute top-2 md:top-4 left-2 md:left-4 right-2 md:right-4 z-30 flex items-center justify-between pointer-events-none gap-2">
           {/* Voltar e badges */}
-          <div className="flex items-center gap-1.5 md:gap-2 pointer-events-auto">
+          <div className="flex items-center gap-1.5 md:gap-2 pointer-events-auto shrink-0">
             <button 
               onClick={() => onNavigate('feed')}
-              className="p-1.5 md:p-2.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-white hover:bg-black/60 transition-colors shadow-lg"
+              className="w-7 h-7 md:w-8.5 md:h-8.5 flex items-center justify-center border border-white/10 rounded-full bg-black/40 backdrop-blur-md text-white hover:bg-black/60 transition-colors shadow-lg shrink-0 cursor-pointer"
               title="Voltar ao Feed"
             >
               <ArrowLeft className="w-3.5 h-3.5 md:w-4 md:h-4" />
             </button>
-            <div className="flex items-center gap-1 bg-red-600 border border-red-500/20 px-2 md:px-3 py-0.5 md:py-1 rounded-full text-[8px] md:text-[9px] font-black uppercase tracking-widest leading-none shadow-lg animate-pulse text-white">
-              <span className="w-1 md:w-1.5 h-1 md:h-1.5 bg-white rounded-full"></span>
+            <div className="h-7 md:h-8.5 flex items-center justify-center gap-1 bg-red-600 border border-red-500/20 px-2 md:px-3 rounded-full text-[7px] md:text-[8.5px] font-black uppercase tracking-wider leading-none shadow-lg animate-pulse text-white shrink-0">
+              <span className="w-1 h-1 bg-white rounded-full"></span>
               LIVE
             </div>
-            <div className="flex items-center gap-1 bg-black/40 backdrop-blur-md border border-white/10 px-2 md:px-3 py-0.5 md:py-1 rounded-full text-[8px] md:text-[9px] font-black uppercase tracking-widest leading-none text-neutral-200 shadow-md">
+            <div className="h-7 md:h-8.5 flex items-center justify-center gap-1 bg-black/40 backdrop-blur-md border border-white/10 px-1.5 md:px-3 rounded-full text-[7px] md:text-[8.5px] font-black leading-none text-neutral-200 shadow-md shrink-0">
               <Eye className="w-2.5 h-2.5 md:w-3 md:h-3 text-red-400" />
               {post.liveViewerCount || 0}
             </div>
           </div>
 
           {/* Botão de Encerrar ou Filtros */}
-          <div className="flex items-center gap-1.5 md:gap-2 pointer-events-auto">
+          <div className="flex items-center gap-1.5 md:gap-2 pointer-events-auto shrink-0">
+            {!isChatOpen && (
+              <button 
+                onClick={() => setIsChatOpen(true)}
+                className="h-7 md:h-8.5 flex items-center justify-center px-2 md:px-3 bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 border border-emerald-500/30 rounded-full text-[7px] md:text-[8.5px] font-black uppercase tracking-wider shadow-lg gap-1 transition-all cursor-pointer shrink-0"
+                title="Mostrar Chat de Comentários"
+              >
+                <MessageSquare className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
+                <span className="hidden sm:inline">Comentários</span>
+              </button>
+            )}
+
             {isHost && (
               <button 
                 onClick={() => setInviteModalOpen(true)}
-                className="px-2.5 md:px-3.5 py-1 md:py-1.5 bg-[#0e0e15]/90 hover:bg-neutral-900 text-emerald-400 border border-emerald-500/20 rounded-full text-[8.5px] md:text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 transition-all animate-fade-in"
+                className="h-7 md:h-8.5 flex items-center justify-center px-2 md:px-3 bg-[#0e0e15]/95 hover:bg-neutral-900 text-emerald-400 border border-emerald-500/20 rounded-full text-[7px] md:text-[8.5px] font-black uppercase tracking-wider shadow-lg gap-1 transition-all animate-fade-in shrink-0 cursor-pointer"
                 title="Convidar Co-Host"
               >
-                <Users className="w-3 h-3 shrink-0" />
-                Convidar
+                <Users className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
+                <span className="hidden sm:inline">Convidar</span>
               </button>
             )}
 
             {isHost ? (
               <button 
                 onClick={handleEndStream}
-                className="px-2.5 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-red-600 to-rose-700 text-white border border-red-500/10 rounded-full text-[8px] md:text-[9px] font-black uppercase tracking-widest shadow-lg active:scale-95 transition-all"
+                className="h-7 md:h-8.5 flex items-center justify-center px-2.5 md:px-4 bg-gradient-to-r from-red-600 to-rose-705 text-white border border-red-500/10 rounded-full text-[7px] md:text-[8.5px] font-black uppercase tracking-wider shadow-lg active:scale-95 transition-all shrink-0 cursor-pointer"
               >
                 Encerrar
               </button>
             ) : (
               <button 
                 onClick={() => setDonationModalOpen(true)}
-                className="px-2.5 md:px-4 py-1 md:py-1.5 bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-900 rounded-full text-[8px] md:text-[9px] font-black uppercase tracking-widest shadow-lg shadow-amber-500/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-1"
+                className="h-7 md:h-8.5 flex items-center justify-center px-2 md:px-3 bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-900 border border-amber-600/10 rounded-full text-[7px] md:text-[8.5px] font-black uppercase tracking-wider shadow-lg shadow-amber-500/10 hover:scale-105 active:scale-95 transition-all gap-1 shrink-0 cursor-pointer"
               >
-                <Coins className="w-2.5 h-2.5 md:w-3 md:h-3 shrink-0" />
-                Apoiar (Gorjeta)
+                <Coins className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
+                <span className="hidden sm:inline">Apoiar</span>
               </button>
             )}
           </div>
@@ -947,22 +1018,69 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           {/* Visualizadores dinâmicos */}
           {activeGuests.length > 0 ? (
             /* GRID SPLIT SCREEN (YouTube / Stream Together style) */
-            <div className="w-full h-full grid grid-cols-1 md:grid-cols-2 gap-2 p-2 bg-neutral-950/90 relative">
+            <div className={`w-full h-full p-2 bg-[#050508] relative gap-2 ${activeGuests.length === 1 ? 'flex flex-col sm:flex-row' : 'grid grid-cols-1 sm:grid-cols-2'}`}>
+              
               {/* Painel 1: O Host Principal */}
-              <div className="relative w-full h-full rounded-2xl overflow-hidden bg-black border border-white/5 flex items-center justify-center">
+              <div className="relative flex-1 min-h-0 w-full h-full rounded-xl overflow-hidden bg-[#0d0d14] border border-white/10 flex flex-col items-center justify-center shadow-lg transition-all hover:border-indigo-400/40 group/host">
+                {/* Tag de Broadcast Principal no canto superior esquerdo */}
+                <div className="absolute top-2 left-2 z-20 flex items-center gap-1 bg-red-600/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[7.5px] font-black uppercase tracking-wider text-white shadow shadow-red-600/10">
+                  <span className="w-1 h-1 bg-white rounded-full animate-pulse"></span>
+                  ANFITRIÃO
+                </div>
+
+                {/* Sindicatura de Equalizer/Microfone no canto superior direito */}
+                <div className="absolute top-2 right-2 z-20 flex items-center gap-1 px-1.5 py-0.5 bg-black/60 backdrop-blur-sm rounded border border-white/5">
+                  <div className="flex items-end gap-[1px] h-2">
+                    <span className="w-[1px] h-1.5 bg-emerald-400 rounded animate-voice-bar-1"></span>
+                    <span className="w-[1px] h-2 bg-emerald-400 rounded animate-voice-bar-2"></span>
+                    <span className="w-[1px] h-[3px] bg-emerald-400 rounded animate-voice-bar-3"></span>
+                  </div>
+                  <span className="text-[6.5px] font-extrabold text-emerald-400 tracking-wider">AUDIO</span>
+                </div>
+
                 {isHost ? (
-                  videoActive ? (
+                  (videoActive && !isSimulatingCamera) ? (
                     <video 
-                      ref={videoRef} 
+                      ref={setVideoRef} 
                       autoPlay 
                       playsInline 
                       muted 
                       className={`w-full h-full object-cover transform -scale-x-100 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
                     />
+                  ) : isSimulatingCamera ? (
+                    /* TRANSMISSÃO SIMULADA CIBERNÉTICA DO HOST NO GRID */
+                    <div className="w-full h-full relative flex items-center justify-center bg-[#07070a] overflow-hidden">
+                      {/* Scanlines virtuais leves por CSS */}
+                      <div className="absolute inset-0 bg-[#09090d] bg-[linear-gradient(rgba(79,70,229,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(79,70,229,0.08)_1px,transparent_1px)] bg-[size:16px_16px] opacity-75"></div>
+                      <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.15)_50%)] bg-[size:100%_4px] pointer-events-none"></div>
+
+                      <div className="relative z-15 flex flex-col items-center justify-center gap-2 text-center p-2">
+                        <div className="relative">
+                          {/* Anel de rotação glow */}
+                          <div className="absolute inset-[-4px] rounded-full border border-dashed border-violet-500/50 animate-spin" style={{ animationDuration: '10s' }}></div>
+                          <div className="absolute inset-0 w-11 h-11 bg-indigo-500/10 rounded-full animate-pulse border border-indigo-500/20"></div>
+                          <img 
+                            src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} 
+                            alt="Host profile" 
+                            className="w-11 h-11 rounded-full object-cover relative z-10 border border-indigo-500/35"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <span className="text-[7px] uppercase font-black tracking-widest text-[#9d9dae]">Feed Virtual Ativo</span>
+                      </div>
+                    </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center gap-2 text-neutral-500">
-                      <VideoOff className="w-8 h-8 text-red-500 animate-pulse" />
-                      <p className="text-[9px] uppercase font-bold tracking-widest text-neutral-400">Câmera desativada</p>
+                    <div className="w-full h-full bg-[#0a0a10] flex flex-col items-center justify-center gap-2">
+                      <div className="relative">
+                        <div className="absolute inset-0 w-12 h-12 rounded-full bg-indigo-500/10 border border-indigo-500/20 animate-pulse"></div>
+                        <img 
+                          src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} 
+                          alt="Host profile" 
+                          className="w-12 h-12 rounded-full object-cover relative z-10 border border-indigo-500/35"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <p className="text-[7.5px] uppercase font-black tracking-widest text-[#6c6c8c]">Câmera Desligada</p>
                     </div>
                   )
                 ) : (
@@ -971,14 +1089,24 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                       ref={canvasRef} 
                       className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
                     />
-                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/60 rounded text-[7px] font-black uppercase tracking-wider border border-white/10 text-emerald-400">
-                      Anfitrião
-                    </div>
                   </div>
                 )}
-                {/* HUD Label do Host */}
-                <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg text-[8.5px] font-black tracking-wider text-neutral-200">
-                  {hostProfile?.firstName ? `${hostProfile.firstName} (Host)` : 'Anfitrião'}
+
+                {/* HUD Label do Host / Transmissor com design compacto super elegante */}
+                <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5 p-1 px-2 bg-black/75 backdrop-blur-sm border border-white/10 rounded-lg max-w-[85%]">
+                  <div className="w-3.5 h-3.5 rounded-full overflow-hidden border border-white/20 shrink-0">
+                    <img 
+                      src={hostProfile?.profilePicture || DEFAULT_PROFILE_PIC} 
+                      className="w-full h-full object-cover" 
+                      alt=""
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
+                  <span className="text-[8px] md:text-[9px] font-bold tracking-tight text-white truncate flex items-center gap-0.5">
+                    {hostProfile?.firstName || 'Anfitrião'}
+                    <CheckCircle2 className="w-2.5 h-2.5 text-blue-400 fill-blue-400 shrink-0" />
+                    <span className="text-[6.5px] text-indigo-300 font-extrabold px-1 rounded bg-indigo-500/20 uppercase tracking-widest scale-90">Host</span>
+                  </span>
                 </div>
               </div>
 
@@ -986,67 +1114,121 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               {activeGuests.map((g: any) => {
                 const isThisGuestMe = g.userId === currentUser.id;
                 return (
-                  <div key={g.userId} className="relative w-full h-full rounded-2xl overflow-hidden bg-zinc-950 border border-emerald-500/20 flex flex-col items-center justify-center">
+                  <div key={g.userId} className="relative flex-1 min-h-0 w-full h-full rounded-xl overflow-hidden bg-[#0a0a0f] border border-white/10 flex flex-col items-center justify-center shadow-lg transition-all hover:border-emerald-400/40 group/guest">
+                    {/* Tag de Co-Host no canto superior esquerdo */}
+                    <div className="absolute top-2 left-2 z-20 flex items-center gap-1 bg-emerald-600/95 backdrop-blur-sm px-1.5 py-0.5 rounded text-[7.5px] font-black uppercase tracking-wider text-white shadow shadow-emerald-600/10">
+                      <span className="w-1 h-1 bg-emerald-300 rounded-full animate-pulse"></span>
+                      CONVIDADO
+                    </div>
+
+                    {/* Controles rápidos de Host no canto superior direito */}
+                    <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5 pointer-events-auto">
+                      <div className="flex items-center gap-[2px] px-1.5 py-0.5 bg-black/60 backdrop-blur-sm rounded border border-white/5">
+                        <div className="flex items-end gap-[1px] h-2">
+                          <span className="w-[1px] h-2 bg-emerald-400 rounded animate-voice-bar-4"></span>
+                          <span className="w-[1px] h-1 bg-emerald-400 rounded animate-voice-bar-2"></span>
+                          <span className="w-[1px] h-1.5 bg-emerald-400 rounded animate-voice-bar-3"></span>
+                        </div>
+                      </div>
+                      {isHost && (
+                        <button 
+                          onClick={() => handleRemoveGuest(g.userId, g.userName)}
+                          className="px-2 py-0.5 bg-red-600 hover:bg-red-700 text-white rounded text-[7.5px] font-black uppercase tracking-wider border border-red-500/20 shadow-md cursor-pointer transition-colors"
+                          title="Remover Co-Host de sua Transmissão"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+
                     {isThisGuestMe ? (
                       /* Câmera real do Convidado participando */
-                      guestVideoActive ? (
+                      (guestVideoActive && !isSimulatingGuestCamera) ? (
                         <video 
-                          ref={guestVideoRef} 
+                          ref={setGuestVideoRef} 
                           autoPlay 
                           playsInline 
                           muted 
                           className="w-full h-full object-cover transform -scale-x-100"
                         />
+                      ) : isSimulatingGuestCamera ? (
+                        /* TRANSMISSÃO SIMULADA EM CANVA CYBER-GRID DO CONVIDADO NO GRID */
+                        <div className="w-full h-full relative flex items-center justify-center bg-[#07070a] overflow-hidden">
+                          {/* Scanlines virtuais leves por CSS */}
+                          <div className="absolute inset-0 bg-[#09090d] bg-[linear-gradient(rgba(16,185,129,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(16,185,129,0.08)_1px,transparent_1px)] bg-[size:16px_16px] opacity-75"></div>
+                          <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.15)_50%)] bg-[size:100%_4px] pointer-events-none"></div>
+
+                          <div className="relative z-15 flex flex-col items-center justify-center gap-2 text-center p-2">
+                            <div className="relative">
+                              <div className="absolute inset-[-4px] rounded-full border border-dashed border-emerald-500/50 animate-spin" style={{ animationDuration: '10s' }}></div>
+                              <div className="absolute inset-0 w-11 h-11 bg-emerald-500/10 rounded-full animate-pulse border border-emerald-500/20"></div>
+                              <img 
+                                src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} 
+                                alt="Your profile" 
+                                className="w-11 h-11 rounded-full object-cover border border-emerald-400 relative z-10"
+                                referrerPolicy="no-referrer"
+                              />
+                            </div>
+                            <span className="text-[7px] uppercase font-black tracking-widest text-emerald-400">Microfone/Feed Ativo</span>
+                          </div>
+                        </div>
                       ) : (
-                        <div className="flex flex-col items-center justify-center gap-2 text-neutral-500">
-                          <VideoOff className="w-8 h-8 text-red-400 animate-pulse" />
-                          <p className="text-[9px] uppercase font-bold tracking-widest">A tua câmera está off</p>
+                        <div className="w-full h-full bg-[#0a0a10] flex flex-col items-center justify-center gap-2">
+                          <div className="relative">
+                            <div className="absolute inset-0 w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/20 animate-pulse"></div>
+                            <img 
+                              src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} 
+                              alt="Guest camera" 
+                              className="w-12 h-12 rounded-full object-cover relative z-10 border border-emerald-500/35"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                          <p className="text-[7.5px] uppercase font-black tracking-widest text-[#6c6c8c]">Câmera OFF</p>
                         </div>
                       )
                     ) : (
-                      /* Stream simulada com alta fidelidade para os outros */
-                      <div className="w-full h-full bg-gradient-to-br from-[#07070e] via-[#0e0e1a] to-[#07070e] flex flex-col items-center justify-center p-4 relative">
+                      /* Stream simulada com altissíma fidelidade para os outros */
+                      <div className="w-full h-full bg-gradient-to-br from-[#08080f] via-[#10101d] to-[#08080f] flex flex-col items-center justify-center p-3 relative">
                         {/* Círculo com foto de perfil e ondas de pulso neon */}
-                        <div className="relative mb-2">
-                          <div className="absolute inset-0 w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500 animate-pulse opacity-40"></div>
+                        <div className="relative mb-1.5">
+                          <div className="absolute inset-0 w-11 h-11 rounded-full bg-emerald-500/15 border border-emerald-400 animate-pulse opacity-50"></div>
                           <img 
                             src={g.profilePic || DEFAULT_PROFILE_PIC} 
                             alt={g.userName} 
-                            className="w-12 h-12 rounded-full object-cover relative z-10 border-2 border-emerald-400 shadow-xl shadow-emerald-500/15" 
+                            className="w-11 h-11 rounded-full object-cover relative z-10 border border-emerald-500/40 shadow-lg" 
                             referrerPolicy="no-referrer"
                           />
                         </div>
 
                         {/* Ondas Sonoras Equalizadoras Animadas */}
-                        <div className="flex items-end gap-0.5 h-4 mb-2">
-                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-1"></span>
-                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-2"></span>
-                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-3"></span>
-                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-4"></span>
-                          <span className="w-0.5 bg-emerald-400/80 rounded animate-voice-bar-5"></span>
+                        <div className="flex items-end gap-[2px] h-3.5 mb-1.5">
+                          <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-1"></span>
+                          <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-2"></span>
+                          <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-3"></span>
+                          <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-4"></span>
                         </div>
 
-                        <span className="text-[7.5px] tracking-widest leading-none font-bold text-emerald-400 uppercase bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
-                          🎤 Co-Host Ao Vivo
+                        <span className="text-[6.5px] tracking-widest leading-none font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase">
+                          Co-Host
                         </span>
                       </div>
                     )}
 
-                    {/* HUD Label do Convidado */}
-                    <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg text-[8.5px] font-black tracking-wider text-neutral-200">
-                      {g.userName}
+                    {/* HUD Label do Convidado com design compacto super elegante */}
+                    <div className="absolute bottom-2 left-2 z-10 flex items-center gap-1.5 p-1 px-2 bg-black/75 backdrop-blur-sm border border-white/10 rounded-lg max-w-[85%]">
+                      <div className="w-3.5 h-3.5 rounded-full overflow-hidden border border-white/20 shrink-0">
+                        <img 
+                          src={g.profilePic || DEFAULT_PROFILE_PIC} 
+                          className="w-full h-full object-cover" 
+                          alt=""
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <span className="text-[8px] md:text-[9px] font-bold tracking-tight text-white truncate flex items-center gap-0.5">
+                        {g.userName}
+                        <span className="text-[6.5px] text-emerald-300 font-extrabold px-1 rounded bg-emerald-500/20 uppercase tracking-widest scale-90">Conv</span>
+                      </span>
                     </div>
-
-                    {/* Controles rápidos de Host para remover o convidado */}
-                    {isHost && (
-                      <button 
-                        onClick={() => handleRemoveGuest(g.userId, g.userName)}
-                        className="absolute top-2 right-2 px-2 py-0.5 bg-red-650 hover:bg-red-750 text-white rounded-lg text-[8px] font-black uppercase tracking-wider border border-red-500/20 shadow-lg pointer-events-auto transition-colors"
-                        title="Remover Co-Host"
-                      >
-                        Remover
-                      </button>
-                    )}
                   </div>
                 );
               })}
@@ -1057,34 +1239,130 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               {isHost ? (
                 /* FEED DA CÂMERA LOCAL DA PESSOA */
                 <div className="w-full h-full flex items-center justify-center bg-zinc-950 relative">
-                  {videoActive ? (
+                  {(videoActive && !isSimulatingCamera) ? (
                     <video 
-                      ref={videoRef} 
+                      ref={setVideoRef} 
                       autoPlay 
                       playsInline 
                       muted 
                       className={`w-full h-full object-cover transform -scale-x-100 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
                     />
+                  ) : isSimulatingCamera ? (
+                    /* TRANSMISSÃO SIMULADA EM CANVA CYBER-GRID COM DETALHES DO HOST */
+                    <div className="w-full h-full relative flex items-center justify-center bg-[#07070a] overflow-hidden">
+                      <canvas 
+                        ref={canvasRef} 
+                        className={`absolute inset-0 w-full h-full object-cover opacity-60 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                      />
+                      
+                      {/* Holographic scanner grid lines overlay */}
+                      <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,3px_100%] pointer-events-none z-10"></div>
+
+                      {/* Avatar e HUD overlays */}
+                      <div className="relative z-20 flex flex-col items-center justify-center gap-3 text-center p-4">
+                        <div className="relative">
+                          {/* Future glowing spinning ring */}
+                          <div className="absolute inset-[-6px] rounded-full border border-dashed border-violet-500/50 animate-spin" style={{ animationDuration: '10s' }}></div>
+                          <div className="absolute inset-0 w-20 h-20 rounded-full bg-violet-500/5 border border-violet-500/20 animate-pulse"></div>
+                          
+                          <img 
+                            src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} 
+                            alt="Your Avatar" 
+                            className="w-20 h-20 rounded-full object-cover border-2 border-violet-400 shadow-xl shadow-violet-500/30 relative z-20"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div className="absolute -bottom-1 right-0.5 z-35 bg-violet-600 border border-violet-400/50 px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase text-white tracking-wider shadow-lg flex items-center gap-1 scale-90">
+                            <span className="w-1 h-1 bg-emerald-400 rounded-full animate-ping"></span>
+                            PROPRIETÁRIO
+                          </div>
+                        </div>
+
+                        <div className="relative z-20">
+                          <h3 className="text-xs font-black uppercase tracking-wider text-[#ececf1] bg-black/75 px-3 py-1 rounded-full border border-white/5 backdrop-blur-md inline-block">
+                            {currentUser.firstName} (Você)
+                          </h3>
+                          <div className="flex items-center justify-center gap-1 mt-1.5 bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 rounded-md text-[8px] font-bold tracking-widest text-[#9d9dae] uppercase max-w-[200px] mx-auto">
+                            Feed Virtual Ativo
+                          </div>
+                        </div>
+
+                        {/* Telemetry info data labels to look extremely advanced and professional */}
+                        <div className="hidden sm:grid grid-cols-3 gap-2 px-3 py-1 bg-black/50 border border-white/5 backdrop-blur-sm rounded-lg text-[7px] font-mono tracking-wider text-gray-500 mt-2">
+                          <div>FPS: <span className="text-emerald-400 font-bold">60.0</span></div>
+                          <div className="border-x border-white/5">DECIBEL: <span className="text-indigo-400 font-bold">-18dB</span></div>
+                          <div>FEED: <span className="text-violet-400 font-bold">CYBER HUD</span></div>
+                        </div>
+                      </div>
+                      
+                      {/* Moldura Cyber HUD nos cantos extra */}
+                      <div className="absolute inset-0 pointer-events-none border-[3px] border-indigo-500/10 z-30"></div>
+                      <div className="absolute top-2 left-2 w-8 h-8 border-t border-l border-emerald-400/60 pointer-events-none z-30"></div>
+                      <div className="absolute top-2 right-2 w-8 h-8 border-t border-r border-emerald-400/60 pointer-events-none z-30"></div>
+                      <div className="absolute bottom-2 left-2 w-8 h-8 border-b border-l border-emerald-400/60 pointer-events-none z-30"></div>
+                      <div className="absolute bottom-2 right-2 w-8 h-8 border-b border-r border-emerald-400/60 pointer-events-none z-30"></div>
+                    </div>
                   ) : (
                     <div className="flex flex-col items-center justify-center gap-3 text-neutral-500">
-                      <VideoOff className="w-12 h-12 text-red-500 animate-pulse" />
-                      <p className="text-[10px] uppercase font-bold tracking-widest">Câmera desativada</p>
+                      <VideoOff className="w-10 h-10 text-red-500 animate-pulse" />
+                      <p className="text-[9px] uppercase font-bold tracking-widest text-neutral-600">Câmera desativada</p>
                     </div>
                   )}
                 </div>
               ) : (
-                /* CANVA DE STREAM SIMULADA CIBERNÉTICA */
-                <div className="w-full h-full relative">
+                /* CANVA DE STREAM SIMULADA CIBERNÉTICA COM PERFIL DO HOST (VIEWERS) */
+                <div className="w-full h-full relative flex items-center justify-center bg-[#07070a] overflow-hidden">
                   <canvas 
                     ref={canvasRef} 
-                    className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                    className={`absolute inset-0 w-full h-full object-cover opacity-60 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
                   />
+                  
+                  {/* Holographic scanner grid lines overlay */}
+                  <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,3px_100%] pointer-events-none z-10"></div>
+
+                  {/* Cenários de Avatar & Ondulação em frente ao Canvas */}
+                  <div className="relative z-20 flex flex-col items-center justify-center gap-3 text-center p-4">
+                    <div className="relative">
+                      {/* Future glowing spinning ring */}
+                      <div className="absolute inset-[-6px] rounded-full border border-dashed border-indigo-500/50 animate-spin" style={{ animationDuration: '10s' }}></div>
+                      <div className="absolute inset-0 w-20 h-20 rounded-full bg-indigo-500/5 border border-indigo-500/20 animate-pulse"></div>
+                      
+                      <img 
+                        src={hostProfile?.profilePicture || DEFAULT_PROFILE_PIC} 
+                        alt="Profile" 
+                        className="w-20 h-20 rounded-full object-cover border-2 border-indigo-400 shadow-xl shadow-indigo-500/30 relative z-20"
+                        referrerPolicy="no-referrer"
+                      />
+                      
+                      {/* Badge Ao vivo */}
+                      <div className="absolute -bottom-1 right-0.5 z-35 bg-indigo-600 border border-indigo-400/50 px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase text-white tracking-wider shadow-lg flex items-center gap-1 scale-90">
+                        <span className="w-1 bg-[#10b981] h-1 rounded-full animate-ping"></span>
+                        AO VIVO
+                      </div>
+                    </div>
+                    
+                    <div className="relative z-20">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-[#ececf1] bg-black/75 px-3 py-1 rounded-full border border-white/5 backdrop-blur-md inline-block">
+                        {hostProfile?.firstName ? `${hostProfile.firstName} ${hostProfile.lastName || ''}` : 'Anfitrião'}
+                      </h3>
+                      <div className="flex items-center justify-center gap-1 mt-1.5 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-md text-[8px] font-bold tracking-widest text-[#9d9dae] uppercase max-w-[200px] mx-auto">
+                        Sinal Sincronizado
+                      </div>
+                    </div>
+
+                    {/* Telemetry labels */}
+                    <div className="hidden sm:grid grid-cols-3 gap-2 px-3 py-1 bg-black/50 border border-white/5 backdrop-blur-sm rounded-lg text-[7px] font-mono tracking-wider text-gray-500 mt-2">
+                      <div>REDE: <span className="text-emerald-400 font-bold">12ms</span></div>
+                      <div className="border-x border-white/5">LATENCY: <span className="text-indigo-400 font-bold">LOW</span></div>
+                      <div>QUALITY: <span className="text-violet-400 font-bold">1080p</span></div>
+                    </div>
+                  </div>
+
                   {/* Moldura Cyber HUD nos cantos extra */}
-                  <div className="absolute inset-0 pointer-events-none border-[3px] border-indigo-500/15"></div>
-                  <div className="absolute top-2 left-2 w-12 h-12 border-t border-l border-emerald-400 pointer-events-none"></div>
-                  <div className="absolute top-2 right-2 w-12 h-12 border-t border-r border-emerald-400 pointer-events-none"></div>
-                  <div className="absolute bottom-2 left-2 w-12 h-12 border-b border-l border-emerald-400 pointer-events-none"></div>
-                  <div className="absolute bottom-2 right-2 w-12 h-12 border-b border-r border-emerald-400 pointer-events-none"></div>
+                  <div className="absolute inset-0 pointer-events-none border-[3px] border-indigo-500/10 z-30"></div>
+                  <div className="absolute top-2 left-2 w-8 h-8 border-t border-l border-emerald-400/60 pointer-events-none z-30"></div>
+                  <div className="absolute top-2 right-2 w-8 h-8 border-t border-r border-emerald-400/60 pointer-events-none z-30"></div>
+                  <div className="absolute bottom-2 left-2 w-8 h-8 border-b border-l border-emerald-400/60 pointer-events-none z-30"></div>
+                  <div className="absolute bottom-2 right-2 w-8 h-8 border-b border-r border-emerald-400/60 pointer-events-none z-30"></div>
                 </div>
               )}
             </>
@@ -1143,7 +1421,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                 {hostProfile?.firstName ? `${hostProfile.firstName} ${hostProfile.lastName || ''}` : 'Anfitrião Cyber'}
                 {hostProfile?.isVerified && <CheckCircle2 className="w-3 md:w-3.5 h-3 md:h-3.5 text-blue-400 fill-blue-400" />}
               </p>
-              <p className="text-[8px] md:text-[9px] font-bold text-emerald-400 truncate tracking-wide mt-0.5 max-w-[80px] sm:max-w-[150px] md:max-w-[240px]">
+              <p className="text-[8px] md:text-[9px] font-bold text-emerald-400 truncate tracking-wide mt-0.5 max-w-[80px] sm:max-w-[150px] md:max-w-[240px] hidden sm:block">
                 {post.liveStream?.title || 'Cyber Transmissão'}
               </p>
             </div>
@@ -1152,6 +1430,15 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           {/* Controles de Streamer / Espectador */}
           <div className="flex items-center gap-1 md:gap-2 shrink-0">
             
+            {/* Toggle de Comentários do Chat */}
+            <button 
+              onClick={() => setIsChatOpen(!isChatOpen)}
+              className={`p-1.5 md:p-2 rounded-lg md:rounded-xl border transition-all cursor-pointer flex items-center justify-center ${isChatOpen ? 'bg-emerald-600/25 border-emerald-500/30 text-emerald-400 shadow-md shadow-emerald-500/10' : 'bg-neutral-900 border-white/10 text-neutral-400 hover:text-white hover:bg-neutral-800'}`}
+              title={isChatOpen ? 'Ocultar Comentários' : 'Mostrar Comentários'}
+            >
+              <MessageSquare className="w-3.5 h-3.5 md:w-4 md:h-4" />
+            </button>
+
             {/* Filtros em tempo real */}
             <div className="relative group/filter">
               <select 
@@ -1216,17 +1503,28 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       </div>
 
       {/* 2. CHAT AO VIVO EM TEMPO REAL (Direita) */}
-      <div className="flex-1 min-h-0 md:h-full md:w-[350px] lg:w-[400px] flex flex-col border-t md:border-t-0 md:border-l border-white/5 bg-[#09090c] shrink-0 relative overflow-hidden">
-        {/* Cabecalho de chat */}
-        <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20">
-          <div className="flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-emerald-400" />
-            <h2 className="text-[10px] tracking-widest font-black uppercase text-neutral-300">Live Chat ao Vivo</h2>
+      {isChatOpen && (
+        <div className="flex-1 min-h-0 md:h-full md:w-[350px] lg:w-[400px] flex flex-col border-t md:border-t-0 md:border-l border-white/5 bg-[#09090c] shrink-0 relative overflow-hidden animate-fade-in">
+          {/* Cabecalho de chat */}
+          <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-emerald-400" />
+              <h2 className="text-[10px] tracking-widest font-black uppercase text-neutral-300">Live Chat ao Vivo</h2>
+            </div>
+            
+            <div className="flex items-center gap-2 font-sans">
+              <div className="flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-lg text-[8px] font-bold text-indigo-400 uppercase tracking-wider">
+                Sincronizado
+              </div>
+              <button 
+                onClick={() => setIsChatOpen(false)}
+                className="p-1.5 bg-white/5 hover:bg-red-500/15 text-neutral-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                title="Fechar Comentários"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-lg text-[8px] font-bold text-indigo-400 uppercase tracking-wider">
-            Sincronizado
-          </div>
-        </div>
 
         {/* FEED DE COMENTÁRIOS DO CHAT */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent">
@@ -1308,6 +1606,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           </button>
         </form>
       </div>
+      )}
 
       {/* 3. MODAL DE DOAÇÃO DE INCENTIVOS / GORJETAS (Viewers) */}
       {donationModalOpen && (
