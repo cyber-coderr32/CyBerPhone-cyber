@@ -4,6 +4,8 @@ import { User, Post, Page, PostType } from '../types';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import { getReels, updatePostLikes, updatePostSaves, toggleFollowUser as followUser } from '../services/storageService';
 import VideoPlayer from './VideoPlayer';
+import CommentsModal from './CommentsModal';
+import ShareModal from './ShareModal';
 import { 
   HeartIcon as HeartIconOutline, 
   ChatBubbleOvalLeftIcon, 
@@ -172,6 +174,15 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const [isVideoPlaying, setIsVideoPlaying] = useState(isActive);
   const [showPlayStateFeedback, setShowPlayStateFeedback] = useState<'play' | 'pause' | null>(null);
 
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [commentsCount, setCommentsCount] = useState(reel.comments?.length || 0);
+
+  const handleCommentsUpdated = () => {
+    // Increment local comment count reactivity
+    setCommentsCount(prev => prev + 1);
+  };
+
   useEffect(() => {
     setIsVideoPlaying(isActive);
   }, [isActive]);
@@ -298,6 +309,9 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const playStateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleScreenEngagement = (e: React.MouseEvent) => {
+    if (isCommentsOpen || isShareOpen) {
+      return;
+    }
     const now = Date.now();
     const DOUBLE_TAP_DELAY = 280;
     
@@ -496,13 +510,13 @@ const ReelItem: React.FC<ReelItemProps> = ({
         <div className="flex flex-col items-center">
           <button 
             type="button"
-            onClick={(e) => { e.stopPropagation(); onNavigate('feed', { showComments: reel.id }); }}
+            onClick={(e) => { e.stopPropagation(); setIsCommentsOpen(true); }}
             className="p-2 text-white hover:bg-white/10 rounded-full transition-all active:scale-75"
           >
             <ChatBubbleOvalLeftIcon className="w-8 h-8 filter drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]" />
           </button>
           <span className="text-[11px] font-black text-white tracking-wide mt-0.5 filter drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] tabular-nums">
-            {reel.comments?.length || 0}
+            {commentsCount}
           </span>
         </div>
 
@@ -512,11 +526,11 @@ const ReelItem: React.FC<ReelItemProps> = ({
             type="button"
             onClick={(e) => { 
               e.stopPropagation();
-              onNavigate('feed', { showShare: reel.id });
+              setIsShareOpen(true);
             }}
             className="p-2 text-white hover:bg-white/10 rounded-full transition-all active:scale-75"
           >
-            <ShareIcon className="w-7 .5 h-7.5 filter drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]" />
+            <ShareIcon className="w-7.5 h-7.5 filter drop-shadow-[0_2px_8px_rgba(0,0,0,0.7)]" />
           </button>
           <span className="text-[9.5px] font-black tracking-wider text-white uppercase ml-0.5 filter drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] scale-90">
             {t('share')}
@@ -567,7 +581,13 @@ const ReelItem: React.FC<ReelItemProps> = ({
         </div>
 
         {/* Spining Vinyl sound source cover */}
-        <div className="mt-2.5 relative cursor-pointer active:scale-90 transition-transform">
+        <div 
+          onClick={(e) => {
+            e.stopPropagation();
+            showAlert(t('reels_audio_playing', { author: reel.authorName || 'cyberdigital' }) || `Tocando áudio original de ${reel.authorName || 'cyberdigital'}`);
+          }}
+          className="mt-2.5 relative cursor-pointer active:scale-90 transition-transform"
+        >
           <div className="w-10 h-10 rounded-full border border-white/40 overflow-hidden p-[2.5px] shadow-2xl bg-gradient-to-tr from-yellow-400 via-pink-500 to-purple-600 animate-spin-slow">
             <img 
               src={reel.authorProfilePic || DEFAULT_PROFILE_PIC} 
@@ -580,6 +600,32 @@ const ReelItem: React.FC<ReelItemProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Comments overlay modal sheet */}
+      {isCommentsOpen && (
+        <CommentsModal 
+          postId={reel.id}
+          currentUser={currentUser}
+          onClose={() => setIsCommentsOpen(false)}
+          onCommentsUpdated={handleCommentsUpdated}
+          postOwnerId={reel.userId}
+        />
+      )}
+
+      {/* Share overlay modal sheet */}
+      <ShareModal 
+        isOpen={isShareOpen}
+        onClose={() => setIsShareOpen(false)}
+        currentUser={currentUser}
+        onNavigate={onNavigate}
+        content={{
+          title: t('reels_share_title', { author: reel.authorName || 'cyberuser' }) || `Reel de ${reel.authorName || 'cyberuser'}`,
+          text: reel.content || 'Confira este reel fantástico no CyBerPhone!',
+          url: `${window.location.origin}/?reels=${reel.id}`,
+          mediaUrl: reel.reel?.videoUrl || '',
+          mediaType: 'video'
+        }}
+      />
 
       {/* Progress Track at bottom edge */}
       <div className="absolute bottom-0 left-0 w-full h-[3.5px] bg-white/20 z-30">

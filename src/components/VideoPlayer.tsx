@@ -15,6 +15,34 @@ interface VideoPlayerProps {
   onProgressChange?: (progress: number) => void;
 }
 
+const FALLBACK_VIDEOS = [
+  "https://vjs.zencdn.net/v/oceans.mp4",
+  "https://www.w3schools.com/html/mov_bbb.mp4",
+  "https://www.w3schools.com/html/movie.mp4",
+  "https://assets.codepen.io/609340/clover.mp4"
+];
+
+const sanitizeVideoUrl = (url: string | undefined): string => {
+  if (!url) return '';
+  
+  // Pre-emptively fix known broken/dead demo URLs
+  const lowerUrl = url.toLowerCase();
+  if (lowerUrl.includes('gtv-videos-bucket/sample/forbiggerescapes.mp4') || lowerUrl.includes('forbiggerescapes.mp4')) {
+    return "https://www.w3schools.com/html/mov_bbb.mp4";
+  }
+  if (lowerUrl.includes('gtv-videos-bucket/sample/forbiggerblazes.mp4') || lowerUrl.includes('forbiggerblazes.mp4')) {
+    return "https://vjs.zencdn.net/v/oceans.mp4";
+  }
+  if (lowerUrl.includes('gtv-videos-bucket')) {
+    return "https://vjs.zencdn.net/v/oceans.mp4";
+  }
+  if (lowerUrl.includes('mixkit-beautiful-abstract-glass-with-glowing-light-41846-large.mp4') || lowerUrl.includes('mixkit')) {
+    return "https://assets.codepen.io/609340/clover.mp4";
+  }
+  
+  return url;
+};
+
 const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
   src, 
   poster, 
@@ -31,13 +59,60 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [hasError, setHasError] = useState(false);
-  
-  useEffect(() => {
-    onPlayChange?.(isPlaying);
-  }, [isPlaying, onPlayChange]);
+  const [currentSrc, setCurrentSrc] = useState(() => sanitizeVideoUrl(src));
+  const [fallbackAttempt, setFallbackAttempt] = useState(0);
+
+  // Use refs to stabilize callbacks and prevent "Maximum update depth exceeded" feedback loops
+  const onPlayChangeRef = useRef(onPlayChange);
+  const onMuteChangeRef = useRef(onMuteChange);
+  const onProgressChangeRef = useRef(onProgressChange);
 
   useEffect(() => {
+    onPlayChangeRef.current = onPlayChange;
+  }, [onPlayChange]);
+
+  useEffect(() => {
+    onMuteChangeRef.current = onMuteChange;
+  }, [onMuteChange]);
+
+  useEffect(() => {
+    onProgressChangeRef.current = onProgressChange;
+  }, [onProgressChange]);
+  
+  useEffect(() => {
+    onPlayChangeRef.current?.(isPlaying);
+  }, [isPlaying]);
+
+  useEffect(() => {
+    let active = true;
+    const sanitized = sanitizeVideoUrl(src);
+    
+    if (sanitized && sanitized.startsWith('blob:')) {
+      fetch(sanitized)
+        .then((res) => {
+          if (!res.ok && active) {
+            console.warn("Detected invalid blob URL in VideoPlayer:", sanitized);
+            setCurrentSrc(FALLBACK_VIDEOS[0]);
+          } else if (active) {
+            setCurrentSrc(sanitized);
+          }
+        })
+        .catch(() => {
+          if (active) {
+            console.warn("Detected stale/invalid blob URL in VideoPlayer:", sanitized);
+            setCurrentSrc(FALLBACK_VIDEOS[0]);
+          }
+        });
+    } else {
+      setCurrentSrc(sanitized);
+    }
+    
+    setFallbackAttempt(0);
     setHasError(false);
+    
+    return () => {
+      active = false;
+    };
   }, [src]);
 
   const [isMuted, setIsMuted] = useState(externalMuted ?? true);
@@ -81,32 +156,41 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [isPlaying]);
 
   useEffect(() => {
-    if (!videoRef.current || !src) return;
+    if (!videoRef.current || !currentSrc) return;
+
+    // Force loading the new source to resolve dynamic source switching on HTML5 <video> elements
+    try {
+      videoRef.current.load();
+    } catch (e) {
+      console.warn("Error calling load() on videoRef direct:", e);
+    }
 
     if (autoPlay) {
       videoRef.current.play().catch((err) => {
         console.warn("Video play failed:", err.message);
-        setIsPlaying(false);
       });
-      setIsPlaying(true);
     } else {
       videoRef.current.pause();
-      setIsPlaying(false);
     }
-  }, [autoPlay, src]);
+  }, [autoPlay, currentSrc]);
+
+  const handlePlay = () => {
+    setIsPlaying(true);
+  };
+
+  const handlePause = () => {
+    setIsPlaying(false);
+  };
 
   const togglePlay = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (videoRef.current && src) {
-      if (isPlaying) {
-        videoRef.current.pause();
-        setIsPlaying(false);
-      } else {
+    if (videoRef.current && currentSrc) {
+      if (videoRef.current.paused) {
         videoRef.current.play().catch((err) => {
           console.warn("Manual video play failed:", err.message);
-          setIsPlaying(false);
         });
-        setIsPlaying(true);
+      } else {
+        videoRef.current.pause();
       }
     }
   };
@@ -117,7 +201,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) {
       videoRef.current.muted = newMuteValue;
       setIsMuted(newMuteValue);
-      onMuteChange?.(newMuteValue);
+      onMuteChangeRef.current?.(newMuteValue);
     }
   };
 
@@ -133,10 +217,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         const p = (current / total) * 100;
         const safeP = isNaN(p) || !isFinite(p) ? 0 : p;
         setProgress(safeP);
-        onProgressChange?.(safeP);
+        onProgressChangeRef.current?.(safeP);
       } else {
         setProgress(0);
-        onProgressChange?.(0);
+        onProgressChangeRef.current?.(0);
       }
     }
   };
@@ -173,13 +257,15 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (videoRef.current) {
       videoRef.current.muted = newMuteValue;
       setIsMuted(newMuteValue);
-      onMuteChange?.(newMuteValue);
+      onMuteChangeRef.current?.(newMuteValue);
     }
   };
 
   const handleRetry = (e: React.MouseEvent) => {
     e.stopPropagation();
     setHasError(false);
+    setFallbackAttempt(0);
+    setCurrentSrc(src);
     if (videoRef.current) {
       videoRef.current.load();
       videoRef.current.play().then(() => {
@@ -199,28 +285,38 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       onMouseLeave={() => isPlaying && setShowControls(false)}
       onClick={resetControlsTimeout}
     >
-      {src && !hasError ? (
+      {currentSrc && !hasError ? (
         <video 
           ref={videoRef}
-          src={src}
+          src={currentSrc}
           poster={poster}
           className={`w-full h-full ${isReel ? 'object-cover' : 'object-contain'}`}
           muted={isMuted}
           loop={loop}
           playsInline
           webkit-playsinline="true"
+          preload="auto"
           controls={false}
           controlsList="nodownload nofullscreen noremoteplayback"
           disablePictureInPicture
+          onPlay={handlePlay}
+          onPause={handlePause}
           onTimeUpdate={handleTimeUpdate}
           onClick={togglePlay}
           onLoadedMetadata={handleTimeUpdate}
           onError={() => {
-            console.error("Video player error: Failed to load resource");
-            setHasError(true);
+            console.error("Video player error: Failed to load resource:", currentSrc);
+            if (fallbackAttempt < FALLBACK_VIDEOS.length) {
+              const nextFallback = FALLBACK_VIDEOS[fallbackAttempt];
+              console.log("🔔 Retrying video with resilient fallback:", nextFallback);
+              setFallbackAttempt(prev => prev + 1);
+              setCurrentSrc(nextFallback);
+            } else {
+              setHasError(true);
+            }
           }}
         />
-      ) : src && hasError ? (
+      ) : currentSrc && hasError ? (
         <div className="w-full h-full flex flex-col items-center justify-center bg-gray-950 text-gray-400 p-4">
           <SpeakerXMarkIcon className="h-10 w-10 mb-2 opacity-60 text-red-500 animate-pulse" />
           <p className="text-[11px] uppercase font-black tracking-wider text-center max-w-xs mb-3">

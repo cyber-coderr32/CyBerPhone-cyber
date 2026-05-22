@@ -655,6 +655,31 @@ export const recoverPassword = async (email: string): Promise<void> => {
 
 // --- CONTEÚDO (FIRESTORE) ---
 
+export const sanitizeStaleUrls = <T>(obj: T): T => {
+  if (!obj || typeof obj !== 'object') return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => sanitizeStaleUrls(item)) as any;
+  }
+  
+  const copy = { ...obj } as any;
+  for (const key in copy) {
+    if (Object.prototype.hasOwnProperty.call(copy, key)) {
+      const val = copy[key];
+      if (typeof val === 'string' && (val.startsWith('blob:') || val.includes('blob:'))) {
+        if (key.toLowerCase().includes('video')) {
+          copy[key] = 'https://vjs.zencdn.net/v/oceans.mp4';
+        } else {
+          copy[key] = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80';
+        }
+      } else if (typeof val === 'object' && val !== null) {
+        copy[key] = sanitizeStaleUrls(val);
+      }
+    }
+  }
+  return copy as T;
+};
+
 export const getPosts = async (user?: User): Promise<Post[]> => {
   if (!isFirebaseConfigured || !db) return [];
   const currentUserId = user?.id;
@@ -712,7 +737,7 @@ export const getPosts = async (user?: User): Promise<Post[]> => {
     }
 
     // Ordenação personalizada: Impulsionados (por valor do lance) primeiro, depois por data
-    return posts.sort((a, b) => {
+    const sorted = posts.sort((a, b) => {
       const now = Date.now();
       const bidA = (a.isBoosted && a.boostExpires && a.boostExpires > now) ? (a.boostBid || 0) : 0;
       const bidB = (b.isBoosted && b.boostExpires && b.boostExpires > now) ? (b.boostBid || 0) : 0;
@@ -720,6 +745,7 @@ export const getPosts = async (user?: User): Promise<Post[]> => {
       if (bidB !== bidA) return bidB - bidA;
       return (b.timestamp || 0) - (a.timestamp || 0);
     });
+    return sorted.map(p => sanitizeStaleUrls(p));
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'posts');
     return [];
@@ -773,7 +799,7 @@ export const getReels = async (user?: User): Promise<Post[]> => {
     }
 
     // Ordenação personalizada: Impulsionados (por valor do lance) primeiro, depois por data
-    return posts.sort((a, b) => {
+    const sorted = posts.sort((a, b) => {
       const now = Date.now();
       const bidA = (a.isBoosted && a.boostExpires && a.boostExpires > now) ? (a.boostBid || 0) : 0;
       const bidB = (b.isBoosted && b.boostExpires && b.boostExpires > now) ? (b.boostBid || 0) : 0;
@@ -781,6 +807,7 @@ export const getReels = async (user?: User): Promise<Post[]> => {
       if (bidB !== bidA) return bidB - bidA;
       return (b.timestamp || 0) - (a.timestamp || 0);
     });
+    return sorted.map(p => sanitizeStaleUrls(p));
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, 'posts');
     return [];
@@ -790,7 +817,7 @@ export const getReels = async (user?: User): Promise<Post[]> => {
 export const getPostById = async (id: string): Promise<Post | undefined> => {
   if (!isFirebaseConfigured || !db) return undefined;
   const docSnap = await getDoc(doc(db, 'posts', id));
-  return docSnap.exists() ? { ...docSnap.data(), id: docSnap.id } as Post : undefined;
+  return docSnap.exists() ? sanitizeStaleUrls({ ...docSnap.data(), id: docSnap.id } as Post) : undefined;
 };
 
 export const addPost = async (post: Post) => {
@@ -837,15 +864,42 @@ export const deletePost = async (postId: string) => {
 // --- UPLOAD (CLOUDINARY) ---
 
 export const uploadFile = async (file: File | Blob, folder: string, retryCount = 0): Promise<string> => {
+  const isVideo = folder === 'reels' || (file instanceof File && file.type.startsWith('video/'));
+  const resourceType = isVideo ? 'video' : 'auto';
+
+  // 1. Tenta Upload Direto via Client-side (Cloudinary Unsigned) primeiro para arquivos grandes ou vídeos
+  // Isso evita limites de payload e timeouts de serverless (ex: Vercel 4.5MB limite de body / 10s timeout)
   try {
-    console.log(`[Proxy Upload] Iniciando upload (${retryCount + 1}/3) para pasta: ${folder}`);
+    console.log(`[Cloudinary Direct] Tentando upload direto para vídeos/arquivos (${retryCount + 1}/3)...`);
+    const directFormData = new FormData();
+    directFormData.append('file', file);
+    directFormData.append('upload_preset', 'CONEXWORLD');
+    directFormData.append('folder', `cyberphone/${folder}`);
+
+    const cloudUrl = `https://api.cloudinary.com/v1_1/dblnktl9m/${resourceType}/upload`;
+    const response = await fetch(cloudUrl, {
+      method: 'POST',
+      body: directFormData
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log("✅ [Cloudinary Direct] Upload direto concluído com sucesso:", data.secure_url);
+      return data.secure_url;
+    } else {
+      console.warn("[Cloudinary Direct] Upload direto falhou, tentando proxy do servidor...");
+    }
+  } catch (directErr) {
+    console.warn("[Cloudinary Direct] Exceção no upload direto:", directErr);
+  }
+
+  // 2. Tenta o Proxy do Servidor como alternativa de segurança
+  try {
+    console.log(`[Proxy Upload] Iniciando upload via proxy (${retryCount + 1}/3) para pasta: ${folder}`);
     
     const formData = new FormData();
     formData.append('file', file);
     formData.append('folder', `cyberphone/${folder}`);
-    
-    const isVideo = folder === 'reels' || (file instanceof File && file.type.startsWith('video/'));
-    const resourceType = isVideo ? 'video' : 'auto';
     formData.append('resourceType', resourceType);
 
     const response = await fetch('/api/upload', {
@@ -860,15 +914,12 @@ export const uploadFile = async (file: File | Blob, folder: string, retryCount =
     }
 
     const data = await response.json();
-    console.log("✅ [Proxy Upload] Upload concluído com sucesso!");
+    console.log("✅ [Proxy Upload] Upload via proxy concluído com sucesso!");
     return data.secure_url; 
   } catch (error: any) {
     console.error(`❌ Erro no upload Proxy (Tentativa ${retryCount + 1}):`, safeJsonStringify(error.message || error));
     
-    // Fallback: se o proxy falhar e for um erro de rede (que não deveria ocorrer chamando o próprio servidor), 
-    // ou se o desenvolvedor quiser manter o comportamento original por algum motivo.
-    // Mas aqui o objetivo é usar o proxy.
-    
+    // Tenta novamente com tempo de espera
     if (retryCount < 2) {
       console.log(`[Proxy Upload] Tentando novamente em 1s...`);
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -1416,7 +1467,7 @@ export const getStories = async (currentUserId?: string): Promise<Story[]> => {
             orderBy('timestamp', 'desc')
         );
         const snap = await getDocs(q);
-        let stories = snap.docs.map(d => ({ ...d.data(), id: d.id } as Story));
+        let stories = snap.docs.map(d => sanitizeStaleUrls({ ...d.data(), id: d.id } as Story));
 
         // Mutual Blocking Filter
         if (currentUserId) {
@@ -1545,7 +1596,7 @@ export const seedDatabase = async () => {
             saves: [],
             tags: ['WORLD', 'TRAVEL'],
             reel: {
-                videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+                videoUrl: 'https://vjs.zencdn.net/v/oceans.mp4',
                 description: 'Dançando na noite cosmopolita'
             }
         },
@@ -1563,7 +1614,7 @@ export const seedDatabase = async () => {
             saves: [],
             tags: ['TECH', 'REVIEW'],
             reel: {
-                videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+                videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-beautiful-abstract-glass-with-glowing-light-41846-large.mp4',
                 description: 'Gadget do dia'
             }
         }
@@ -1844,7 +1895,7 @@ export const getSavedPosts = async (uid: string) => {
             where('saves', 'array-contains', uid)
         );
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ ...d.data(), id: d.id } as Post)).sort((a,b) => b.timestamp - a.timestamp);
+        return snap.docs.map(d => sanitizeStaleUrls({ ...d.data(), id: d.id } as Post)).sort((a,b) => b.timestamp - a.timestamp);
     } catch (error) {
         handleFirestoreError(error, OperationType.LIST, 'posts');
         return [];

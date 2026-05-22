@@ -809,7 +809,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           title: post.liveStream?.title || 'Fim da Live',
           description: post.liveStream?.description || '',
           status: 'ENDED' as const,
-          recordingUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' // Gravação simulada em altíssima qualidade
+          recordingUrl: 'https://vjs.zencdn.net/v/oceans.mp4' // Gravação simulada em altíssima qualidade e compatibilidade
         }
       };
 
@@ -1193,13 +1193,22 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             )}
 
             {!isHost && (
-              <button 
-                onClick={handlePulseHeart}
-                className="p-1.5 md:p-2 bg-gradient-to-r from-red-500 to-pink-500 border border-red-400/20 text-white rounded-lg md:rounded-xl shadow-lg hover:scale-105 active:scale-95 transition-all outline-none"
-                title="Curtir / Reagir"
-              >
-                <Heart className="w-3.5 h-3.5 md:w-4 md:h-4 fill-white" />
-              </button>
+              <>
+                <button 
+                  onClick={() => setDonationModalOpen(true)}
+                  className="p-1.5 md:p-2 bg-gradient-to-r from-amber-500 to-yellow-500 border border-amber-400/20 text-slate-950 rounded-lg md:rounded-xl shadow-lg hover:scale-105 active:scale-95 transition-all outline-none flex items-center justify-center animate-pulse"
+                  title="Fazer Doação (Gorjeta)"
+                >
+                  <Coins className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                </button>
+                <button 
+                  onClick={handlePulseHeart}
+                  className="p-1.5 md:p-2 bg-gradient-to-r from-red-500 to-pink-500 border border-red-400/20 text-white rounded-lg md:rounded-xl shadow-lg hover:scale-105 active:scale-95 transition-all outline-none"
+                  title="Curtir / Reagir"
+                >
+                  <Heart className="w-3.5 h-3.5 md:w-4 md:h-4 fill-white" />
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -1273,6 +1282,16 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
         {/* INPUT DE ENVIO DO CHAT */}
         <form onSubmit={handleSendChat} className="p-3 border-t border-white/5 bg-black/40 flex items-center gap-2">
+          {!isHost && (
+            <button 
+              type="button"
+              onClick={() => setDonationModalOpen(true)}
+              className="p-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 rounded-xl shadow-lg transition-transform hover:scale-105 active:scale-95 outline-none flex items-center justify-center shrink-0"
+              title="Apoiar com Gorjeta / Doação"
+            >
+              <Coins className="w-3.5 h-3.5" />
+            </button>
+          )}
           <input 
             type="text" 
             value={chatInput}
