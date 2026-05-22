@@ -43,7 +43,7 @@ const firebaseConfig = {
     import.meta.env.PROJECT_ID ||
     (typeof process !== 'undefined' && process.env ? (process.env.VITE_FIREBASE_PROJECT_ID || process.env.VITE_PROJECT_ID || process.env.PROJECT_ID || (process.env as any).FIREBASE_PROJECT_ID) : "") ||
     firebaseConfigFromJson.projectId || 
-    "",
+    "cyberphone-3b1a3",
 
   appId: 
     windowConfig?.appId ||
@@ -53,7 +53,7 @@ const firebaseConfig = {
     import.meta.env.APP_ID ||
     (typeof process !== 'undefined' && process.env ? (process.env.VITE_FIREBASE_APP_ID || process.env.VITE_APP_ID || process.env.APP_ID || (process.env as any).FIREBASE_APP_ID) : "") ||
     firebaseConfigFromJson.appId || 
-    "",
+    "1:930369435109:web:f6bba68fa341a68183ab0c",
 
   apiKey: 
     windowConfig?.apiKey ||
@@ -63,7 +63,7 @@ const firebaseConfig = {
     import.meta.env.API_KEY ||
     (typeof process !== 'undefined' && process.env ? (process.env.VITE_FIREBASE_API_KEY || process.env.VITE_API_KEY || process.env.API_KEY || (process.env as any).FIREBASE_API_KEY) : "") ||
     firebaseConfigFromJson.apiKey || 
-    "",
+    "AIzaSyAFsvVYZZzeUcKlNJg2DMnOrTGJkZQzQS0",
 
   authDomain: 
     windowConfig?.authDomain ||
@@ -73,7 +73,7 @@ const firebaseConfig = {
     import.meta.env.AUTH_DOMAIN ||
     (typeof process !== 'undefined' && process.env ? (process.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.VITE_AUTH_DOMAIN || process.env.AUTH_DOMAIN || (process.env as any).FIREBASE_AUTH_DOMAIN) : "") ||
     firebaseConfigFromJson.authDomain || 
-    "",
+    "cyberphone-3b1a3.firebaseapp.com",
 
   firestoreDatabaseId: 
     windowConfig?.firestoreDatabaseId ||
@@ -83,7 +83,7 @@ const firebaseConfig = {
     import.meta.env.FIRESTORE_DATABASE_ID ||
     (typeof process !== 'undefined' && process.env ? (process.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || process.env.VITE_FIRESTORE_DATABASE_ID || process.env.FIRESTORE_DATABASE_ID || (process.env as any).FIREBASE_FIRESTORE_DATABASE_ID) : "") ||
     firebaseConfigFromJson.firestoreDatabaseId || 
-    "",
+    "ai-studio-c721e0e2-75d0-40ea-9d03-0baa83e46e41",
 
   storageBucket: 
     windowConfig?.storageBucket ||
@@ -93,7 +93,7 @@ const firebaseConfig = {
     import.meta.env.STORAGE_BUCKET ||
     (typeof process !== 'undefined' && process.env ? (process.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.VITE_STORAGE_BUCKET || process.env.STORAGE_BUCKET || (process.env as any).FIREBASE_STORAGE_BUCKET) : "") ||
     firebaseConfigFromJson.storageBucket || 
-    "",
+    "cyberphone-3b1a3.firebasestorage.app",
 
   messagingSenderId: 
     windowConfig?.messagingSenderId ||
@@ -103,7 +103,7 @@ const firebaseConfig = {
     import.meta.env.MESSAGING_SENDER_ID ||
     (typeof process !== 'undefined' && process.env ? (process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_MESSAGING_SENDER_ID || process.env.MESSAGING_SENDER_ID || (process.env as any).FIREBASE_MESSAGING_SENDER_ID) : "") ||
     firebaseConfigFromJson.messagingSenderId || 
-    "",
+    "930369435109",
 
   measurementId: 
     windowConfig?.measurementId ||
