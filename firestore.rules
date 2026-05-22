@@ -193,11 +193,11 @@ service cloud.firestore {
         (isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly([
           'content', 'imageUrl', 'isPinned', 'disableComments', 'isMonetized', 'isAnonymous', 
           'liveStream', 'liveChat', 'liveViewerCount', 'liveHeartCount', 'likes', 'comments', 
-          'shares', 'reactions', 'views', 'saves', 'indicatedUserIds'
+          'shares', 'reactions', 'views', 'saves', 'indicatedUserIds', 'liveViewersMap'
         ])) ||
         (!isOwner(existing().userId) && incoming().diff(existing()).affectedKeys().hasOnly([
           'likes', 'comments', 'shares', 'reactions', 'views', 'saves', 'indicatedUserIds',
-          'liveChat', 'liveViewerCount', 'liveHeartCount', 'liveStream'
+          'liveChat', 'liveViewerCount', 'liveHeartCount', 'liveStream', 'liveViewersMap'
         ]))
       );
       allow delete: if isOwner(existing().userId) || isAdmin();

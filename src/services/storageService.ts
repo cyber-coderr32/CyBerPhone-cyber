@@ -1949,14 +1949,54 @@ export const sendLiveMessage = async (id: string, msg: any) => {
         await updateDoc(doc(db, 'posts', id), { liveChat: [...(d.data().liveChat || []), msg] });
     }
 };
-export const manageLiveViewers = (id: string, action: string) => {
+export const manageLiveViewers = (id: string, userIdOrAction: string, actionOptional?: string) => {
     if (!db) return;
     const ref = doc(db, 'posts', id);
+    let userId = userIdOrAction;
+    let action = actionOptional || 'join';
+    
+    // Backward compatibility for legacy (id, action) calls
+    if (!actionOptional) {
+        userId = 'legacy-user-' + Math.floor(Math.random() * 100);
+        action = userIdOrAction;
+    }
+
     getDoc(ref).then(d => {
         if(d.exists()) {
-            const cur = d.data().liveViewerCount || 0;
-            updateDoc(ref, { liveViewerCount: Math.max(0, action === 'join' ? cur + 1 : cur - 1) });
+            const data = d.data();
+            const viewers = { ...(data.liveViewersMap || {}) };
+            
+            if (action === 'leave' || userId.startsWith('legacy-user')) {
+                delete viewers[userId];
+            } else {
+                viewers[userId] = Date.now();
+            }
+            
+            // Filter out stale viewers whose heartbeats are older than 25 seconds
+            // and completely exclude any legacy simulated users to ensure 100% real-time accuracy
+            const now = Date.now();
+            const activeViewers: any = {};
+            let activeCount = 0;
+            
+            Object.keys(viewers).forEach(uid => {
+                if (uid.startsWith('legacy-user') || uid.includes('simulated')) {
+                    return; // Ignore any mock/legacy entries entirely
+                }
+                const duration = now - viewers[uid];
+                if (duration >= 0 && duration < 25000) {
+                    activeViewers[uid] = viewers[uid];
+                    activeCount++;
+                }
+            });
+            
+            // Real-time precise count based only on real live sessions
+            updateDoc(ref, { 
+                liveViewersMap: activeViewers,
+                liveViewerCount: Math.max(1, activeCount)
+            });
         }
+    }).catch(err => {
+        console.warn("Error updating dynamic live presence count:", err);
     });
 };
 export const pulseLiveHeart = (id: string) => {

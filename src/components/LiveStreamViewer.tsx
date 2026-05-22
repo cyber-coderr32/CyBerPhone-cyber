@@ -123,6 +123,8 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const [isChatOpen, setIsChatOpen] = useState<boolean>(true);
   const [isSimulatingCamera, setIsSimulatingCamera] = useState<boolean>(false);
   const [isSimulatingGuestCamera, setIsSimulatingGuestCamera] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [guestCameraError, setGuestCameraError] = useState<string | null>(null);
   const lastHeartCountRef = useRef<number>(0);
   
   // Referências
@@ -158,8 +160,8 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       return;
     }
 
-    // Entrar na live
-    manageLiveViewers(postId, 'join');
+    // Entrar na live com presença real-time baseada em ID
+    manageLiveViewers(postId, currentUser.id, 'join');
 
     const unsubscribe = subscribeToLivePost(postId, (updatedPost: any) => {
       if (updatedPost) {
@@ -191,9 +193,21 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
     return () => {
       unsubscribe();
-      manageLiveViewers(postId, 'leave');
+      manageLiveViewers(postId, currentUser.id, 'leave');
     };
   }, [postId]);
+
+  // 1b. Presence heartbeat interval to keep the viewer count completely real in real-time
+  useEffect(() => {
+    if (!postId || !currentUser?.id) return;
+    
+    // Heartbeat real-time de 10 em 10 segundos
+    const interval = setInterval(() => {
+      manageLiveViewers(postId, currentUser.id, 'heartbeat');
+    }, 10000);
+    
+    return () => clearInterval(interval);
+  }, [postId, currentUser?.id]);
 
   // 2. Carregar perfil do Host
   useEffect(() => {
@@ -266,9 +280,11 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         guestVideoRef.current.srcObject = stream;
       }
       setIsSimulatingGuestCamera(false);
+      setGuestCameraError(null);
     } catch (e: any) {
       console.warn("Guest camera access failed completely, fallback to animation mode", e);
       setIsSimulatingGuestCamera(true);
+      setGuestCameraError(e?.message || String(e));
     }
   };
 
@@ -744,9 +760,11 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         videoRef.current.srcObject = stream;
       }
       setIsSimulatingCamera(false);
+      setCameraError(null);
     } catch (e: any) {
       console.warn("Camera access failed completely, falling back to simulated cyber stream", e);
       setIsSimulatingCamera(true);
+      setCameraError(e?.message || String(e));
     }
   };
 
@@ -930,17 +948,6 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
           {/* Botão de Encerrar ou Filtros */}
           <div className="flex items-center gap-1.5 md:gap-2 pointer-events-auto shrink-0">
-            {!isChatOpen && (
-              <button 
-                onClick={() => setIsChatOpen(true)}
-                className="h-7 md:h-8.5 flex items-center justify-center px-2 md:px-3 bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-300 border border-emerald-500/30 rounded-full text-[7px] md:text-[8.5px] font-black uppercase tracking-wider shadow-lg gap-1 transition-all cursor-pointer shrink-0"
-                title="Mostrar Chat de Comentários"
-              >
-                <MessageSquare className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
-                <span className="hidden sm:inline">Comentários</span>
-              </button>
-            )}
-
             {isHost && (
               <button 
                 onClick={() => setInviteModalOpen(true)}
@@ -1067,6 +1074,31 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                           />
                         </div>
                         <span className="text-[7px] uppercase font-black tracking-widest text-[#9d9dae]">Feed Virtual Ativo</span>
+                        
+                        <div className="flex flex-col gap-1 mt-1 shrink-0">
+                          <button
+                            onClick={startCamera}
+                            className="px-2 py-0.5 bg-[#4f46e5]/40 hover:bg-[#4f46e5]/70 text-indigo-100 border border-indigo-500/30 rounded text-[6.5px] font-black uppercase tracking-wider cursor-pointer font-mono"
+                          >
+                            Reconectar Câmera 🔄
+                          </button>
+                          
+                          <button 
+                            onClick={() => {
+                              showAlert(
+                                "Como Ativar sua Câmera Real:\n\n" + 
+                                (cameraError ? `Erro técnico original: "${cameraError}"\n\n` : "") +
+                                "Instruções:\n" +
+                                "1. Conceda permissão de câmera e microfone se o navegador solicitar.\n" +
+                                "2. IMPORTANTE: No painel integrado do AI Studio, as políticas de segurança do navegador podem bloquear o acesso à câmera dentro do iframe do editor. Para contornar isso e usar sua câmera real com perfeição, basta clicar no botão de 'Abrir aplicativo em nova guia' (ícone de seta/quadrado no topo da página) para rodar o applet diretamente. Isso libera o acesso instantaneamente!",
+                                { title: "Dica de Câmera Real 💡", type: "alert" }
+                              );
+                            }}
+                            className="px-2 py-0.5 bg-amber-500/25 hover:bg-amber-500/45 text-amber-300 border border-amber-500/30 rounded text-[6.5px] font-black uppercase tracking-wider cursor-pointer font-mono"
+                          >
+                            Ajuda Câmera 💡
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -1170,6 +1202,31 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                               />
                             </div>
                             <span className="text-[7px] uppercase font-black tracking-widest text-emerald-400">Microfone/Feed Ativo</span>
+                            
+                            <div className="flex flex-col gap-1 mt-1 shrink-0">
+                              <button
+                                onClick={startGuestCamera}
+                                className="px-2 py-0.5 bg-emerald-600/30 hover:bg-emerald-600/60 text-emerald-200 border border-emerald-500/30 rounded text-[6.5px] font-black uppercase tracking-wider cursor-pointer font-mono"
+                              >
+                                Reconectar Câmera 🔄
+                              </button>
+                              
+                              <button 
+                                onClick={() => {
+                                  showAlert(
+                                    "Como Ativar sua Câmera de Convidado:\n\n" + 
+                                    (guestCameraError ? `Erro técnico original: "${guestCameraError}"\n\n` : "") +
+                                    "Instruções:\n" +
+                                    "1. Conceda permissão de câmera e microfone se o navegador solicitar.\n" +
+                                    "2. IMPORTANTE: No painel integrado do AI Studio, as políticas do navegador podem bloquear o acesso à câmera dentro do iframe por segurança. Para contornar isso, basta clicar no botão de 'Abrir aplicativo em nova guia' (ícone no topo superior direito da página) para rodá-lo diretamente, o que libera o acesso à sua câmera real na hora!",
+                                    { title: "Dica de Câmera de Convidado 💡", type: "alert" }
+                                  );
+                                }}
+                                className="px-2 py-0.5 bg-amber-500/25 hover:bg-amber-500/45 text-amber-300 border border-emerald-500/30 rounded text-[6.5px] font-black uppercase tracking-wider cursor-pointer font-mono"
+                              >
+                                Ajuda Câmera 💡
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ) : (
@@ -1283,6 +1340,32 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                           </h3>
                           <div className="flex items-center justify-center gap-1 mt-1.5 bg-violet-500/10 border border-violet-500/20 px-2.5 py-1 rounded-md text-[8px] font-bold tracking-widest text-[#9d9dae] uppercase max-w-[200px] mx-auto">
                             Feed Virtual Ativo
+                          </div>
+                          
+                          <div className="flex items-center justify-center gap-2 mt-2">
+                            <button
+                              onClick={startCamera}
+                              className="px-2.5 py-1 bg-indigo-600/40 hover:bg-indigo-600/60 text-indigo-200 border border-indigo-500/30 rounded-lg text-[8px] font-black uppercase tracking-wider cursor-pointer shadow-md font-mono"
+                            >
+                              Reconectar Câmera 🔄
+                            </button>
+                            
+                            <button 
+                              onClick={() => {
+                                showAlert(
+                                  "Como Ativar sua Câmera Real:\n\n" + 
+                                  (cameraError ? `Erro técnico original: "${cameraError}"\n\n` : "") +
+                                  "Instruções Importantes:\n" +
+                                  "1. Permita o uso da câmera na barra de endereços do seu navegador.\n" +
+                                  "2. DETECTADO: Navegadores restringem severamente o acesso a câmeras de dentro de iframes (como o assistente do Google AI Studio). Para resolver isso e usar sua câmera real com perfeição, clique no botão ABRI EM NOVA GUIA (ícone de seta/quadrado no canto superior direito do simulador).\n" +
+                                  "3. Nas lives e chamadas, isso libera o stream de áudio e vídeo em tempo real instantaneamente!",
+                                  { title: "Dica de Câmera Real 💡", type: "alert" }
+                                );
+                              }}
+                              className="px-2.5 py-1 bg-amber-500/30 hover:bg-amber-500/50 text-amber-300 border border-amber-500/30 rounded-lg text-[8px] font-black uppercase tracking-wider cursor-pointer shadow-md font-mono"
+                            >
+                              Ajuda Câmeras 💡
+                            </button>
                           </div>
                         </div>
 
