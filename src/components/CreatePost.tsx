@@ -257,6 +257,7 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
               description: content,
               status: 'LIVE'
            };
+           newPost.liveViewerCount = 0;
         }
 
         await addPost(newPost);

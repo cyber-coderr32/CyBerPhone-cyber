@@ -127,6 +127,19 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const [guestCameraError, setGuestCameraError] = useState<string | null>(null);
   const lastHeartCountRef = useRef<number>(0);
   
+  const computedLiveViewerCount = useMemo(() => {
+    if (!post) return 0;
+    const now = Date.now();
+    const viewers = post.liveViewersMap || {};
+    const activeViewers = Object.entries(viewers).filter(([uid, timestamp]) => {
+      if (uid.startsWith('legacy-user') || uid.includes('simulated') || uid === post.userId) {
+        return false;
+      }
+      return (now - (timestamp as number)) < 25000;
+    });
+    return activeViewers.length;
+  }, [post]);
+
   // Referências
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -701,32 +714,10 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     };
   }, [isHost, isSimulatingCamera, post?.id]);
 
-  // Chat simulator effect for active rooms (Simulated viewer interaction)
+  // No simulated viewer interactions to ensure 100% genuine real-time activity
   useEffect(() => {
-    if (isHost || !post || post.liveStream?.status === 'ENDED') return;
-
-    // A cada 12 segundos, adiciona um comentário simulado
-    const chatTimer = setInterval(() => {
-      const names = ["Januário", "Kelson", "Kiara", "Yola", "Nzinga", "Djamila", "Mauro", "Edivaldo"];
-      const prefixes = ["AngoCyb", "NetRunner", "KzKing", "LuandaTech", "Phreaker", "MatrixBento"];
-      const randomName = `${prefixes[Math.floor(Math.random() * prefixes.length)]}_${names[Math.floor(Math.random() * names.length)]}`;
-      const randomText = CHAT_SIMULATOR_MESSAGES[Math.floor(Math.random() * CHAT_SIMULATOR_MESSAGES.length)];
-
-      const simulComment = {
-        id: 'simulated-' + Date.now(),
-        userId: 'simulated-bot',
-        userName: randomName,
-        profilePic: DEFAULT_PROFILE_PIC,
-        text: randomText,
-        timestamp: Date.now(),
-        isAnonymous: false
-      };
-
-      setComments(prev => [...prev, simulComment]);
-    }, 12000);
-
-    return () => clearInterval(chatTimer);
-  }, [isHost, post]);
+    // Fictional chat simulator disabled to guarantee 100% real-time authenticity
+  }, []);
 
   // Iniciar câmera do Host
   const startCamera = async () => {
@@ -942,7 +933,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             </div>
             <div className="h-7 md:h-8.5 flex items-center justify-center gap-1 bg-black/40 backdrop-blur-md border border-white/10 px-1.5 md:px-3 rounded-full text-[7px] md:text-[8.5px] font-black leading-none text-neutral-200 shadow-md shrink-0">
               <Eye className="w-2.5 h-2.5 md:w-3 md:h-3 text-red-400" />
-              {post.liveViewerCount || 0}
+              {computedLiveViewerCount}
             </div>
           </div>
 
@@ -1563,22 +1554,13 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             )}
 
             {!isHost && (
-              <>
-                <button 
-                  onClick={() => setDonationModalOpen(true)}
-                  className="p-1.5 md:p-2 bg-gradient-to-r from-amber-500 to-yellow-500 border border-amber-400/20 text-slate-950 rounded-lg md:rounded-xl shadow-lg hover:scale-105 active:scale-95 transition-all outline-none flex items-center justify-center animate-pulse"
-                  title="Fazer Doação (Gorjeta)"
-                >
-                  <Coins className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                </button>
-                <button 
-                  onClick={handlePulseHeart}
-                  className="p-1.5 md:p-2 bg-gradient-to-r from-red-500 to-pink-500 border border-red-400/20 text-white rounded-lg md:rounded-xl shadow-lg hover:scale-105 active:scale-95 transition-all outline-none"
-                  title="Curtir / Reagir"
-                >
-                  <Heart className="w-3.5 h-3.5 md:w-4 md:h-4 fill-white" />
-                </button>
-              </>
+              <button 
+                onClick={handlePulseHeart}
+                className="p-1.5 md:p-2 bg-gradient-to-r from-red-500 to-pink-500 border border-red-400/20 text-white rounded-lg md:rounded-xl shadow-lg hover:scale-105 active:scale-95 transition-all outline-none"
+                title="Curtir / Reagir"
+              >
+                <Heart className="w-3.5 h-3.5 md:w-4 md:h-4 fill-white" />
+              </button>
             )}
           </div>
         </div>

@@ -5,6 +5,7 @@ import { Post, User, Comment, Page, NotificationType, PostType } from '../types'
 import { findUserById, addPostComment, deleteComment, updatePostLikes, updatePostSaves, updatePostShares, toggleFollowUser, generateUUID, getPosts, toggleReaction, addCommentReply, createNotification, getMutualBlockedUserIds } from '../services/storageService';
 import { translateText } from '../services/translationService';
 import { useDialog } from '../services/DialogContext';
+import { safeJsonStringify } from '../lib/utils';
 import { DEFAULT_PROFILE_PIC, ANONYMOUS_PROFILE_PIC } from '../data/constants';
 import ShareModal from './ShareModal';
 import VideoPlayer from './VideoPlayer';
@@ -133,12 +134,16 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     setShowShareModal(true);
   };
 
-  const handleFollow = (e: React.MouseEvent) => {
+  const handleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    toggleFollowUser(currentUser.id, post.userId);
-    refreshUser();
-    onUpdate();
-    setTimeout(() => window.location.reload(), 1);
+    try {
+      await toggleFollowUser(currentUser.id, post.userId);
+      refreshUser();
+      onUpdate();
+      setTimeout(() => window.location.reload(), 1);
+    } catch (err) {
+      console.error("Error following:", safeJsonStringify(err));
+    }
   };
 
   const handleDeleteComment = async (commentId: string) => {

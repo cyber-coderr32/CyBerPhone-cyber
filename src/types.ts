@@ -264,6 +264,7 @@ export interface Post {
   liveChat?: Comment[];
   liveViewerCount?: number;
   liveHeartCount?: number;
+  liveViewersMap?: Record<string, number>;
   views?: number; // NOVO: Contador de visualizações para Reels
   isVerified?: boolean; // NOVO: Status de verificação do autor no momento do post
 }

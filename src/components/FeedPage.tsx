@@ -11,7 +11,7 @@ import AdCard from './AdCard';
 import StoryViewerModal from './StoryViewerModal';
 import StoryCreator from './StoryCreator';
 import GroupDiscoveryCard from './GroupDiscoveryCard';
-import { PlusIcon, ArrowPathIcon, RocketLaunchIcon, ChevronUpIcon, FireIcon, SparklesIcon, CalendarIcon, UserGroupIcon, StarIcon, ArrowTrendingUpIcon, PlayIcon, FilmIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, ArrowPathIcon, RocketLaunchIcon, ChevronUpIcon, FireIcon, SparklesIcon, CalendarIcon, UserGroupIcon, StarIcon, ArrowTrendingUpIcon, PlayIcon, FilmIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import { TrophyIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
 
 interface FeedPageProps {
@@ -222,40 +222,32 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
         } else if (activeFeedTab === 'videos') {
           combined = globalVideos;
         } else {
-          // Estratégia de Mixagem do Feed (Tab 'all') - Injeções a cada 5 posts
-          let injectionPointer = 0;
-          
+          // Estratégia de Mixagem do Feed (Tab 'all') - Injeções estruturadas e previsíveis
           normalPosts.forEach((post, idx) => {
             combined.push(post);
             const count = idx + 1;
             
-            if (count % 5 === 0) {
-              // Alternar entre Reels e Sugestões conforme solicitado
-              const cycle = injectionPointer % 2;
-              
-              if (cycle === 0) {
-                if (globalReels.length > 0) {
-                  combined.push({ type: 'REELS_SHELF', items: globalReels.slice(0, 12) });
-                  injectionPointer++;
-                } else if (suggestions.length > 0) {
-                  // Fallback para sugestões se não houver Reels
-                  combined.push({ type: 'SUGGESTIONS' });
-                  injectionPointer++;
-                }
-              } else {
-                if (suggestions.length > 0) {
-                  combined.push({ type: 'SUGGESTIONS' });
-                  injectionPointer++;
-                } else if (globalReels.length > 0) {
-                  // Fallback para Reels se não houver Sugestões
-                  combined.push({ type: 'REELS_SHELF', items: globalReels.slice(0, 12) });
-                  injectionPointer++;
-                }
-              }
+            // Garantia absoluta de renderização rápida das sugestões (após o 3º post)
+            if (count === 3 && suggestions.length > 0) {
+              combined.push({ type: 'SUGGESTIONS' });
+            }
+            
+            // Garantia absoluta de renderização rápida dos Reels (após o 6º post)
+            if (count === 6 && globalReels.length > 0) {
+              combined.push({ type: 'REELS_SHELF', items: globalReels.slice(0, 12) });
+            }
+            
+            // comunidades sugeridas (após o 10º post)
+            if (count === 10 && publicGroups.length > 0) {
+              combined.push({ type: 'GROUPS_SHELF', items: publicGroups.slice(0, 5) });
+            }
 
-              // Injetar Grupos a cada 15 posts se houver
-              if (count % 15 === 0 && publicGroups.length > 0) {
-                combined.push({ type: 'GROUPS_SHELF', items: publicGroups.slice(0, 5) });
+            // Para feeds mais longos a partir de 10 posts, continuar intercalando ciclicamente
+            if (count > 10 && count % 8 === 0) {
+              if (count % 16 === 0 && globalReels.length > 0) {
+                combined.push({ type: 'REELS_SHELF', items: globalReels.slice(0, 12) });
+              } else if (suggestions.length > 0) {
+                combined.push({ type: 'SUGGESTIONS' });
               }
             }
 
@@ -319,22 +311,26 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
   };
 
   const handleFollow = async (targetId: string) => {
-    // Optimistic Update
-    const prevFollows = [...(currentUser.followedUsers || [])];
-    const isFollowing = prevFollows.includes(targetId);
-    let newFollows = isFollowing ? prevFollows.filter(id => id !== targetId) : [...prevFollows, targetId];
-    
-    // We can't update currentUser directly here as it's a prop, 
-    // but refreshUser will update it in App.tsx. 
-    // To be "simultaneous", we manually trigger a reload with the NEW following list if possible.
-    
-    await toggleFollowUser(currentUser.id, targetId);
-    refreshUser(); 
-    
-    // The key to Request 5: immediate feedback
-    setTimeout(() => {
-        loadData(true);
-    }, 100);
+    try {
+      // Optimistic Update
+      const prevFollows = [...(currentUser.followedUsers || [])];
+      const isFollowing = prevFollows.includes(targetId);
+      let newFollows = isFollowing ? prevFollows.filter(id => id !== targetId) : [...prevFollows, targetId];
+      
+      // We can't update currentUser directly here as it's a prop, 
+      // but refreshUser will update it in App.tsx. 
+      // To be "simultaneous", we manually trigger a reload with the NEW following list if possible.
+      
+      await toggleFollowUser(currentUser.id, targetId);
+      refreshUser(); 
+      
+      // The key to Request 5: immediate feedback
+      setTimeout(() => {
+          loadData(true);
+      }, 100);
+    } catch (error) {
+      console.error("Error toggling follow status:", safeJsonStringify(error));
+    }
   };
 
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -605,6 +601,39 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
 
         <aside className="hidden lg:block lg:col-span-4 space-y-6">
            <div className="sticky top-24 space-y-6">
+              {/* SUGGESTED CONNECTIONS SIDEBAR CARD */}
+              {suggestedUsers.length > 0 && (
+                <div className="bg-white dark:bg-darkcard rounded-[2.5rem] p-6 border border-gray-100 dark:border-white/10 shadow-xl">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-black text-sm uppercase dark:text-white tracking-tight flex items-center gap-2">
+                        <UserPlusIcon className="h-4 w-4 text-emerald-500" /> {t('networking_label')}
+                      </h3>
+                      <p className="text-[9px] font-bold uppercase tracking-widest text-gray-400">{t('networking_sugg')}</p>
+                    </div>
+                    <button onClick={() => loadData(true)} className="text-gray-400 hover:text-blue-600 p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 transition-all">
+                      <ArrowPathIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {suggestedUsers.slice(0, 5).map(u => (
+                      <div key={u.id} className="flex items-center justify-between p-2 rounded-2xl hover:bg-gray-50 dark:hover:bg-white/5 transition-all">
+                        <div className="flex items-center gap-3 cursor-pointer min-w-0" onClick={() => onNavigate('profile', { userId: u.id })}>
+                          <img src={u.profilePicture || DEFAULT_PROFILE_PIC} className="w-10 h-10 rounded-full object-cover border border-gray-100 dark:border-white/10 flex-shrink-0" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-xs dark:text-white truncate">{u.firstName} {u.lastName}</p>
+                            <p className="text-[8px] font-black uppercase text-gray-400 truncate">@{u.firstName?.toLowerCase()}</p>
+                          </div>
+                        </div>
+                        <button onClick={() => handleFollow(u.id)} className="bg-blue-600 hover:bg-blue-700 text-white font-black text-[9px] uppercase px-3 py-2 rounded-xl active:scale-95 transition-all flex-shrink-0">
+                          {t('follow')}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[2.5rem] p-8 text-white shadow-xl relative overflow-hidden group">
                  <RocketLaunchIcon className="absolute -right-4 -bottom-4 w-32 h-32 opacity-10 group-hover:scale-110 transition-transform duration-700" />
                  <h3 className="text-xl font-black uppercase tracking-tighter mb-4 flex items-center gap-2">

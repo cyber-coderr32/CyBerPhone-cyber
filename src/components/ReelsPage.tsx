@@ -297,9 +297,14 @@ const ReelItem: React.FC<ReelItemProps> = ({
   const handleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentUser.id) return;
-    setIsFollowing(true);
-    await followUser(currentUser.id, reel.userId);
-    refreshUser();
+    try {
+      setIsFollowing(true);
+      await followUser(currentUser.id, reel.userId);
+      refreshUser();
+    } catch (err) {
+      console.error("Error following user on Reels:", safeJsonStringify(err));
+      setIsFollowing(false);
+    }
   };
 
   const [progress, setProgress] = useState(0);

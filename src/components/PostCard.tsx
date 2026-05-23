@@ -90,6 +90,19 @@ const PostCard: React.FC<PostCardProps> = ({
   const [localSaves, setLocalSaves] = useState<string[]>(post.saves || []);
   const [isSaved, setIsSaved] = useState(currentUser ? (post.saves?.includes(currentUser.id) || false) : false);
   
+  const computedLiveViewerCount = useMemo(() => {
+    if (!post.liveStream || post.liveStream.status !== 'LIVE') return 0;
+    const now = Date.now();
+    const viewers = post.liveViewersMap || {};
+    const activeViewers = Object.entries(viewers).filter(([uid, timestamp]) => {
+      if (uid.startsWith('legacy-user') || uid.includes('simulated') || uid === post.userId) {
+        return false;
+      }
+      return (now - (timestamp as number)) < 25000;
+    });
+    return activeViewers.length;
+  }, [post]);
+
   const [translatedContent, setTranslatedContent] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isReadingVoice, setIsReadingVoice] = useState(false);
@@ -533,9 +546,9 @@ const PostCard: React.FC<PostCardProps> = ({
                     <p className="text-[10px] text-gray-400 font-bold tracking-widest uppercase">
                       Clique para entrar na sala
                     </p>
-                    {post.liveViewerCount !== undefined && post.liveViewerCount > 0 && (
+                    {computedLiveViewerCount > 0 && (
                       <p className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider mt-1.5 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-lg inline-block">
-                        ● {post.liveViewerCount} assistindo
+                        ● {computedLiveViewerCount} assistindo
                       </p>
                     )}
                   </div>

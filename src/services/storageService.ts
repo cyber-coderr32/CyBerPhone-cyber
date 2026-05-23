@@ -1982,6 +1982,10 @@ export const manageLiveViewers = (id: string, userIdOrAction: string, actionOpti
                 if (uid.startsWith('legacy-user') || uid.includes('simulated')) {
                     return; // Ignore any mock/legacy entries entirely
                 }
+                // Exclude the host from the spectator live viewer count
+                if (uid === data.userId) {
+                    return;
+                }
                 const duration = now - viewers[uid];
                 if (duration >= 0 && duration < 25000) {
                     activeViewers[uid] = viewers[uid];
@@ -1992,7 +1996,7 @@ export const manageLiveViewers = (id: string, userIdOrAction: string, actionOpti
             // Real-time precise count based only on real live sessions
             updateDoc(ref, { 
                 liveViewersMap: activeViewers,
-                liveViewerCount: Math.max(1, activeCount)
+                liveViewerCount: activeCount
             });
         }
     }).catch(err => {
@@ -2018,8 +2022,9 @@ export const processDonation = async (from: string, to: string, amt: number, des
     if(u1 && u2 && u1.balance! >= amt){
         await updateDoc(doc(db, 'profiles', from), { balance: u1.balance! - amt });
         await updateDoc(doc(db, 'profiles', to), { balance: u2.balance! + amt });
-        await addDoc(collection(db, 'transactions'), {
-            id: generateUUID(),
+        const txId = generateUUID();
+        await setDoc(doc(db, 'transactions', txId), {
+            id: txId,
             userId: from,
             amount: -amt,
             type: TransactionType.DONATION,
@@ -2743,8 +2748,9 @@ export const processAdInvestment = async (userId: string, amount: number, title:
     const user = await findUserById(userId);
     if (user && user.balance! >= amount) {
         await updateDoc(doc(db, 'profiles', userId), { balance: user.balance! - amount });
-        await addDoc(collection(db, 'transactions'), {
-            id: generateUUID(),
+        const txId = generateUUID();
+        await setDoc(doc(db, 'transactions', txId), {
+            id: txId,
             userId,
             amount: -amount,
             type: TransactionType.PURCHASE,

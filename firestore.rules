@@ -158,8 +158,8 @@ service cloud.firestore {
             ]))
         ) && (!incoming().diff(existing()).affectedKeys().hasAny(['isAdmin']) || isAdmin())
         ) ||
-        // Allow others to update balance fields during transactions/donations/sales
-        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'pendingBalance', 'totalEarnings', 'followedUsers', 'followers', 'creatorStats']))
+        // Allow others to update balance fields, monetizationStatus, presence and follow stats during follows/transactions/donations/sales
+        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'pendingBalance', 'totalEarnings', 'followedUsers', 'followers', 'creatorStats', 'monetizationStatus', 'isOnline', 'lastSeen']))
       ));
       allow delete: if isAdmin();
     }
@@ -179,8 +179,8 @@ service cloud.firestore {
             'updatedAt', 'timestamp', 'isMonetized', 'monetizationTier', 'blockedUserIds'
           ])
         ) ||
-        // Allow others to update balance during transactions
-        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'isOnline', 'lastSeen']))
+        // Allow others to update balance, presence, follow stats, and monetization status during follows/transactions
+        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'isOnline', 'lastSeen', 'followers', 'followedUsers', 'monetizationStatus', 'creatorStats']))
       ));
       allow delete: if isAdmin();
     }
