@@ -2340,6 +2340,43 @@ export const updateGroupTheme = async (chatId: string, theme: GroupTheme) => {
     await updateDoc(doc(db, 'chats', chatId), { theme });
 };
 
+export const updateGroupDetails = async (
+    chatId: string, 
+    data: { 
+        groupName?: string; 
+        description?: string; 
+        isPublic?: boolean; 
+        theme?: GroupTheme; 
+        participants?: string[]; 
+        adminId?: string;
+        groupImage?: string;
+    }
+) => {
+    if (!db) return false;
+    try {
+        const ref = doc(db, 'chats', chatId);
+        await updateDoc(ref, data);
+        return true;
+    } catch (error) {
+        console.error("Error updating group details:", safeJsonStringify(error));
+        handleFirestoreError(error, OperationType.WRITE, 'chats/' + chatId);
+        return false;
+    }
+};
+
+export const updateGroupImage = async (chatId: string, file: File): Promise<string> => {
+    if (!db) return '';
+    try {
+        const imgUrl = await uploadFile(file, 'groups');
+        const ref = doc(db, 'chats', chatId);
+        await updateDoc(ref, { groupImage: imgUrl });
+        return imgUrl;
+    } catch (error) {
+        console.error("Error updating group image:", safeJsonStringify(error));
+        return '';
+    }
+};
+
 export const leaveGroup = async (chatId: string, userId: string) => {
     if (!db) return;
     const ref = doc(db, 'chats', chatId);
@@ -3851,12 +3888,16 @@ export const createGroup = async (name: string, members: string[], adminId: stri
         if (fee > 0) {
             const userRef = doc(db, 'profiles', adminId);
             const userDoc = await getDoc(userRef);
-            if (!userDoc.exists()) return null;
+            if (!userDoc.exists()) {
+                throw new Error('Perfil de usuário não encontrado.');
+            }
             
             const userData = userDoc.data();
             const balance = userData.balance || 0;
             
-            if (balance < fee) return null;
+            if (balance < fee) {
+                throw new Error(`SALDO_INSUFICIENTE|Você precisa de pelo menos ${fee} KZ para criar uma comunidade. Seu saldo atual é de ${balance} KZ.`);
+            }
             
             // Deduct balance
             const newBalance = balance - fee;
@@ -3875,8 +3916,11 @@ export const createGroup = async (name: string, members: string[], adminId: stri
                 timestamp: Date.now()
             });
         }
-    } catch (e) {
+    } catch (e: any) {
         console.error("Error checking group fee:", safeJsonStringify(e));
+        if (e && e.message && (e.message.includes('SALDO_INSUFICIENTE') || e.message.includes('Perfil de usuário não encontrado'))) {
+            throw e;
+        }
     }
 
     const id = generateUUID();

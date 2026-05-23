@@ -4,14 +4,60 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
 import './i18n';
+import { safeJsonStringify } from './lib/utils';
 
 console.log("[BOOT] index.tsx Iniciado");
 
-// Captura erros globais de promessas (como os crashes internos do Firestore)
+// Captura erros globais de promessas (como os crashes internos do Firestore e do Firebase)
 window.addEventListener('unhandledrejection', (event) => {
-  if (event.reason && event.reason.message && event.reason.message.includes('FIRESTORE')) {
-    console.warn("⚠️ Detectado erro interno do Firestore. Ignorando para manter estabilidade:", event.reason.message);
-    event.preventDefault(); // Impede o crash global
+  const reason = event.reason;
+  if (!reason) return;
+
+  const msg = reason.message || String(reason);
+  const code = reason.code || '';
+  const isFirebase = 
+    msg.includes('FIRESTORE') || 
+    msg.includes('firebase') || 
+    msg.includes('Firebase') || 
+    msg.includes('permission-denied') || 
+    msg.includes('Missing or insufficient permissions') ||
+    code.includes('permission-denied') ||
+    (reason.constructor && (
+      reason.constructor.name === 'FirebaseError' || 
+      reason.constructor.name === 'Y2' || 
+      reason.constructor.name === 'Ka'
+    ));
+
+  if (isFirebase) {
+    console.warn("⚠️ Interceptado erro não tratado do Firebase. Prevenindo crash de serialização circular:", msg);
+    // Loga de forma segura para evitar que o logger do sistema capture o erro circular bruto
+    console.error("Firebase Error (Safe):", safeJsonStringify(reason));
+    event.preventDefault(); // Impede o crash global de serialização no iframe pai
+  }
+});
+
+// Captura erros síncronos globais
+window.addEventListener('error', (event) => {
+  const error = event.error;
+  if (!error) return;
+
+  const msg = error.message || String(error);
+  const isFirebase = 
+    msg.includes('FIRESTORE') || 
+    msg.includes('firebase') || 
+    msg.includes('Firebase') || 
+    msg.includes('permission-denied') || 
+    msg.includes('Missing or insufficient permissions') ||
+    (error.constructor && (
+      error.constructor.name === 'FirebaseError' || 
+      error.constructor.name === 'Y2' || 
+      error.constructor.name === 'Ka'
+    ));
+
+  if (isFirebase) {
+    console.warn("⚠️ Interceptado erro síncrono do Firebase. Prevenindo crash de serialização circular:", msg);
+    console.error("Firebase Error (Safe):", safeJsonStringify(error));
+    event.preventDefault(); // Impede o crash global de serialização no iframe pai
   }
 });
 

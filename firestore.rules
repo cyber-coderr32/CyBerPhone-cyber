@@ -93,7 +93,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'userId', 'type', 'amount', 'timestamp', 'status'])
         && data.userId == request.auth.uid
         && data.amount is number
-        && data.type in ['DEPOSIT', 'WITHDRAWAL', 'PURCHASE', 'SALE', 'CHAT_FEE', 'BOOST', 'DONATION', 'TICKET', 'REFUND']
+        && data.type in ['DEPOSIT', 'WITHDRAWAL', 'PURCHASE', 'SALE', 'CHAT_FEE', 'BOOST', 'DONATION', 'TICKET', 'REFUND', 'PLATFORM_FEE']
         && (data.timestamp is number || data.timestamp == request.time);
     }
 
@@ -166,7 +166,7 @@ service cloud.firestore {
 
     // Public Profiles
     match /public_profiles/{userId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isOwner(userId) && isValidPublicUser(incoming());
       allow update: if (isSignedIn() && (
         isAdmin() || 
@@ -218,8 +218,9 @@ service cloud.firestore {
       allow create: if isSignedIn() && (isAdmin() || request.auth.uid in incoming().participants || incoming().isPublic == true);
       allow update: if isSignedIn() && (
         isAdmin() || 
+        (request.auth.uid == existing().adminId) ||
         (request.auth.uid in existing().participants && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['messages', 'description', 'theme', 'groupName', 'groupImage'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['messages', 'description', 'theme', 'groupName', 'groupImage', 'participants'])
         )) ||
         (incoming().isPublic == true && incoming().diff(existing()).affectedKeys().hasOnly(['participants'])) // Allow joining public chats
       );

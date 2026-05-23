@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, GroupTheme, Page } from '../types';
-import { getUsers, createGroup } from '../services/storageService';
+import { getUsers, createGroup, getGlobalSettings } from '../services/storageService';
 import { 
   ArrowLeftIcon, 
   CameraIcon, 
@@ -47,6 +47,7 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
+  const [creationFee, setCreationFee] = useState<number | null>(null);
 
   useEffect(() => {
     const loadUsers = async () => {
@@ -55,6 +56,19 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
     };
     loadUsers();
   }, [currentUser]);
+
+  useEffect(() => {
+    const fetchFee = async () => {
+      try {
+        const settings = await getGlobalSettings();
+        setCreationFee(settings.groupCreationFee ?? 5);
+      } catch (e) {
+        console.error('Error loading community creation fee:', e);
+        setCreationFee(5);
+      }
+    };
+    fetchFee();
+  }, []);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -80,8 +94,8 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
 
     setLoading(true);
     try {
-      // Members includes the creator
-      const members = [currentUser.id, ...selectedUsers];
+      // Use key/Set to ensure the user isn't duplicated
+      const members = Array.from(new Set([currentUser.id, ...selectedUsers]));
       const chatId = await createGroup(name, members, currentUser.id, description, theme, imageFile || undefined, isPublic);
       
       if (chatId) {
@@ -90,8 +104,17 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
       } else {
         showAlert('Erro ao criar o grupo. Verifique sua conexão.', { type: 'error' });
       }
-    } catch (error) {
-      showAlert('Falha inesperada ao criar comunidade.', { type: 'error' });
+    } catch (error: any) {
+      console.error("Erro detalhado ao criar comunidade:", error);
+      const msg = error?.message || '';
+      if (msg.includes('SALDO_INSUFICIENTE|')) {
+        const readableMsg = msg.split('|')[1];
+        showAlert(readableMsg, { type: 'error' });
+      } else if (msg) {
+        showAlert(msg, { type: 'error' });
+      } else {
+        showAlert('Falha inesperada ao criar comunidade. Verifique sua conexão ou saldo.', { type: 'error' });
+      }
     } finally {
       setLoading(false);
     }
@@ -240,20 +263,30 @@ const CreateGroupPage: React.FC<CreateGroupPageProps> = ({ currentUser, onNaviga
       </div>
 
       <div className="fixed bottom-0 left-0 md:left-64 right-0 p-4 md:p-8 bg-white/80 dark:bg-[#0a0c10]/80 backdrop-blur-xl border-t dark:border-white/5 z-50">
-         <div className="max-w-3xl mx-auto flex gap-4">
-            <button 
-                onClick={() => onNavigate('chat')}
-                className="flex-1 py-5 bg-gray-100 dark:bg-white/5 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-500 hover:bg-gray-200 dark:hover:bg-white/10 transition-all border border-transparent"
-            >
-                Cancelar Tudo
-            </button>
-            <button 
-                onClick={handleCreate}
-                disabled={loading || !name}
-                className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black uppercase text-sm tracking-[0.2em] shadow-xl shadow-blue-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-                {loading ? <ArrowPathIcon className="h-5 w-5 animate-spin" /> : 'Criar Comunidade'}
-            </button>
+         <div className="max-w-3xl mx-auto space-y-3">
+            {creationFee !== null && creationFee > 0 && (
+              <div className="flex justify-between items-center text-xs px-2 font-bold">
+                <span className="text-gray-400 uppercase tracking-widest text-[9px]">Custo de Criação:</span>
+                <span className={`${currentUser.balance !== undefined && currentUser.balance < creationFee ? 'text-red-500 animate-pulse' : 'text-emerald-500'}`}>
+                  {creationFee} KZ {currentUser.balance !== undefined && `(Seu Saldo: ${currentUser.balance} KZ)`}
+                </span>
+              </div>
+            )}
+            <div className="flex gap-4">
+               <button 
+                   onClick={() => onNavigate('chat')}
+                   className="flex-1 py-5 bg-gray-100 dark:bg-white/5 rounded-2xl font-black uppercase text-[10px] tracking-widest text-gray-500 hover:bg-gray-200 dark:hover:bg-white/10 transition-all border border-transparent"
+               >
+                   Cancelar Tudo
+               </button>
+               <button 
+                   onClick={handleCreate}
+                   disabled={loading || !name || (creationFee !== null && currentUser.balance !== undefined && currentUser.balance < creationFee)}
+                   className="flex-[2] py-5 bg-blue-600 text-white rounded-2xl font-black uppercase text-sm tracking-[0.2em] shadow-xl shadow-blue-500/20 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+               >
+                   {loading ? <ArrowPathIcon className="h-5 w-5 animate-spin" /> : 'Criar Comunidade'}
+               </button>
+            </div>
          </div>
       </div>
     </div>
