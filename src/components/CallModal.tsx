@@ -18,6 +18,8 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { listenForCallStatus, endCall, rejectCall } from '../services/callService';
 import { safeJsonStringify } from '../lib/utils';
+import { doc, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
+import { db } from '../services/firebaseClient';
 
 interface CallModalProps {
   currentUser: User;
@@ -40,13 +42,201 @@ const CallModal: React.FC<CallModalProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(type === 'voice');
   const [status, setStatus] = useState<'requesting' | 'calling' | 'connected' | 'ended'>('requesting');
+  const [firebaseAccepted, setFirebaseAccepted] = useState(false);
+  const [localMediaActive, setLocalMediaActive] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const isCallerRef = useRef<boolean | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const isPeerInitialized = useRef(false);
+  const remoteCandidatesQueue = useRef<RTCIceCandidateInit[]>([]);
+  const processedCandidates = useRef<Set<string>>(new Set());
+
+  // WebRTC Connection Logic (Handshake and signaling)
+  useEffect(() => {
+    if (!callId || !db || status !== 'connected' || isPeerInitialized.current) return;
+    
+    // Check if stream is loaded yet. If not, wait until it is
+    if (!localStream) {
+      console.log("[WebRTC] Aguardando stream local estar ativo antes do RTCPeerConnection...");
+      return;
+    }
+
+    isPeerInitialized.current = true;
+    console.log("[WebRTC] Inicializando RTCPeerConnection para chamada...", callId);
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+      ]
+    });
+    peerConnectionRef.current = pc;
+
+    // Adicionar stream local ao peer connection
+    localStream.getTracks().forEach(track => {
+      pc.addTrack(track, localStream);
+    });
+
+    // Detectar tracks remotos
+    pc.ontrack = (event) => {
+      console.log("[WebRTC] Feed remoto recebido!", event.streams[0]);
+      setRemoteStream(event.streams[0]);
+      setHasRemoteVideo(event.streams[0].getVideoTracks().length > 0);
+      if (remoteVideoRef.current && event.streams[0]) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+        remoteVideoRef.current.play().catch(e => console.warn("[WebRTC] Erro extra autoplay remoto:", e));
+      }
+    };
+
+    const docRef = doc(db, 'calls', callId);
+
+    // Enviar ICE Candidates locais
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        const isCaller = isCallerRef.current !== null ? isCallerRef.current : (currentUser.id !== partner?.id);
+        const candidateStr = JSON.stringify(event.candidate);
+        
+        console.log("[WebRTC] Candidato local gerado:", event.candidate.candidate, "isCaller:", isCaller);
+        updateDoc(docRef, {
+          [isCaller ? 'callerCandidates' : 'receiverCandidates']: arrayUnion(candidateStr)
+        }).catch(err => console.error("[WebRTC] Erro ao salvar candidato:", err));
+      }
+    };
+
+    let isCaller = false;
+    let localDescriptionCreated = false;
+
+    const unsubscribe = onSnapshot(docRef, async (snapshot) => {
+      if (!snapshot.exists()) return;
+      const data = snapshot.data();
+      
+      isCaller = currentUser.id === data.callerId;
+      isCallerRef.current = isCaller;
+
+      // Oferta / Resposta Handshake
+      if (isCaller) {
+        // Criar Oferta (só o Caller cria)
+        if (!localDescriptionCreated) {
+          localDescriptionCreated = true;
+          try {
+            console.log("[WebRTC-Caller] Criando offer...");
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            await updateDoc(docRef, { callerSignal: JSON.stringify(offer) });
+            console.log("[WebRTC-Caller] Offer salvo.");
+          } catch (e) {
+            console.error("[WebRTC-Caller] Erro ao criar offer:", e);
+          }
+        }
+
+        // Receber Resposta (quando disponível)
+        if (data.receiverSignal && !pc.remoteDescription) {
+          try {
+            console.log("[WebRTC-Caller] Resposta recebida, definindo remoto...");
+            const sdp = new RTCSessionDescription(JSON.parse(data.receiverSignal));
+            await pc.setRemoteDescription(sdp);
+            console.log("[WebRTC-Caller] Remoto definido com sucesso!");
+            
+            // Processar candidatos acumulados na fila
+            while (remoteCandidatesQueue.current.length > 0) {
+              const cand = remoteCandidatesQueue.current.shift();
+              if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
+            }
+          } catch (e) {
+            console.error("[WebRTC-Caller] Erro ao setar resposta:", e);
+          }
+        }
+
+        // Receber ICE Candidates do Receiver
+        if (data.receiverCandidates && Array.isArray(data.receiverCandidates)) {
+          for (const candStr of data.receiverCandidates) {
+            if (processedCandidates.current.has(candStr)) continue;
+            processedCandidates.current.add(candStr);
+            try {
+              const candInit = JSON.parse(candStr);
+              if (pc.remoteDescription) {
+                await pc.addIceCandidate(new RTCIceCandidate(candInit));
+              } else {
+                remoteCandidatesQueue.current.push(candInit);
+              }
+            } catch (e) {
+              console.warn("[WebRTC-Caller] Erro ao adicionar candidato recebido:", e);
+            }
+          }
+        }
+
+      } else {
+        // Receiver Flow
+        // 1. Receber Oferta do Caller
+        if (data.callerSignal && !pc.remoteDescription) {
+          try {
+            console.log("[WebRTC-Receiver] Oferta recebida, definindo remoto...");
+            const sdp = new RTCSessionDescription(JSON.parse(data.callerSignal));
+            await pc.setRemoteDescription(sdp);
+            console.log("[WebRTC-Receiver] Remoto definido! Criando resposta (answer)...");
+            
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await updateDoc(docRef, { receiverSignal: JSON.stringify(answer) });
+            console.log("[WebRTC-Receiver] Resposta salva.");
+
+            // Processar candidatos acumulados na fila
+            while (remoteCandidatesQueue.current.length > 0) {
+              const cand = remoteCandidatesQueue.current.shift();
+              if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
+            }
+          } catch (e) {
+            console.error("[WebRTC-Receiver] Erro no handshake do Receiver:", e);
+          }
+        }
+
+        // Receber ICE Candidates do Caller
+        if (data.callerCandidates && Array.isArray(data.callerCandidates)) {
+          for (const candStr of data.callerCandidates) {
+            if (processedCandidates.current.has(candStr)) continue;
+            processedCandidates.current.add(candStr);
+            try {
+              const candInit = JSON.parse(candStr);
+              if (pc.remoteDescription) {
+                await pc.addIceCandidate(new RTCIceCandidate(candInit));
+              } else {
+                remoteCandidatesQueue.current.push(candInit);
+              }
+            } catch (e) {
+              console.warn("[WebRTC-Receiver] Erro ao adicionar candidato:", e);
+            }
+          }
+        }
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      pc.close();
+      peerConnectionRef.current = null;
+    };
+  }, [callId, status, localStream]);
+
+  // Handle remote VideoStream element track assignment
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream && status === 'connected') {
+      if (remoteVideoRef.current.srcObject !== remoteStream) {
+        console.log("[WebRTC] Vinculando remoteStream ao remoteVideoRef...");
+        remoteVideoRef.current.srcObject = remoteStream;
+        remoteVideoRef.current.play().catch(e => console.warn("[WebRTC] Erro ao reproduzir vídeo remoto:", e));
+      }
+    }
+  }, [remoteStream, status]);
 
   useEffect(() => {
     // Iniciar mídia assim que o componente monta
@@ -57,7 +247,7 @@ const CallModal: React.FC<CallModalProps> = ({
     if (callId) {
       unsubscribeStatus = listenForCallStatus(callId, (updatedCall) => {
         if (updatedCall.status === CallStatus.ACCEPTED) {
-          setStatus('connected');
+          setFirebaseAccepted(true);
         } else if (
           updatedCall.status === CallStatus.REJECTED || 
           updatedCall.status === CallStatus.ENDED || 
@@ -73,6 +263,14 @@ const CallModal: React.FC<CallModalProps> = ({
       unsubscribeStatus();
     };
   }, [callId]);
+
+  useEffect(() => {
+    if (firebaseAccepted && localMediaActive) {
+      setStatus('connected');
+    } else if (localMediaActive) {
+      setStatus('calling');
+    }
+  }, [firebaseAccepted, localMediaActive]);
 
   const startMedia = async () => {
     try {
@@ -96,6 +294,7 @@ const CallModal: React.FC<CallModalProps> = ({
       console.log("[CALL] Stream obtido com sucesso:", stream.id);
       
       streamRef.current = stream;
+      setLocalStream(stream);
       
       // Force assignment if ref is already present
       if (localVideoRef.current) {
@@ -104,7 +303,7 @@ const CallModal: React.FC<CallModalProps> = ({
         localVideoRef.current.play().catch(e => console.error("[CALL] Erro ao dar play automático:", safeJsonStringify(e)));
       }
       
-      setStatus('calling');
+      setLocalMediaActive(true);
     } catch (err) {
       console.error("[CALL] Erro crítico ao acessar dispositivos:", safeJsonStringify(err));
       
@@ -120,37 +319,40 @@ const CallModal: React.FC<CallModalProps> = ({
             console.log("[CALL] Tentando novamente com constraints básicas...");
             const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             streamRef.current = fallbackStream;
+            setLocalStream(fallbackStream);
             if (localVideoRef.current) {
                localVideoRef.current.srcObject = fallbackStream;
             }
-            setStatus('calling');
+            setLocalMediaActive(true);
             return;
          } catch (fErr) {
             console.warn("[CALL] Falha na captura de vídeo + áudio básico, tentando APENAS VÍDEO...", fErr);
             try {
                const videoOnlyStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                streamRef.current = videoOnlyStream;
+               setLocalStream(videoOnlyStream);
                if (localVideoRef.current) {
                   localVideoRef.current.srcObject = videoOnlyStream;
                }
-               setStatus('calling');
+               setLocalMediaActive(true);
                return;
             } catch (vErr) {
                console.error("[CALL] Falha total no vídeo:", vErr);
             }
          }
       }
-      setStatus('calling'); 
+      setLocalMediaActive(true); 
     }
   };
 
   // Re-sync stream to ref periodically and when status changes
   useEffect(() => {
     const syncStream = () => {
-      if (localVideoRef.current && streamRef.current && status !== 'ended') {
-        if (localVideoRef.current.srcObject !== streamRef.current) {
+      const activeStream = streamRef.current;
+      if (localVideoRef.current && activeStream && status !== 'ended') {
+        if (localVideoRef.current.srcObject !== activeStream) {
           console.log("[CALL] Sincronizando srcObject...");
-          localVideoRef.current.srcObject = streamRef.current;
+          localVideoRef.current.srcObject = activeStream;
           localVideoRef.current.play().catch(() => {});
         }
       }
@@ -165,6 +367,7 @@ const CallModal: React.FC<CallModalProps> = ({
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
     }
+    setLocalStream(null);
   };
 
   useEffect(() => {
@@ -294,32 +497,45 @@ const CallModal: React.FC<CallModalProps> = ({
 
       {/* Container de Vídeo Remoto (ou Background) */}
       <div className="absolute inset-0 z-0">
-        {status === 'connected' && type === 'video' ? (
-          <div className="w-full h-full bg-zinc-900 flex items-center justify-center">
-            {/* Background blur estético */}
-            <img 
-              src={displayPic} 
-              className="w-full h-full object-cover blur-3xl opacity-30 absolute" 
-              alt="background"
-            />
-            <div className="relative z-10 flex flex-col items-center">
-               <motion.div
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="relative p-2"
-               >
-                 <div className="absolute inset-0 bg-brand/20 blur-3xl rounded-full animate-pulse" />
-                 <img 
-                    src={displayPic} 
-                    className="w-40 h-40 md:w-56 md:h-56 rounded-[3.5rem] object-cover border-4 border-white/10 shadow-2xl relative z-10"
-                 />
-                 <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap bg-brand/90 backdrop-blur-md px-6 py-2 rounded-full shadow-xl">
-                    <p className="text-[10px] font-black uppercase text-white tracking-[0.2em]">{displayName}</p>
-                 </div>
-               </motion.div>
-               
-               <p className="mt-12 text-white/40 font-black uppercase tracking-[0.4em] text-[10px] animate-pulse">Conexão P2P Segura Ativa</p>
-            </div>
+        {status === 'connected' ? (
+          <div className="w-full h-full bg-zinc-950 flex items-center justify-center relative">
+            {type === 'video' && remoteStream && (
+              <video 
+                ref={remoteVideoRef} 
+                autoPlay 
+                playsInline 
+                className="w-full h-full object-cover absolute inset-0 z-10 transition-opacity duration-500"
+              />
+            )}
+            
+            {/* Background blur estético e Avatar do outro lado em caso de áudio ou vídeo off ou aguardando stream */}
+            {(!hasRemoteVideo || type === 'voice') && (
+              <div className="absolute inset-0 z-0 flex flex-col items-center justify-center">
+                <img 
+                  src={displayPic} 
+                  className="w-full h-full object-cover blur-3xl opacity-30 absolute" 
+                  alt="background"
+                />
+                <div className="relative z-20 flex flex-col items-center">
+                   <motion.div
+                      initial={{ scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      className="relative p-2"
+                   >
+                     <div className="absolute inset-0 bg-brand/20 blur-3xl rounded-full animate-pulse" />
+                     <img 
+                        src={displayPic} 
+                        className="w-40 h-40 md:w-56 md:h-56 rounded-[3.5rem] object-cover border-4 border-white/10 shadow-2xl relative z-10"
+                     />
+                     <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap bg-brand/90 backdrop-blur-md px-6 py-2 rounded-full shadow-xl">
+                        <p className="text-[10px] font-black uppercase text-white tracking-[0.2em]">{displayName}</p>
+                     </div>
+                   </motion.div>
+                   
+                   <p className="mt-12 text-white/40 font-black uppercase tracking-[0.4em] text-[10px] animate-pulse">Conexão P2P Segura Ativa</p>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="w-full h-full relative">

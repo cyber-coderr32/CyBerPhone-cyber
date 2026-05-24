@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Call, CallStatus, CallType } from '../types';
-import { listenForCalls, acceptCall, rejectCall, endCall, timeoutCall } from '../services/callService';
+import { listenForCalls, acceptCall, rejectCall, endCall, timeoutCall, listenForCallStatus } from '../services/callService';
 import CallModal from './CallModal';
 import { useDialog } from '../services/DialogContext';
 import { Phone, Video, X, PhoneOff, Lock } from 'lucide-react';
@@ -28,6 +28,30 @@ const CallManager: React.FC<CallManagerProps> = ({ currentUser }) => {
 
     return () => unsubscribe();
   }, [currentUser?.id, activeCall?.id]);
+
+  useEffect(() => {
+    if (!activeCall?.id) return;
+
+    const unsubscribe = listenForCallStatus(activeCall.id, (updatedCall) => {
+      if (
+        updatedCall.status === CallStatus.REJECTED || 
+        updatedCall.status === CallStatus.ENDED || 
+        updatedCall.status === CallStatus.TIMED_OUT
+      ) {
+        // Se a chamada ainda estava tocando e foi encerrada/rejeitada, limpamos imediatamente.
+        // Se já estava conectada, deixamos o CallModal gerenciar o encerramento com animação.
+        if (activeCall.status === CallStatus.RINGING) {
+          setActiveCall(null);
+        }
+      } else {
+        if (activeCall.status !== updatedCall.status) {
+          setActiveCall(updatedCall);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, [activeCall?.id, activeCall?.status]);
 
   const handleAccept = async () => {
     if (!activeCall) return;

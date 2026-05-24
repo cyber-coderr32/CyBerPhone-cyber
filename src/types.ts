@@ -259,6 +259,7 @@ export interface Post {
     status?: 'LIVE' | 'ENDED'; // Status da transmissão
     recordingUrl?: string;     // URL da gravação se for Free
     guests?: any[];            // Lista de co-hosts convidados ou participando
+    signaling?: Record<string, any>; // WebRTC signaling para os participantes
   };
   // Dados persistentes da Live
   liveChat?: Comment[];

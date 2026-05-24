@@ -20,7 +20,9 @@ import {
   toggleBlockUser,
   getMutualBlockedUserIds,
   formatLastSeen,
-  isUserOnline
+  isUserOnline,
+  updateGroupDetails,
+  updateGroupImage
 } from '../services/storageService';
 import { translateText } from '../services/translationService';
 import { useTranslation } from 'react-i18next';
@@ -58,6 +60,7 @@ import {
 } from '@heroicons/react/24/solid';
 import CallModal from './CallModal';
 import ConfirmationModal, { ConfirmationType } from './ConfirmationModal';
+import GroupAdminModal from './GroupAdminModal';
 import { checkContent, checkImageSecurity } from '../services/sentinelService';
 
 import { startCall } from '../services/callService';
@@ -105,6 +108,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
 
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [showGroupMenu, setShowGroupMenu] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
   const [filterTab, setFilterTab] = useState<'ALL' | 'PRIVATE' | 'GROUP'>('ALL');
   
   // Confirmation Modal State
@@ -1030,6 +1034,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
                                 <InformationCircleIcon className="h-4 w-4 text-blue-500" /> {t('chat_details')}
                             </button>
                             
+                            {selectedChat.type === ChatType.GROUP && selectedChat.adminId === currentUser.id && (
+                                <button onClick={() => { setShowAdminModal(true); setShowGroupMenu(false); }} className="w-full text-left px-4 py-3 hover:bg-zinc-100 dark:hover:bg-white/5 flex items-center gap-2 text-xs dark:text-white font-black uppercase text-indigo-600 dark:text-indigo-400 rounded-xl transition-all">
+                                    <PaintBrushIcon className="h-4 w-4" /> Painel de Gerência
+                                </button>
+                            )}
+
                             {selectedChat.type === ChatType.GROUP && (
                                 <button onClick={confirmLeaveGroup} className="w-full text-left px-4 py-3 hover:bg-red-50 dark:hover:bg-red-900/10 flex items-center gap-2 text-xs text-red-500 rounded-xl transition-all">
                                     <ArrowRightOnRectangleIcon className="h-4 w-4" /> {t('chat_leave_group')}
@@ -1362,6 +1372,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
         confirmText={confirmConfig.confirmText}
         type={confirmConfig.type}
       />
+
+      {showAdminModal && selectedChat && (
+        <GroupAdminModal
+          isOpen={showAdminModal}
+          chat={selectedChat}
+          currentUser={currentUser}
+          onClose={() => setShowAdminModal(false)}
+        />
+      )}
 
       <style>{`
         /* Custom animations for ChatPage */

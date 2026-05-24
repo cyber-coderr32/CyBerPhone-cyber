@@ -13,6 +13,8 @@ import {
 } from '../services/storageService';
 import { useDialog } from '../services/DialogContext';
 import { DEFAULT_PROFILE_PIC, ANONYMOUS_PROFILE_PIC } from '../data/constants';
+import { doc, updateDoc, onSnapshot, arrayUnion } from 'firebase/firestore';
+import { db } from '../services/firebaseClient';
 import { 
   Heart, 
   Send, 
@@ -126,6 +128,14 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [guestCameraError, setGuestCameraError] = useState<string | null>(null);
   const lastHeartCountRef = useRef<number>(0);
+
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const hostConnectionsRef = useRef<Record<string, RTCPeerConnection>>({});
+  const viewerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const isViewerInitialized = useRef(false);
+  const viewerCandidatesProcessed = useRef<Set<string>>(new Set());
+  const hostCandidatesProcessed = useRef<Set<string>>(new Set());
   
   const computedLiveViewerCount = useMemo(() => {
     if (!post) return 0;
@@ -149,13 +159,22 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const guestVideoRef = useRef<HTMLVideoElement | null>(null);
   const guestStreamRef = useRef<MediaStream | null>(null);
 
+  const isHost = post ? post.userId === currentUser.id : false;
+
   // Callback refs para lidar com a montagem condicional das tags de vídeo graciosamente:
   const setVideoRef = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
-    if (el && streamRef.current) {
-      el.srcObject = streamRef.current;
+    if (el) {
+      if (isHost && streamRef.current) {
+        console.log("[LiveStream] Vinculando stream host local...");
+        el.srcObject = streamRef.current;
+      } else if (!isHost && remoteStream) {
+        console.log("[LiveStream] Vinculando remoteStream...", remoteStream.id);
+        el.srcObject = remoteStream;
+        el.play().catch(e => console.warn("Erro ao reproduzir vídeo remoto da live:", e));
+      }
     }
-  }, []);
+  }, [isHost, remoteStream]);
 
   const setGuestVideoRef = useCallback((el: HTMLVideoElement | null) => {
     guestVideoRef.current = el;
@@ -164,7 +183,207 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     }
   }, []);
 
-  const isHost = post ? post.userId === currentUser.id : false;
+  // WebRTC Live-streaming signaling
+  useEffect(() => {
+    if (!postId || !db || !post) return;
+
+    const docRef = doc(db, 'posts', postId);
+
+    if (isHost) {
+      // Host side: watch signaling map inside post
+      const signaling = post.liveStream?.signaling || {};
+      
+      Object.keys(signaling).forEach(async (viewerId) => {
+        const entry = signaling[viewerId];
+        if (!entry) return;
+
+        // If viewer wants to connect ('ready') and we don't have a peer connection yet
+        if (entry.status === 'ready' && !hostConnectionsRef.current[viewerId]) {
+          console.log("[WebRTC-Live-Host] Nova solicitação de stream do viewer:", viewerId);
+          
+          if (!localStream) {
+            console.log("[WebRTC-Live-Host] Câmera do host ainda não está pronta!");
+            return;
+          }
+
+          const pc = new RTCPeerConnection({
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          });
+          hostConnectionsRef.current[viewerId] = pc;
+
+          // Add our local tracks
+          localStream.getTracks().forEach(track => {
+            pc.addTrack(track, localStream);
+          });
+
+          // Handle local candidates
+          pc.onicecandidate = (event) => {
+            if (event.candidate) {
+              const candStr = JSON.stringify(event.candidate);
+              updateDoc(docRef, {
+                [`liveStream.signaling.${viewerId}.hostCandidates`]: arrayUnion(candStr)
+              }).catch(e => console.warn("Erro ao salvar host candidate:", e));
+            }
+          };
+
+          // Create offer
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            await updateDoc(docRef, {
+              [`liveStream.signaling.${viewerId}.offer`]: JSON.stringify(offer),
+              [`liveStream.signaling.${viewerId}.status`]: 'offered'
+            });
+            console.log("[WebRTC-Live-Host] Offer para", viewerId, "salvo.");
+          } catch (e) {
+            console.error("[WebRTC-Live-Host] Erro ao criar offer:", e);
+          }
+        }
+
+        // See if viewer provided their answer
+        const pc = hostConnectionsRef.current[viewerId];
+        if (pc && entry.status === 'answered' && entry.answer && !pc.remoteDescription) {
+          try {
+            console.log("[WebRTC-Live-Host] Resposta recebida do viewer:", viewerId);
+            const sdp = new RTCSessionDescription(JSON.parse(entry.answer));
+            await pc.setRemoteDescription(sdp);
+            console.log("[WebRTC-Live-Host] Conectado e transmitindo para:", viewerId);
+          } catch (e) {
+            console.error("[WebRTC-Live-Host] Erro ao carregar resposta do viewer:", e);
+          }
+        }
+
+        // Apply viewer ICE Candidates if remote description is set
+        if (pc && pc.remoteDescription && entry.viewerCandidates && Array.isArray(entry.viewerCandidates)) {
+          for (const candStr of entry.viewerCandidates) {
+            const key = `${viewerId}-${candStr}`;
+            if (viewerCandidatesProcessed.current.has(key)) continue;
+            viewerCandidatesProcessed.current.add(key);
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candStr)));
+            } catch (e) {
+              console.warn("Erro ao carregar viewer candidate no host:", e);
+            }
+          }
+        }
+      });
+
+      // Regular cleanup of disconnected viewers from signaling map
+      const activeViewers = Object.keys(post.liveViewersMap || {});
+      Object.keys(hostConnectionsRef.current).forEach(viewerId => {
+        if (!activeViewers.includes(viewerId) && !signaling[viewerId]) {
+          console.log("[WebRTC-Live-Host] Limpando conexão inativa de:", viewerId);
+          try {
+            hostConnectionsRef.current[viewerId].close();
+          } catch(e) {}
+          delete hostConnectionsRef.current[viewerId];
+        }
+      });
+
+    } else {
+      // Viewer side: request connection and handle offers
+      const mySignaling = post.liveStream?.signaling?.[currentUser.id];
+
+      // Step 1: Request connection
+      if (!mySignaling && !isViewerInitialized.current) {
+        isViewerInitialized.current = true;
+        console.log("[WebRTC-Live-Viewer] Solicitando ingresso no fluxo de mídia...");
+        updateDoc(docRef, {
+          [`liveStream.signaling.${currentUser.id}`]: {
+            status: 'ready',
+            viewerCandidates: [],
+            hostCandidates: []
+          }
+        }).catch(err => {
+          console.warn("[WebRTC-Live-Viewer] Erro ao sinalizar entrada:", err);
+          isViewerInitialized.current = false;
+        });
+      }
+
+      // Step 2: Receive Host's Offer
+      if (mySignaling && mySignaling.status === 'offered' && mySignaling.offer && !viewerConnectionRef.current) {
+        console.log("[WebRTC-Live-Viewer] Offer recebido do Host, inicializando peer connection...");
+        const pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        });
+        viewerConnectionRef.current = pc;
+
+        pc.ontrack = (event) => {
+          console.log("[WebRTC-Live-Viewer] Feed de vídeo remota do host recebido!", event.streams[0]);
+          setRemoteStream(event.streams[0]);
+          setIsSimulatingCamera(false); // Desativar simulação para mostrar o feed real
+        };
+
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            const candStr = JSON.stringify(event.candidate);
+            updateDoc(docRef, {
+              [`liveStream.signaling.${currentUser.id}.viewerCandidates`]: arrayUnion(candStr)
+            }).catch(e => console.warn("Erro ao salvar viewer candidate:", e));
+          }
+        };
+
+        // Handle answer handshake
+        const runHandshake = async () => {
+          try {
+            const sdp = new RTCSessionDescription(JSON.parse(mySignaling.offer));
+            await pc.setRemoteDescription(sdp);
+            
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            
+            await updateDoc(docRef, {
+              [`liveStream.signaling.${currentUser.id}.answer`]: JSON.stringify(answer),
+              [`liveStream.signaling.${currentUser.id}.status`]: 'answered'
+            });
+            console.log("[WebRTC-Live-Viewer] Answer enviado com sucesso para o Host.");
+          } catch (e) {
+            console.error("[WebRTC-Live-Viewer] Erro no handshake:", e);
+          }
+        };
+        runHandshake();
+      }
+
+      // Step 3: Apply host's ICE candidates
+      const pc = viewerConnectionRef.current;
+      if (pc && pc.remoteDescription && mySignaling && mySignaling.hostCandidates && Array.isArray(mySignaling.hostCandidates)) {
+        mySignaling.hostCandidates.forEach((candStr: string) => {
+          if (hostCandidatesProcessed.current.has(candStr)) return;
+          hostCandidatesProcessed.current.add(candStr);
+          pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candStr))).catch(err => {
+            console.warn("Erro ao carregar host candidate no viewer:", err);
+          });
+        });
+      }
+    }
+  }, [postId, isHost, post, localStream]);
+
+  // Cleanup on unmount for viewer
+  useEffect(() => {
+    return () => {
+      if (!isHost && postId && db) {
+        // Deletar nosso slot de sinalização ao sair da live
+        const docRef = doc(db, 'posts', postId);
+        updateDoc(docRef, {
+          [`liveStream.signaling.${currentUser.id}`]: null
+        }).catch(() => {});
+      }
+      if (viewerConnectionRef.current) {
+        try { viewerConnectionRef.current.close(); } catch(e) {}
+        viewerConnectionRef.current = null;
+      }
+      Object.values(hostConnectionsRef.current).forEach(pc => {
+        try { pc.close(); } catch(e) {}
+      });
+      hostConnectionsRef.current = {};
+    };
+  }, [postId, isHost]);
 
   // 1. Carregar Post e se inscrever no Firebase em tempo real
   useEffect(() => {
@@ -747,6 +966,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         }
       }
       streamRef.current = stream;
+      setLocalStream(stream);
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
@@ -765,6 +985,7 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    setLocalStream(null);
     setIsSimulatingCamera(false);
   };
 
@@ -1383,60 +1604,72 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                   )}
                 </div>
               ) : (
-                /* CANVA DE STREAM SIMULADA CIBERNÉTICA COM PERFIL DO HOST (VIEWERS) */
-                <div className="w-full h-full relative flex items-center justify-center bg-[#07070a] overflow-hidden">
-                  <canvas 
-                    ref={canvasRef} 
-                    className={`absolute inset-0 w-full h-full object-cover opacity-60 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
-                  />
-                  
-                  {/* Holographic scanner grid lines overlay */}
-                  <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,3px_100%] pointer-events-none z-10"></div>
-
-                  {/* Cenários de Avatar & Ondulação em frente ao Canvas */}
-                  <div className="relative z-20 flex flex-col items-center justify-center gap-3 text-center p-4">
-                    <div className="relative">
-                      {/* Future glowing spinning ring */}
-                      <div className="absolute inset-[-6px] rounded-full border border-dashed border-indigo-500/50 animate-spin" style={{ animationDuration: '10s' }}></div>
-                      <div className="absolute inset-0 w-20 h-20 rounded-full bg-indigo-500/5 border border-indigo-500/20 animate-pulse"></div>
-                      
-                      <img 
-                        src={hostProfile?.profilePicture || DEFAULT_PROFILE_PIC} 
-                        alt="Profile" 
-                        className="w-20 h-20 rounded-full object-cover border-2 border-indigo-400 shadow-xl shadow-indigo-500/30 relative z-20"
-                        referrerPolicy="no-referrer"
+                /* FEED DA CÂMERA DO HOST PARA OS VIEWERS */
+                <div className="w-full h-full flex items-center justify-center bg-zinc-950 relative">
+                  {remoteStream ? (
+                    <video 
+                      ref={setVideoRef} 
+                      autoPlay 
+                      playsInline 
+                      className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                    />
+                  ) : (
+                    /* CANVA DE STREAM SIMULADA CIBERNÉTICA COM PERFIL DO HOST (VIEWERS) */
+                    <div className="w-full h-full relative flex items-center justify-center bg-[#07070a] overflow-hidden">
+                      <canvas 
+                        ref={canvasRef} 
+                        className={`absolute inset-0 w-full h-full object-cover opacity-60 ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
                       />
                       
-                      {/* Badge Ao vivo */}
-                      <div className="absolute -bottom-1 right-0.5 z-35 bg-indigo-600 border border-indigo-400/50 px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase text-white tracking-wider shadow-lg flex items-center gap-1 scale-90">
-                        <span className="w-1 bg-[#10b981] h-1 rounded-full animate-ping"></span>
-                        AO VIVO
-                      </div>
-                    </div>
-                    
-                    <div className="relative z-20">
-                      <h3 className="text-xs font-black uppercase tracking-wider text-[#ececf1] bg-black/75 px-3 py-1 rounded-full border border-white/5 backdrop-blur-md inline-block">
-                        {hostProfile?.firstName ? `${hostProfile.firstName} ${hostProfile.lastName || ''}` : 'Anfitrião'}
-                      </h3>
-                      <div className="flex items-center justify-center gap-1 mt-1.5 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-md text-[8px] font-bold tracking-widest text-[#9d9dae] uppercase max-w-[200px] mx-auto">
-                        Sinal Sincronizado
-                      </div>
-                    </div>
+                      {/* Holographic scanner grid lines overlay */}
+                      <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,3px_100%] pointer-events-none z-10"></div>
 
-                    {/* Telemetry labels */}
-                    <div className="hidden sm:grid grid-cols-3 gap-2 px-3 py-1 bg-black/50 border border-white/5 backdrop-blur-sm rounded-lg text-[7px] font-mono tracking-wider text-gray-500 mt-2">
-                      <div>REDE: <span className="text-emerald-400 font-bold">12ms</span></div>
-                      <div className="border-x border-white/5">LATENCY: <span className="text-indigo-400 font-bold">LOW</span></div>
-                      <div>QUALITY: <span className="text-violet-400 font-bold">1080p</span></div>
-                    </div>
-                  </div>
+                      {/* Cenários de Avatar & Ondulação em frente ao Canvas */}
+                      <div className="relative z-20 flex flex-col items-center justify-center gap-3 text-center p-4">
+                        <div className="relative">
+                          {/* Future glowing spinning ring */}
+                          <div className="absolute inset-[-6px] rounded-full border border-dashed border-indigo-500/50 animate-spin" style={{ animationDuration: '10s' }}></div>
+                          <div className="absolute inset-0 w-20 h-20 rounded-full bg-indigo-500/5 border border-indigo-500/20 animate-pulse"></div>
+                          
+                          <img 
+                            src={hostProfile?.profilePicture || DEFAULT_PROFILE_PIC} 
+                            alt="Profile" 
+                            className="w-20 h-20 rounded-full object-cover border-2 border-indigo-400 shadow-xl shadow-indigo-500/30 relative z-20"
+                            referrerPolicy="no-referrer"
+                          />
+                          
+                          {/* Badge Ao vivo */}
+                          <div className="absolute -bottom-1 right-0.5 z-35 bg-indigo-600 border border-indigo-400/50 px-2 py-0.5 rounded-full text-[7.5px] font-black uppercase text-white tracking-wider shadow-lg flex items-center gap-1 scale-90">
+                            <span className="w-1 bg-[#10b981] h-1 rounded-full animate-ping"></span>
+                            AO VIVO
+                          </div>
+                        </div>
+                        
+                        <div className="relative z-20">
+                          <h3 className="text-xs font-black uppercase tracking-wider text-[#ececf1] bg-black/75 px-3 py-1 rounded-full border border-white/5 backdrop-blur-md inline-block">
+                            {hostProfile?.firstName ? `${hostProfile.firstName} ${hostProfile.lastName || ''}` : 'Anfitrião'}
+                          </h3>
+                          <div className="flex items-center justify-center gap-1 mt-1.5 bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1 rounded-md text-[8px] font-bold tracking-widest text-[#9d9dae] uppercase max-w-[200px] mx-auto">
+                            Sinal Sincronizado
+                          </div>
+                        </div>
 
-                  {/* Moldura Cyber HUD nos cantos extra */}
-                  <div className="absolute inset-0 pointer-events-none border-[3px] border-indigo-500/10 z-30"></div>
-                  <div className="absolute top-2 left-2 w-8 h-8 border-t border-l border-emerald-400/60 pointer-events-none z-30"></div>
-                  <div className="absolute top-2 right-2 w-8 h-8 border-t border-r border-emerald-400/60 pointer-events-none z-30"></div>
-                  <div className="absolute bottom-2 left-2 w-8 h-8 border-b border-l border-emerald-400/60 pointer-events-none z-30"></div>
-                  <div className="absolute bottom-2 right-2 w-8 h-8 border-b border-r border-emerald-400/60 pointer-events-none z-30"></div>
+                        {/* Telemetry labels */}
+                        <div className="hidden sm:grid grid-cols-3 gap-2 px-3 py-1 bg-black/50 border border-white/5 backdrop-blur-sm rounded-lg text-[7px] font-mono tracking-wider text-gray-500 mt-2">
+                          <div>REDE: <span className="text-emerald-400 font-bold">12ms</span></div>
+                          <div className="border-x border-white/5">LATENCY: <span className="text-indigo-400 font-bold">LOW</span></div>
+                          <div>QUALITY: <span className="text-violet-400 font-bold">1080p</span></div>
+                        </div>
+                      </div>
+
+                      {/* Moldura Cyber HUD nos cantos extra */}
+                      <div className="absolute inset-0 pointer-events-none border-[3px] border-indigo-500/10 z-30"></div>
+                      <div className="absolute top-2 left-2 w-8 h-8 border-t border-l border-emerald-400/60 pointer-events-none z-30"></div>
+                      <div className="absolute top-2 right-2 w-8 h-8 border-t border-r border-emerald-400/60 pointer-events-none z-30"></div>
+                      <div className="absolute bottom-2 left-2 w-8 h-8 border-b border-l border-emerald-400/60 pointer-events-none z-30"></div>
+                      <div className="absolute bottom-2 right-2 w-8 h-8 border-b border-r border-emerald-400/60 pointer-events-none z-30"></div>
+                    </div>
+                  )}
                 </div>
               )}
             </>
