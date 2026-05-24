@@ -24,9 +24,10 @@ interface IDVerificationProps {
   onComplete: () => void;
   onLogout: () => void;
   forceUpdate?: boolean;
+  onSkip?: () => void;
 }
 
-const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLogout, forceUpdate }) => {
+const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLogout, forceUpdate, onSkip }) => {
     const { showAlert } = useDialog();
     const [step, setStep] = useState<'welcome' | 'upload' | 'selfie' | 'verifying' | 'success'>('welcome');
     const [isUploading, setIsUploading] = useState(false);
@@ -427,6 +428,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                         <button 
                             onClick={() => {
                                 sessionStorage.setItem('cp_skip_verification', 'true');
+                                if (onSkip) onSkip();
                                 onComplete();
                             }}
                             className="w-fit flex items-center gap-2 text-brand hover:text-brand/80 font-black uppercase text-[10px] tracking-widest transition-colors"
@@ -478,6 +480,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                     <button 
                                         onClick={() => {
                                             sessionStorage.setItem('cp_skip_verification', 'true');
+                                            if (onSkip) onSkip();
                                             onComplete();
                                         }}
                                         className="w-full py-4 border-2 border-gray-100 dark:border-white/5 hover:border-brand/50 dark:hover:border-brand/50 text-gray-400 dark:text-gray-300 hover:text-brand dark:hover:text-brand rounded-2xl font-black uppercase text-xs tracking-widest transition-all"

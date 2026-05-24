@@ -164,6 +164,7 @@ const App: React.FC = () => {
     const [appTheme, setAppTheme] = useState<GroupTheme>(() => getAppTheme());
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [isSkippedVerification, setIsSkippedVerification] = useState(() => sessionStorage.getItem('cp_skip_verification') === 'true');
     const [currentPage, setCurrentPage] = useState<Page>(() => {
         const params = new URLSearchParams(window.location.search);
         const reelsParam = params.get('reels');
@@ -479,6 +480,8 @@ const App: React.FC = () => {
         saveCurrentUser(null);
         setCurrentUser(null);
         sessionStorage.removeItem('cyberphone_last_page');
+        sessionStorage.removeItem('cp_skip_verification');
+        setIsSkippedVerification(false);
         const hasVisited = localStorage.getItem('cp_has_visited');
         setCurrentPage(hasVisited ? 'auth' : 'landing');
         setIsLoading(false);
@@ -628,6 +631,7 @@ const App: React.FC = () => {
                   onComplete={refreshCurrentUser} 
                   onLogout={handleLogout} 
                   forceUpdate={!!isExpired} 
+                  onSkip={() => setIsSkippedVerification(true)}
                 />
             );
         }
