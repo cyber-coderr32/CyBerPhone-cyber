@@ -416,12 +416,24 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                         </div>
                     </div>
 
-                    <button 
-                        onClick={onLogout}
-                        className="w-fit flex items-center gap-2 text-gray-400 hover:text-red-500 font-black uppercase text-[10px] tracking-widest transition-colors"
-                    >
-                        <ArrowRightOnRectangleIcon className="h-4 w-4" /> Sair do App
-                    </button>
+                    <div className="flex gap-4 items-center flex-wrap">
+                        <button 
+                            onClick={onLogout}
+                            className="w-fit flex items-center gap-2 text-gray-400 hover:text-red-500 font-black uppercase text-[10px] tracking-widest transition-colors"
+                        >
+                            <ArrowRightOnRectangleIcon className="h-4 w-4" /> Sair do App
+                        </button>
+                        <span className="text-gray-300 dark:text-white/10">|</span>
+                        <button 
+                            onClick={() => {
+                                sessionStorage.setItem('cp_skip_verification', 'true');
+                                onComplete();
+                            }}
+                            className="w-fit flex items-center gap-2 text-brand hover:text-brand/80 font-black uppercase text-[10px] tracking-widest transition-colors"
+                        >
+                            Pular por enquanto
+                        </button>
+                    </div>
                 </div>
 
                 {/* Right Side: Form */}
@@ -455,12 +467,24 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                         </li>
                                     </ul>
                                 </div>
-                                <button 
-                                    onClick={() => setStep('upload')}
-                                    className="w-full py-6 bg-brand hover:bg-brand/90 text-white rounded-3xl font-black uppercase text-xs tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all"
-                                >
-                                    Começar Verificação
-                                </button>
+                                <div className="space-y-3">
+                                    <button 
+                                        onClick={() => setStep('upload')}
+                                        className="w-full py-6 bg-brand hover:bg-brand/90 text-white rounded-3xl font-black uppercase text-xs tracking-widest shadow-xl shadow-brand/20 active:scale-95 transition-all"
+                                    >
+                                        Começar Verificação
+                                    </button>
+
+                                    <button 
+                                        onClick={() => {
+                                            sessionStorage.setItem('cp_skip_verification', 'true');
+                                            onComplete();
+                                        }}
+                                        className="w-full py-4 border-2 border-gray-100 dark:border-white/5 hover:border-brand/50 dark:hover:border-brand/50 text-gray-400 dark:text-gray-300 hover:text-brand dark:hover:text-brand rounded-2xl font-black uppercase text-xs tracking-widest transition-all"
+                                    >
+                                        Pular e verificar mais tarde
+                                    </button>
+                                </div>
                             </motion.div>
                         )}
 

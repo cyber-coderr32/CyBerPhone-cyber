@@ -13,6 +13,7 @@ import StoryCreator from './StoryCreator';
 import GroupDiscoveryCard from './GroupDiscoveryCard';
 import { PlusIcon, ArrowPathIcon, RocketLaunchIcon, ChevronUpIcon, FireIcon, SparklesIcon, CalendarIcon, UserGroupIcon, StarIcon, ArrowTrendingUpIcon, PlayIcon, FilmIcon, UserPlusIcon } from '@heroicons/react/24/outline';
 import { TrophyIcon, CheckCircleIcon } from '@heroicons/react/24/solid';
+import { useDialog } from '../services/DialogContext';
 
 interface FeedPageProps {
   currentUser: User;
@@ -33,6 +34,7 @@ type FeedItem =
 
 const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUser, params }) => {
   const { t } = useTranslation();
+  const { showAlert } = useDialog();
   const [allItems, setAllItems] = useState<FeedItem[]>([]);
   const [visibleItems, setVisibleItems] = useState<FeedItem[]>([]);
   const [displayLimit, setDisplayLimit] = useState(ITEMS_PER_PAGE);
@@ -306,7 +308,12 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
   }, []);
 
   const handleJoin = async (groupId: string) => {
-    await joinGroup(groupId, currentUser.id);
+    const success = await joinGroup(groupId, currentUser.id);
+    if (!success) {
+      showAlert("Você está bloqueado/banido de entrar nesta comunidade.", { type: "error", title: "Acesso Negado" });
+    } else {
+      showAlert("Você entrou no grupo com sucesso!", { type: "success" });
+    }
     loadData(true);
   };
 

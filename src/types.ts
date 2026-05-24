@@ -38,6 +38,7 @@ export interface ChatConversation {
   isPublic?: boolean; 
   description?: string;
   theme?: GroupTheme; // NOVO: Tema visual do grupo
+  blockedUserIds?: string[]; // IDs dos usuários bloqueados/banidos do grupo
 }
 
 export interface Message {

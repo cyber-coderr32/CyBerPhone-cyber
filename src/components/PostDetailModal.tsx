@@ -592,7 +592,7 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
                            value={commentText}
                            onChange={e => setCommentText(e.target.value)}
                            placeholder={replyingTo ? "Sua resposta..." : "Adicione seu comentário..."}
-                           className="w-full bg-transparent dark:text-white outline-none border-none focus:ring-0 rounded-2xl resize-none text-[15px] md:text-[17px] placeholder-gray-400 py-1 min-h-[40px] max-h-[150px] font-medium appearance-none shadow-none"
+                           className="w-full bg-transparent text-gray-900 dark:text-white outline-none border-none focus:ring-0 rounded-2xl resize-none text-[15px] md:text-[17px] placeholder-gray-500 dark:placeholder-gray-400 py-1 min-h-[40px] max-h-[150px] font-medium appearance-none shadow-none"
                            onInput={(e) => {
                              const target = e.target as HTMLTextAreaElement;
                              target.style.height = 'auto';

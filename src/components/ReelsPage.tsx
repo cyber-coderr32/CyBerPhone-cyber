@@ -290,8 +290,24 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
   const handleSave = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setIsSaved(!isSaved);
-    await updatePostSaves(reel.id, currentUser.id);
+    const prevSaved = isSaved;
+    const nextSaved = !prevSaved;
+    
+    setIsSaved(nextSaved);
+    
+    if (nextSaved) {
+      showAlert(t('saved_to_collection', 'Reel salvo em seus Itens Salvos!'), { type: 'success' });
+    } else {
+      showAlert(t('removed_from_collection', 'Reel removido dos Itens Salvos!'), { type: 'alert' });
+    }
+    
+    try {
+      await updatePostSaves(reel.id, currentUser.id);
+    } catch (err) {
+      console.error("Erro ao salvar o Reel:", safeJsonStringify(err));
+      setIsSaved(prevSaved);
+      showAlert(t('save_error', 'Ocorreu um erro ao salvar o Reel.'), { type: 'error' });
+    }
   };
 
   const handleFollow = async (e: React.MouseEvent) => {

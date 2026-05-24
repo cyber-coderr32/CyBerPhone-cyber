@@ -77,6 +77,87 @@ const THEME_MAP: Record<GroupTheme, { primary: string, hover: string, light: str
   cyan: { primary: '#0891b2', hover: '#0e7490', light: '#ecfeff' }
 };
 
+interface NotificationManagerProps {
+    currentUser: User | null;
+    setUnreadNotificationsCount: React.Dispatch<React.SetStateAction<number>>;
+    setUnreadMessagesCount: React.Dispatch<React.SetStateAction<number>>;
+}
+
+const NotificationManager: React.FC<NotificationManagerProps> = ({ 
+    currentUser, 
+    setUnreadNotificationsCount, 
+    setUnreadMessagesCount 
+}) => {
+    const { t } = useTranslation();
+    const { showSuccess } = useDialog();
+    const lastNotificationIdRef = useRef<string | null>(null);
+    const lastMessageCountRef = useRef<number>(0);
+
+    useEffect(() => {
+        if (!currentUser) return;
+
+        const pollData = async () => {
+            try {
+                const userId = currentUser.id;
+                const notifications = await getNotificationsForUser(userId);
+                const sorted = notifications.sort((a, b) => b.timestamp - a.timestamp);
+                
+                if (sorted.length > 0) {
+                    const latest = sorted[0];
+                    const unreadCount = sorted.filter(n => !n.isRead).length;
+                    setUnreadNotificationsCount(prev => prev !== unreadCount ? unreadCount : prev);
+
+                    if (lastNotificationIdRef.current && latest.id !== lastNotificationIdRef.current && !latest.isRead) {
+                        const actor = await findUserById(latest.actorId);
+                        if (actor) {
+                            const content = getNotificationContent(latest.type, actor.firstName, latest.groupName, latest.callType);
+                            showNotification(content.title, { 
+                                body: content.body,
+                                icon: actor.profilePicture,
+                                url: window.location.origin
+                            });
+                        }
+                    }
+                    lastNotificationIdRef.current = latest.id;
+                }
+
+                const msgCount = await getUnreadMessagesCount(userId);
+                if (msgCount > lastMessageCountRef.current) {
+                    showNotification(t('app_new_message'), {
+                        body: t('app_unread_messages', { count: msgCount }),
+                        url: window.location.origin
+                    });
+                }
+                setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
+                lastMessageCountRef.current = msgCount;
+            } catch (err) {}
+        };
+
+        const pollInterval = setInterval(pollData, 15000);
+        pollData();
+
+        const unsubscribeSales = listenForNewSales(currentUser.id, (sale) => {
+            const content = getNotificationContent('SALE', '', sale.productName);
+            
+            showNotification(content.title, {
+                body: content.body,
+                url: window.location.origin + '?page=manage-store&tab=orders'
+            });
+
+            showSuccess(`🚀 ${content.title}\n${content.body}`, {
+                title: t('app_sale_congrats')
+            });
+        });
+
+        return () => {
+            clearInterval(pollInterval);
+            unsubscribeSales();
+        };
+    }, [currentUser?.id, setUnreadNotificationsCount, setUnreadMessagesCount, t, showSuccess]);
+
+    return null;
+};
+
 const App: React.FC = () => {
     const { t } = useTranslation();
     const [darkMode, setDarkMode] = useState(() => localStorage.getItem('cyberphone_theme') === 'dark');
@@ -85,6 +166,9 @@ const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [currentPage, setCurrentPage] = useState<Page>(() => {
         const params = new URLSearchParams(window.location.search);
+        const reelsParam = params.get('reels');
+        if (reelsParam) return 'reels-page';
+
         const pageParam = params.get('page') as Page;
         if (pageParam) return pageParam;
 
@@ -94,7 +178,14 @@ const App: React.FC = () => {
         const hasVisited = localStorage.getItem('cp_has_visited');
         return hasVisited ? 'auth' : 'landing';
     });
-    const [pageParams, setPageParams] = useState<Record<string, string>>({});
+    const [pageParams, setPageParams] = useState<Record<string, string>>(() => {
+        const params = new URLSearchParams(window.location.search);
+        const reelsParam = params.get('reels');
+        if (reelsParam) {
+            return { startPostId: reelsParam } as Record<string, string>;
+        }
+        return {} as Record<string, string>;
+    });
     const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
     const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
     const [cartItems, setCartItems] = useState<CartItem[]>([]);
@@ -110,77 +201,6 @@ const App: React.FC = () => {
     });
 
     const currentUserRef = useRef<User | null>(null); // Ref para acesso estável em callbacks
-
-    // --- NOTIFICATION MANAGER COMPONENT ---
-    const NotificationManager: React.FC<{ currentUser: User | null }> = ({ currentUser }) => {
-        const { showSuccess } = useDialog();
-        const lastNotificationIdRef = useRef<string | null>(null);
-        const lastMessageCountRef = useRef<number>(0);
-
-        useEffect(() => {
-            if (!currentUser) return;
-
-            const pollData = async () => {
-                try {
-                    const userId = currentUser.id;
-                    const notifications = await getNotificationsForUser(userId);
-                    const sorted = notifications.sort((a, b) => b.timestamp - a.timestamp);
-                    
-                    if (sorted.length > 0) {
-                        const latest = sorted[0];
-                        const unreadCount = sorted.filter(n => !n.isRead).length;
-                        setUnreadNotificationsCount(prev => prev !== unreadCount ? unreadCount : prev);
-
-                        if (lastNotificationIdRef.current && latest.id !== lastNotificationIdRef.current && !latest.isRead) {
-                            const actor = await findUserById(latest.actorId);
-                            if (actor) {
-                                const content = getNotificationContent(latest.type, actor.firstName, latest.groupName, latest.callType);
-                                showNotification(content.title, { 
-                                    body: content.body,
-                                    icon: actor.profilePicture,
-                                    url: window.location.origin
-                                });
-                            }
-                        }
-                        lastNotificationIdRef.current = latest.id;
-                    }
-
-                    const msgCount = await getUnreadMessagesCount(userId);
-                    if (msgCount > lastMessageCountRef.current) {
-                        showNotification(t('app_new_message'), {
-                            body: t('app_unread_messages', { count: msgCount }),
-                            url: window.location.origin
-                        });
-                    }
-                    setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);
-                    lastMessageCountRef.current = msgCount;
-                } catch (err) {}
-            };
-
-            const pollInterval = setInterval(pollData, 15000);
-            pollData();
-
-            const unsubscribeSales = listenForNewSales(currentUser.id, (sale) => {
-                const content = getNotificationContent('SALE', '', sale.productName);
-                
-                showNotification(content.title, {
-                    body: content.body,
-                    url: window.location.origin + '?page=manage-store&tab=orders'
-                });
-
-                showSuccess(`🚀 ${content.title}\n${content.body}`, {
-                    title: t('app_sale_congrats')
-                });
-            });
-
-            return () => {
-                clearInterval(pollInterval);
-                unsubscribeSales();
-            };
-        }, [currentUser?.id]);
-
-        return null;
-    };
 
     // Sincroniza o ref sempre que o state mudar
     useEffect(() => {
@@ -207,7 +227,11 @@ const App: React.FC = () => {
         }
         
         const page = params.get('page') as Page;
-        if (page) {
+        const reelsParam = params.get('reels');
+        if (reelsParam) {
+            setCurrentPage('reels-page');
+            setPageParams({ startPostId: reelsParam });
+        } else if (page) {
             const newParams: Record<string, string> = {};
             params.forEach((value, key) => {
                 if (key !== 'page' && key !== 'affiliateId') newParams[key] = value;
@@ -307,6 +331,8 @@ const App: React.FC = () => {
                         prevUser.isMonetized !== user.isMonetized ||
                         prevUser.isAdmin !== user.isAdmin ||
                         prevUser.isVerified !== user.isVerified ||
+                        prevUser.idVerificationStatus !== user.idVerificationStatus ||
+                        safeJsonStringify(prevUser.idVerificationDocs) !== safeJsonStringify(user.idVerificationDocs) ||
                         prevUser.profilePicture !== user.profilePicture ||
                         prevUser.coverPhoto !== user.coverPhoto ||
                         prevUser.bio !== user.bio ||
@@ -590,8 +616,10 @@ const App: React.FC = () => {
         // Administradores sempre pulam a verificação.
         const hasApprovedVerification = (currentUser.isVerified === true || verificationStatus === 'APPROVED') && !isExpired;
 
-        // Mostra a tela de verificação se não for Admin e não tiver verificação aprovada
-        const shouldShowVerification = !effectiveIsAdmin && !hasApprovedVerification;
+        const isSkippedVerification = sessionStorage.getItem('cp_skip_verification') === 'true';
+
+        // Mostra a tela de verificação se não for Admin, não tiver verificação aprovada e não tiver pulado na sessão atual
+        const shouldShowVerification = !effectiveIsAdmin && !hasApprovedVerification && !isSkippedVerification;
 
         if (shouldShowVerification) {
             return (
@@ -784,7 +812,11 @@ const App: React.FC = () => {
 
     return (
         <DialogProvider>
-            <NotificationManager currentUser={currentUser} />
+            <NotificationManager 
+                currentUser={currentUser} 
+                setUnreadNotificationsCount={setUnreadNotificationsCount}
+                setUnreadMessagesCount={setUnreadMessagesCount}
+            />
             <CallManager currentUser={currentUser} />
             {renderContent()}
         </DialogProvider>

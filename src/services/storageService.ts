@@ -1305,7 +1305,7 @@ export const addPostComment = async (pid: string, c: any) => {
     if (!db) return;
 
     // Sentinela AI Check
-    const security = await checkContentSecurity(c.content || '', 'comment');
+    const security = await checkContentSecurity(c.text || c.content || '', 'comment');
     if (!security.allowed) {
         throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
     }
@@ -1749,11 +1749,24 @@ export const getUsers = async (currentUser?: User) => {
         return [];
     }
 };
-export const joinGroup = async (gid: string, uid: string) => {
-    if (!db) return;
+export const joinGroup = async (gid: string, uid: string): Promise<boolean> => {
+    if (!db) return false;
     const ref = doc(db, 'chats', gid);
     const d = await getDoc(ref);
-    if(d.exists()) await updateDoc(ref, { participants: [...d.data().participants, uid] });
+    if(d.exists()) {
+        const data = d.data();
+        const blockedUsers = data.blockedUserIds || [];
+        if (blockedUsers.includes(uid)) {
+            console.warn("User is blocked from joining this group");
+            return false;
+        }
+        const currentParticipants = data.participants || [];
+        if (!currentParticipants.includes(uid)) {
+            await updateDoc(ref, { participants: [...currentParticipants, uid] });
+        }
+        return true;
+    }
+    return false;
 };
 export const findStoreById = async (id: string) => {
     if (!db) return undefined;
@@ -2350,6 +2363,7 @@ export const updateGroupDetails = async (
         participants?: string[]; 
         adminId?: string;
         groupImage?: string;
+        blockedUserIds?: string[];
     }
 ) => {
     if (!db) return false;

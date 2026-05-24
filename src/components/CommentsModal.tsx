@@ -19,6 +19,7 @@ interface CommentsModalProps {
 
 const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onClose, onCommentsUpdated, postOwnerId }) => {
   const { t } = useTranslation();
+  const { showAlert } = useDialog();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
@@ -54,8 +55,6 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim() || submitting) return;
-
-    const { showAlert } = useDialog();
 
     setSubmitting(true);
     try {
@@ -182,8 +181,11 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
-      <div className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col max-h-[80vh] overflow-hidden relative">
+    <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div 
+        className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col max-h-[80vh] overflow-hidden relative"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="p-4 border-b border-gray-100 dark:border-white/5 flex justify-between items-center bg-white dark:bg-darkcard sticky top-0 z-10">
           <h3 className="font-black text-gray-900 dark:text-white uppercase tracking-tighter text-lg flex items-center gap-2">
             <ChatBubbleOvalLeftIcon className="h-5 w-5 text-blue-600" /> {t('comments_label') || 'Comentários'}
@@ -238,7 +240,7 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
               onChange={(e) => setNewComment(e.target.value)}
               placeholder={replyingTo ? "Sua resposta..." : "Adicione um comentário..."}
               disabled={submitting}
-              className="flex-1 bg-transparent outline-none border-none ring-0 focus:ring-0 text-xs font-bold dark:text-white p-2 rounded-full"
+              className="flex-1 bg-transparent outline-none border-none ring-0 focus:ring-0 text-xs font-bold text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 p-2 rounded-full"
             />
             <button 
               type="submit" 

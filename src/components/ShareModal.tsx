@@ -38,13 +38,52 @@ const ShareModal: React.FC<ShareModalProps> = ({
   if (!isOpen) return null;
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(content.url);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(content.url)
+          .then(() => {
+            setCopied(true);
+            showAlert(t('link_copied_alert', 'Link copiado para a área de transferência!'), { type: 'success' });
+            setTimeout(() => setCopied(false), 2000);
+          })
+          .catch(() => fallbackCopy(content.url));
+      } else {
+        fallbackCopy(content.url);
+      }
+    } catch (err) {
+      fallbackCopy(content.url);
+    }
+  };
+
+  const fallbackCopy = (text: string) => {
+    try {
+      const textArea = document.createElement("textarea");
+      textArea.value = text;
+      textArea.style.top = "0";
+      textArea.style.left = "0";
+      textArea.style.position = "fixed";
+      textArea.style.opacity = "0";
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      
+      if (successful) {
+        setCopied(true);
+        showAlert(t('link_copied_alert', 'Link copiado para a área de transferência!'), { type: 'success' });
+        setTimeout(() => setCopied(false), 2000);
+      } else {
+        showAlert(t('link_copy_failed', 'Não foi possível copiar o link automaticamente.'), { type: 'error' });
+      }
+    } catch (err) {
+      console.error("Fallback copy failed:", err);
+      showAlert(t('link_copy_failed', 'Não foi possível copiar o link automaticamente.'), { type: 'error' });
+    }
   };
 
   const handleNativeShare = async () => {
-    if (navigator.share) {
+    if (typeof navigator !== 'undefined' && navigator.share) {
       try {
         await navigator.share({
           title: content.title,
@@ -52,7 +91,9 @@ const ShareModal: React.FC<ShareModalProps> = ({
           url: content.url,
         });
       } catch (err) {
-        console.error("Erro ao compartilhar:", safeJsonStringify(err));
+        console.error("Erro ao compartilhar nativamente:", safeJsonStringify(err));
+        // Fallback to clipboard translation if share was canceled or failed
+        handleCopyLink();
       }
     } else {
       handleCopyLink();
