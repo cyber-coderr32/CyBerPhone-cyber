@@ -427,7 +427,11 @@ export const loginUser = async (email: string, password: string): Promise<User> 
 
     return fallbackUser;
   } catch (e: any) {
-    console.error("Erro no login:", safeJsonStringify(e));
+    if (e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password' || e.code === 'auth/user-not-found') {
+      console.warn("[AUTH] Login inválido (Credenciais incorretas ou inexistentes).");
+    } else {
+      console.error("Erro no login:", safeJsonStringify(e));
+    }
     
     // Tratamento de erros amigáveis do Firebase Auth
     if (e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password' || e.code === 'auth/user-not-found') {

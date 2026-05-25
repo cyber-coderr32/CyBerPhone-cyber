@@ -68,6 +68,16 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
     let code = error?.code || '';
     let message = error?.message || '';
 
+    // Direct JSON-like check on string representation to capture nested errors
+    try {
+      const errString = typeof error === 'string' ? error : JSON.stringify(error);
+      if (errString && (errString.includes('auth/invalid-credential') || errString.includes('invalid-credential'))) {
+        return t('auth_error_invalid_credentials');
+      }
+    } catch (_) {
+      // Fallback
+    }
+
     // If it's already a string, check if it's a JSON error representation
     if (typeof error === 'string') {
       if (error.startsWith('{')) {

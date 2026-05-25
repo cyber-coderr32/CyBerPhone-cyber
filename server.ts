@@ -6,6 +6,7 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import crypto from "crypto";
 
 dotenv.config();
 
@@ -151,6 +152,66 @@ async function startServer() {
     } catch (error: any) {
       console.error("[PROXY CONFIG] Failed to load config:", error);
       res.status(500).json({ error: "Failed to load firebase config" });
+    }
+  });
+
+  // API Route: Sumsub Access Token Generator
+  app.post("/api/sumsub-token", async (req: Request, res: Response) => {
+    try {
+      const { userId, levelName = "basic-kyc-level" } = req.body;
+      if (!userId) {
+        return res.status(400).json({ error: "Missing userId" });
+      }
+
+      const appToken = process.env.SUMSUB_APP_TOKEN;
+      const secretKey = process.env.SUMSUB_SECRET_KEY;
+
+      if (!appToken || !secretKey) {
+        console.error(`[Sumsub Proxy] Sumsub credentials (SUMSUB_APP_TOKEN, SUMSUB_SECRET_KEY) not configured in env.`);
+        return res.status(500).json({ error: "O serviço de verificação do Sumsub não foi configurado pelo administrador. É necessário configurar as chaves de API reais no painel de controle (SUMSUB_APP_TOKEN e SUMSUB_SECRET_KEY)." });
+      }
+
+      const timestamp = Math.floor(Date.now() / 1000);
+      const method = "POST";
+      const requestPath = `/resources/accessTokens?userId=${encodeURIComponent(userId)}&levelName=${encodeURIComponent(levelName)}`;
+      const bodyString = JSON.stringify({ userId });
+
+      // Generate signature for Sumsub API
+      const signatureCreator = crypto.createHmac("sha256", secretKey);
+      signatureCreator.update(timestamp + method + requestPath + bodyString);
+      const signature = signatureCreator.digest("hex");
+
+      const sumsubUrl = `https://api.sumsub.com${requestPath}`;
+      console.log(`[Sumsub Proxy] Sending secure token request to: ${sumsubUrl}`);
+
+      const response = await fetch(sumsubUrl, {
+        method: "POST",
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "X-App-Token": appToken,
+          "X-App-Access-Sig": signature,
+          "X-App-Access-Ts": String(timestamp),
+        },
+        body: bodyString
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Sumsub Proxy] Real Sumsub API error response:`, errorText);
+        throw new Error(`Sumsub API returned status ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log(`[Sumsub Proxy] Token fetched successfully for user ${userId}`);
+      res.json({
+        simulated: false,
+        token: data.token,
+        userId: data.userId || userId
+      });
+    } catch (error: any) {
+      console.error(`[Sumsub Proxy] Fatal error:`, error);
+      res.status(500).json({ error: error.message || "Failed to generate Sumsub access token" });
     }
   });
 

@@ -164,7 +164,9 @@ const App: React.FC = () => {
     const [appTheme, setAppTheme] = useState<GroupTheme>(() => getAppTheme());
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [currentUser, setCurrentUser] = useState<User | null>(null);
-    const [isSkippedVerification, setIsSkippedVerification] = useState(() => sessionStorage.getItem('cp_skip_verification') === 'true');
+    const [isSkippedVerification, setIsSkippedVerification] = useState(() => {
+        return localStorage.getItem('cp_skip_verification') === 'true' || sessionStorage.getItem('cp_skip_verification') === 'true';
+    });
     const [currentPage, setCurrentPage] = useState<Page>(() => {
         const params = new URLSearchParams(window.location.search);
         const reelsParam = params.get('reels');
@@ -481,6 +483,7 @@ const App: React.FC = () => {
         setCurrentUser(null);
         sessionStorage.removeItem('cyberphone_last_page');
         sessionStorage.removeItem('cp_skip_verification');
+        localStorage.removeItem('cp_skip_verification');
         setIsSkippedVerification(false);
         const hasVisited = localStorage.getItem('cp_has_visited');
         setCurrentPage(hasVisited ? 'auth' : 'landing');
@@ -619,10 +622,12 @@ const App: React.FC = () => {
         // Administradores sempre pulam a verificação.
         const hasApprovedVerification = (currentUser.isVerified === true || verificationStatus === 'APPROVED') && !isExpired;
 
-        const isSkippedVerification = sessionStorage.getItem('cp_skip_verification') === 'true';
-
         // Mostra a tela de verificação se não for Admin, não tiver verificação aprovada e não tiver pulado na sessão atual
-        const shouldShowVerification = !effectiveIsAdmin && !hasApprovedVerification && !isSkippedVerification;
+        const isUserSkipped = isSkippedVerification || 
+                             sessionStorage.getItem(`cp_skip_verification_${currentUser.id}`) === 'true' || 
+                             localStorage.getItem(`cp_skip_verification_${currentUser.id}`) === 'true';
+
+        const shouldShowVerification = !effectiveIsAdmin && !hasApprovedVerification && !isUserSkipped;
 
         if (shouldShowVerification) {
             return (
@@ -631,7 +636,11 @@ const App: React.FC = () => {
                   onComplete={refreshCurrentUser} 
                   onLogout={handleLogout} 
                   forceUpdate={!!isExpired} 
-                  onSkip={() => setIsSkippedVerification(true)}
+                  onSkip={() => {
+                      localStorage.setItem(`cp_skip_verification_${currentUser.id}`, 'true');
+                      sessionStorage.setItem(`cp_skip_verification_${currentUser.id}`, 'true');
+                      setIsSkippedVerification(true);
+                  }}
                 />
             );
         }
