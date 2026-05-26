@@ -129,6 +129,18 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
     // Consideramos online apenas se o flag for true E houver atividade nos últimos 5 minutos
     const isActuallyOnline = isOnline && (Date.now() - lastSeen < 5 * 60 * 1000);
 
+    const idVerifiedMapped = isAdminEmail || !!dbData?.isVerified;
+    const statusMapped = isAdminEmail ? 'APPROVED' : (dbData?.idVerificationStatus || 'NOT_STARTED');
+
+    if (id && (idVerifiedMapped || statusMapped === 'APPROVED')) {
+        try {
+            localStorage.setItem(`cp_user_verified_${id}`, 'true');
+            localStorage.setItem(`cp_user_verification_status_${id}`, 'APPROVED');
+        } catch (err) {
+            console.warn("[STORAGE] Erro ao sincronizar cache local de verificação:", err);
+        }
+    }
+
     return {
         id: id,
         firstName: firstName || 'Usuário',
@@ -260,14 +272,14 @@ export const promoteAdCampaign = async (userId: string, campaignId: string, days
     throw err;
   }
 };
-export const findUserById = async (userId: string, authUserReference?: any): Promise<User | undefined> => {
+export const findUserById = async (userId: string, authUserReference?: any, skipAdBilling: boolean = false): Promise<User | undefined> => {
   if (!userId || !isFirebaseConfigured || !db) return undefined;
   
   const currentAuth = authUserReference || auth?.currentUser;
   const isOwner = currentAuth?.uid === userId;
 
   // Processar cobranças automáticas de anúncios se for o dono
-  if (isOwner) {
+  if (isOwner && !skipAdBilling) {
     checkAndProcessAdBilling(userId).catch(err => console.error("[ADS] Error processing ads:", safeJsonStringify(err)));
   }
   
@@ -1643,7 +1655,11 @@ export const seedDatabase = async () => {
             comments: [],
             shares: [],
             saves: [],
-            tags: ['DOCUMENTARY', 'TECH']
+            tags: ['DOCUMENTARY', 'TECH'],
+            reel: {
+                videoUrl: 'https://www.w3schools.com/html/movie.mp4',
+                description: 'A Revolução Digital Global'
+            }
         }
     ];
 
@@ -2180,6 +2196,16 @@ export const updateUser = async (u: User) => {
 
         await updateDoc(doc(db, 'public_profiles', u.id), publicData);
 
+        // Sincronizar cache local de verificação redundante se estiver aprovado
+        if (u.isVerified || u.idVerificationStatus === 'APPROVED') {
+            try {
+                localStorage.setItem(`cp_user_verified_${u.id}`, 'true');
+                localStorage.setItem(`cp_user_verification_status_${u.id}`, 'APPROVED');
+            } catch (err) {
+                console.warn("[STORAGE] Erro ao sincronizar cache local durante update:", err);
+            }
+        }
+
         // Update Firebase Auth profile if it's the current user
         if (auth?.currentUser && auth.currentUser.uid === u.id) {
             await updateProfile(auth.currentUser, {
@@ -2584,8 +2610,17 @@ export const getActiveAds = async (): Promise<AdCampaign[]> => {
     }
 };
 
+const activeBillingProcesses = new Set<string>();
+
 export const checkAndProcessAdBilling = async (userId: string) => {
     if (!db || !userId || userId === 'anonymous') return;
+    if (activeBillingProcesses.has(userId)) {
+        console.log(`[ADS] Billing already processing for user ${userId}, skipping concurrent execution.`);
+        return;
+    }
+    
+    activeBillingProcesses.add(userId);
+    console.log(`[ADS] Entering checkAndProcessAdBilling for user ${userId}`);
     
     try {
         const adsRef = collection(db, 'ads');
@@ -2605,6 +2640,7 @@ export const checkAndProcessAdBilling = async (userId: string) => {
             // 1. Notificação de término iminente (24h antes do endDate)
             if (endDate - now <= oneDayInMs && endDate - now > 0 && !ad.notifiedRenewal) {
                 try {
+                    console.log(`[ADS] Sending near-expiration notification to user ${userId} for ad ${ad.id}`);
                     await createNotification(
                         userId,
                         'SYSTEM_AD',
@@ -2614,6 +2650,7 @@ export const checkAndProcessAdBilling = async (userId: string) => {
                     );
                     
                     // Marcar como notificado
+                    console.log(`[ADS] Updating ad ${ad.id} to be notifiedRenewal = true`);
                     await updateDoc(doc(db, 'ads', ad.id), { notifiedRenewal: true });
                     console.log(`[ADS] Usuário ${userId} notificado sobre renovação do anúncio ${ad.id}`);
                 } catch (err) {
@@ -2624,18 +2661,24 @@ export const checkAndProcessAdBilling = async (userId: string) => {
             
             // 2. Processar Expiração ou Renovação
             if (now >= endDate) {
+                console.log(`[ADS] Ad ${ad.id} has reached its endDate. isAutoRenew: ${isAutoRenew}`);
                 if (isAutoRenew) {
-                    const user = await findUserById(userId);
+                    console.log(`[ADS] Fetching user profile for ${userId} (skipping ad billing inside findUser)...`);
+                    const user = await findUserById(userId, undefined, true);
                     const userBalance = user?.balance || 0;
+                    console.log(`[ADS] User balance: ${userBalance}, renewalAmount: ${renewalAmount}`);
                     if (user && userBalance >= renewalAmount && renewalAmount > 0) {
                         try {
                             const newBalance = userBalance - renewalAmount;
                             
                             // Débito (Profiles)
+                            console.log(`[ADS] Deducting balance on profiles/${userId} to ${newBalance}`);
                             await updateDoc(doc(db, 'profiles', userId), { 
                                 balance: newBalance,
                                 updatedAt: Date.now() 
                             });
+                            
+                            console.log(`[ADS] Deducting balance on public_profiles/${userId} to ${newBalance}`);
                             await updateDoc(doc(db, 'public_profiles', userId), { 
                                 balance: newBalance,
                                 updatedAt: Date.now()
@@ -2643,6 +2686,7 @@ export const checkAndProcessAdBilling = async (userId: string) => {
                             
                             // Log Transação
                             const txId = generateUUID();
+                            console.log(`[ADS] Writing transaction ${txId} for user ${userId}`);
                             await setDoc(doc(db, 'transactions', txId), {
                                 id: txId,
                                 userId,
@@ -2657,6 +2701,7 @@ export const checkAndProcessAdBilling = async (userId: string) => {
                             const cycleDays = ad.billingCycle === 'WEEKLY' ? 7 : 1;
                             const newDuration = cycleDays * oneDayInMs;
                             
+                            console.log(`[ADS] Extending campaign ${ad.id} by ${cycleDays} days`);
                             await updateDoc(doc(db, 'ads', ad.id), {
                                 endDate: endDate + newDuration,
                                 lastBillingDate: now,
@@ -2672,9 +2717,11 @@ export const checkAndProcessAdBilling = async (userId: string) => {
                     } else {
                         try {
                             // Saldo insuficiente, desativa
+                            console.log(`[ADS] Insufficient balance or invalid user for ${ad.id}. Deactivating campaign.`);
                             await updateDoc(doc(db, 'ads', ad.id), { isActive: false });
                             console.log(`[ADS] Anúncio ${ad.id} desativado por falta de saldo`);
                             
+                            console.log(`[ADS] Writing deactivation notification for user ${userId}`);
                             await createNotification(
                                 userId,
                                 'SYSTEM_AD',
@@ -2689,6 +2736,7 @@ export const checkAndProcessAdBilling = async (userId: string) => {
                 } else {
                     try {
                         // Sem renovação automática, desativa
+                        console.log(`[ADS] Automatic renewal disabled for ${ad.id}. Deactivating campaign.`);
                         await updateDoc(doc(db, 'ads', ad.id), { isActive: false });
                         console.log(`[ADS] Anúncio ${ad.id} expirou e foi desativado (Sem Auto-Renovação)`);
                     } catch (err) {
@@ -2703,6 +2751,9 @@ export const checkAndProcessAdBilling = async (userId: string) => {
              // Se for erro de permissão, tentamos lançar para capturar no Dialog se possível (embora rode em bg)
              // Por enquanto só deixamos o handleFirestoreError mostrar no console se for o caso
         }
+    } finally {
+        activeBillingProcesses.delete(userId);
+        console.log(`[ADS] Completed checkAndProcessAdBilling for user ${userId}`);
     }
 };
 

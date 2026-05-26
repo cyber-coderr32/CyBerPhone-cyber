@@ -5,11 +5,16 @@ import { onSnapshot, collection, query, where, limit, orderBy } from 'firebase/f
 import { CallType } from '../types';
 
 export const requestNotificationPermission = async () => {
-  if (!('Notification' in window)) return false;
-  if (Notification.permission === 'granted') return true;
-  if (Notification.permission === 'denied') return false;
-  const permission = await Notification.requestPermission();
-  return permission === 'granted';
+  try {
+    if (!('Notification' in window)) return false;
+    if (Notification.permission === 'granted') return true;
+    if (Notification.permission === 'denied') return false;
+    const permission = await Notification.requestPermission();
+    return permission === 'granted';
+  } catch (err) {
+    console.warn("[Notifications] Request permission blocked by security or iframe constraints:", err);
+    return false;
+  }
 };
 
 export const showNotification = (title: string, options?: NotificationOptions & { url?: string }) => {

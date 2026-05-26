@@ -103,7 +103,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
       try {
         const errInfo = JSON.parse(message);
         if (errInfo.error && (errInfo.error.includes('permissions') || errInfo.error.includes('permission-denied'))) {
-          return t('auth_error_permission', { path: errInfo.path, op: errInfo.operationType });
+          return t('auth_error_permission');
         }
         if (errInfo.error) return errInfo.error;
       } catch (e) {
@@ -116,15 +116,15 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
     }
     
     if (code === 'auth/unauthorized-domain' || message.includes('auth/unauthorized-domain')) {
-      return `Domínio Desautorizado: "${window.location.hostname}" não está na lista de domínios autorizados no seu Console do Firebase. Vá em Firebase Console -> Authentication -> Settings -> Authorized Domains e adicione este domínio para que o login Google e a recuperação de senha funcionem.`;
+      return t('auth_error_network');
     }
 
     if (code === 'auth/unauthorized-continue-uri' || message.includes('auth/unauthorized-continue-uri')) {
-      return `URL de Retorno Desautorizada: A URL de redirecionamento para recuperação de senha não está cadastrada nos domínios autorizados do Firebase.`;
+      return t('auth_error_network');
     }
 
     if (code === 'auth/operation-not-allowed' || message.includes('auth/operation-not-allowed')) {
-      return 'Provedor Desativado: O Login Google ou E-mail/Senha não está ativado como Provedor de Login no seu Console do Firebase (Authentication -> Sign-in Method).';
+      return t('auth_error_operation_not_allowed');
     }
 
     if (code === 'auth/email-already-in-use' || message.includes('auth/email-already-in-use') || message.includes('EMAIL_EXISTS')) {

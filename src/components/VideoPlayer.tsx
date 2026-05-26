@@ -27,6 +27,20 @@ const sanitizeVideoUrl = (url: string | undefined): string => {
   
   // Pre-emptively fix known broken/dead demo URLs
   const lowerUrl = url.toLowerCase();
+  
+  // Pre-emptively catch image URLs being passed as video source
+  if (lowerUrl.includes('unsplash.com') || 
+      lowerUrl.includes('pravatar.cc') || 
+      lowerUrl.includes('i.pravatar.cc') ||
+      lowerUrl.endsWith('.jpg') || 
+      lowerUrl.endsWith('.jpeg') || 
+      lowerUrl.endsWith('.png') || 
+      lowerUrl.endsWith('.webp') || 
+      lowerUrl.endsWith('.gif') || 
+      lowerUrl.startsWith('https://images.unsplash.com')) {
+    return "https://vjs.zencdn.net/v/oceans.mp4";
+  }
+
   if (lowerUrl.includes('gtv-videos-bucket/sample/forbiggerescapes.mp4') || lowerUrl.includes('forbiggerescapes.mp4')) {
     return "https://www.w3schools.com/html/mov_bbb.mp4";
   }

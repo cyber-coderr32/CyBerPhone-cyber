@@ -1,18 +1,20 @@
-
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(async ({ command, mode }) => {
   // Carrega variáveis de ambiente do arquivo .env baseado no modo (development/production)
   // O terceiro argumento '' garante que carregue todas as variáveis, não apenas as com prefixo VITE_
   const env = loadEnv(mode, (process as any).cwd(), '');
 
-  return {
-    plugins: [
-      react(),
-      tailwindcss(),
+  const plugins: any[] = [
+    react(),
+    tailwindcss(),
+  ];
+
+  if (command === 'build') {
+    const { VitePWA } = await import('vite-plugin-pwa');
+    plugins.push(
       VitePWA({
         strategies: 'injectManifest',
         srcDir: 'src',
@@ -77,7 +79,11 @@ export default defineConfig(({ mode }) => {
           ]
         }
       })
-    ],
+    );
+  }
+
+  return {
+    plugins,
     define: {
       // Polyfill para process.env para evitar erros de 'process is not defined'
       'process.env': env,

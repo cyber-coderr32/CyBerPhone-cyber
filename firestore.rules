@@ -50,7 +50,7 @@ service cloud.firestore {
         && data.firstName is string && data.firstName.size() <= 100
         && data.lastName is string && data.lastName.size() <= 100
         && data.email is string
-        && (request.auth.token.email == null || data.email == request.auth.token.email)
+        && (request.auth.token.email == null || data.email.lower() == request.auth.token.email.lower())
         && (!('phone' in data) || (data.phone is string && data.phone.size() <= 100))
         && (!('birthDate' in data) || data.birthDate is number)
         && (!('country' in data) || (data.country is string && data.country.size() <= 100))
@@ -159,7 +159,7 @@ service cloud.firestore {
         ) && (!incoming().diff(existing()).affectedKeys().hasAny(['isAdmin']) || isAdmin())
         ) ||
         // Allow others to update balance fields, monetizationStatus, presence and follow stats during follows/transactions/donations/sales
-        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'pendingBalance', 'totalEarnings', 'followedUsers', 'followers', 'creatorStats', 'monetizationStatus', 'isOnline', 'lastSeen']))
+        (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'pendingBalance', 'totalEarnings', 'followedUsers', 'followers', 'creatorStats', 'monetizationStatus', 'isOnline', 'lastSeen', 'monetizationGoals']))
       ));
       allow delete: if isAdmin();
     }
@@ -176,8 +176,8 @@ service cloud.firestore {
             'isOnline', 'followedUsers', 'followers', 'idVerificationStatus', 'balance', 
             'monetizationStatus', 'lastSeen', 'userType', 'address', 'monetizationGoals', 'academicRole',
             'id', 'createdAt', 'isSuspended', 'isFrozen', 'isPremium', 'birthDate', 'country',
-            'updatedAt', 'timestamp', 'isMonetized', 'monetizationTier', 'blockedUserIds'
-          ])
+            'updatedAt', 'timestamp', 'isMonetized', 'monetizationTier', 'blockedUserIds', 'isAdmin'
+          ]) && (!incoming().diff(existing()).affectedKeys().hasAny(['isAdmin']) || isAdmin())
         ) ||
         // Allow others to update balance, presence, follow stats, and monetization status during follows/transactions
         (incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'isOnline', 'lastSeen', 'followers', 'followedUsers', 'monetizationStatus', 'creatorStats']))

@@ -561,7 +561,7 @@ const PostCard: React.FC<PostCardProps> = ({
               ) : (
                 <VideoPlayer 
                   src={post.reel?.videoUrl || post.imageUrl || ''} 
-                  poster={post.reel?.coverImageUrl}
+                  poster={post.reel?.coverImageUrl || post.imageUrl}
                   className="w-full h-full"
                   isReel={post.type === PostType.REEL || post.type?.toString().toUpperCase() === 'REEL'}
                   loop={false}

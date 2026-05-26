@@ -1,6 +1,56 @@
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+
+// Polyfills para localStorage e sessionStorage em ambientes com restrição de cookies de terceiros (iFrame)
+try {
+  const test = window.localStorage;
+} catch (e) {
+  console.warn("⚠️ LocalStorage está desativado devido a restrições de iframe cruzado. Ativando fallback em memória.");
+  const memoryStore: Record<string, string> = {};
+  const mockStorage: Storage = {
+    get length() {
+      return Object.keys(memoryStore).length;
+    },
+    clear: () => {
+      for (const k in memoryStore) delete memoryStore[k];
+    },
+    getItem: (key) => memoryStore[key] || null,
+    key: (index) => Object.keys(memoryStore)[index] || null,
+    removeItem: (key) => {
+      delete memoryStore[key];
+    },
+    setItem: (key, value) => {
+      memoryStore[key] = String(value);
+    }
+  };
+  Object.defineProperty(window, 'localStorage', { value: mockStorage, writable: true });
+}
+
+try {
+  const test = window.sessionStorage;
+} catch (e) {
+  console.warn("⚠️ SessionStorage está desativado devido a restrições de iframe cruzado. Ativando fallback em memória.");
+  const memoryStore: Record<string, string> = {};
+  const mockStorage: Storage = {
+    get length() {
+      return Object.keys(memoryStore).length;
+    },
+    clear: () => {
+      for (const k in memoryStore) delete memoryStore[k];
+    },
+    getItem: (key) => memoryStore[key] || null,
+    key: (index) => Object.keys(memoryStore)[index] || null,
+    removeItem: (key) => {
+      delete memoryStore[key];
+    },
+    setItem: (key, value) => {
+      memoryStore[key] = String(value);
+    }
+  };
+  Object.defineProperty(window, 'sessionStorage', { value: mockStorage, writable: true });
+}
+
 import App from './App';
 import './index.css';
 import './i18n';

@@ -615,12 +615,20 @@ const App: React.FC = () => {
         const isExpired = currentUser.idVerificationDocs?.expiresAt && currentUser.idVerificationDocs.expiresAt < Date.now();
         const isVerifying = verificationStatus === 'PENDING';
         
-        const isAdminEmail = currentUser.email === 'alfaajmc@gmail.com' || currentUser.email === 'ac926815124@gmail.com';
+        const emailLower = (currentUser.email || '').toLowerCase().trim();
+        const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
         const effectiveIsAdmin = currentUser.isAdmin || isAdminEmail;
         
         // Se o usuário já tem o flag isVerified ou está com status APPROVED, e não está expirado, permitimos a navegação.
-        // Administradores sempre pulam a verificação.
-        const hasApprovedVerification = (currentUser.isVerified === true || verificationStatus === 'APPROVED') && !isExpired;
+        // Administradores sempre pulam a verificação. No caso de usuários já verificados, pulam a verificação de ID para não reaparecer a tela.
+        const localVerified = localStorage.getItem(`cp_user_verified_${currentUser.id}`) === 'true';
+        const localStatus = localStorage.getItem(`cp_user_verification_status_${currentUser.id}`);
+
+        const hasApprovedVerification = currentUser.isVerified === true || 
+                                       String(currentUser.isVerified) === 'true' || 
+                                       (verificationStatus === 'APPROVED' && !isExpired) ||
+                                       localVerified ||
+                                       localStatus === 'APPROVED';
 
         // Mostra a tela de verificação se não for Admin, não tiver verificação aprovada e não tiver pulado na sessão atual
         const isUserSkipped = isSkippedVerification || 
