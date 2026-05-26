@@ -266,6 +266,9 @@ async function startServer() {
       let bodyString = "";
       let signature = "";
 
+      // Safe environment diagnostics
+      console.log(`[Veriff Proxy Diagnostic] Token prefix: ${apiToken ? apiToken.substring(0, 8) : "none"}... (Length: ${apiToken.length}), Secret prefix: ${apiSecret ? apiSecret.substring(0, 8) : "none"}... (Length: ${apiSecret.length})`);
+
       if (method !== "GET") {
         const rawBody = (req as any).rawBody;
         if (rawBody && rawBody.length > 0) {
@@ -279,16 +282,38 @@ async function startServer() {
           const signatureCreator = crypto.createHmac("sha256", apiSecret);
           signatureCreator.update(bodyString);
           signature = signatureCreator.digest("hex");
+          console.log(`[Veriff Proxy] Generated POST/PATCH signature for payload length ${bodyString.length}: ${signature}`);
+        }
+      } else {
+        // GET requests require signing the sessionId (also known as query id/session ID in Veriff spec)
+        // Detect session ID from subPath (e.g. sessions/some-id/decision)
+        let sessionId = "";
+        const pathParts = subPath.split("/");
+        const sessionsIndex = pathParts.indexOf("sessions");
+        if (sessionsIndex !== -1 && pathParts[sessionsIndex + 1]) {
+          sessionId = pathParts[sessionsIndex + 1];
+        }
+
+        if (sessionId) {
+          const signatureCreator = crypto.createHmac("sha256", apiSecret);
+          signatureCreator.update(sessionId);
+          signature = signatureCreator.digest("hex");
+          console.log(`[Veriff Proxy] Generated GET signature for sessionId (${sessionId}): ${signature}`);
         }
       }
 
       const headers: Record<string, string> = {
         "Accept": "application/json",
         "X-AUTH-CLIENT": apiToken,
+        "x-auth-client": apiToken,
       };
 
       if (signature) {
+        // Set all standard spelling and casing headers to support any variations expected by Veriff
         headers["X-SIGNATURE"] = signature;
+        headers["X-HMAC-SIGNATURE"] = signature;
+        headers["x-signature"] = signature;
+        headers["x-hmac-signature"] = signature;
       }
 
       if (method !== "GET" && bodyString) {

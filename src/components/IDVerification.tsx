@@ -18,6 +18,7 @@ import {
 import { Terminal, Copy, Check, Eye, Play, Sparkle, RefreshCw, KeyRound, Globe, Phone, Mail, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useDialog } from '../services/DialogContext';
+import { COUNTRIES } from '../data/countries';
 
 interface IDVerificationProps {
   user: User;
@@ -176,7 +177,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
     const [veriffStep, setVeriffStep] = useState<'welcome' | 'create_session' | 'sdk_flow' | 'approved' | 'failed'>('welcome');
     const [veriffFirstName, setVeriffFirstName] = useState(user.firstName || 'Jane');
     const [veriffLastName, setVeriffLastName] = useState(user.lastName || 'Doe');
-    const [veriffCountry, setVeriffCountry] = useState('EST');
+    const [veriffCountry, setVeriffCountry] = useState('BRA');
     const [veriffDocType, setVeriffDocType] = useState<'PASSPORT' | 'ID_CARD' | 'DRIVERS_LICENSE'>('PASSPORT');
 
     // Live API execution properties
@@ -967,14 +968,18 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         <div className="space-y-1">
-                                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Globe className="h-3 w-3 text-brand" /> NACIONALIDADE DO DOCUMENTO (ex: BRA, EST, USA)</label>
-                                            <input 
-                                                type="text"
-                                                maxLength={3}
+                                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Globe className="h-3 w-3 text-brand" /> NACIONALIDADE DO DOCUMENTO</label>
+                                            <select 
                                                 value={veriffCountry}
-                                                onChange={(e) => setVeriffCountry(e.target.value.toUpperCase())}
-                                                className="w-full p-2.5 bg-gray-50 dark:bg-white/5 border border-transparent rounded-lg dark:text-white text-xs outline-none focus:border-brand font-bold"
-                                            />
+                                                onChange={(e) => setVeriffCountry(e.target.value)}
+                                                className="w-full p-2.5 bg-gray-50 dark:bg-white/5 border border-transparent rounded-lg dark:text-white text-xs outline-none focus:border-brand font-bold cursor-pointer"
+                                            >
+                                                {COUNTRIES.map((c) => (
+                                                    <option key={c.code3} value={c.code3} className="bg-white dark:bg-zinc-900 text-gray-950 dark:text-white">
+                                                        {c.flag} {c.name} ({c.code3})
+                                                    </option>
+                                                ))}
+                                            </select>
                                         </div>
                                         <div className="space-y-1">
                                             <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">TIPO DE DOCUMENTO</label>
