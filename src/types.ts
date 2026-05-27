@@ -1,5 +1,5 @@
 
-export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'cart' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users' | 'premium' | 'landing' | 'creator-center' | 'explore' | 'cyber-assistant' | 'product-detail' | 'post-detail';
+export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'cart' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users' | 'premium' | 'landing' | 'creator-center' | 'explore' | 'cyber-assistant' | 'product-detail' | 'post-detail' | 'id-verification';
 
 export type MonetizationStatus = 'INELIGIBLE' | 'ELIGIBLE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 

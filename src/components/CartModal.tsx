@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { XMarkIcon, TrashIcon, ShoppingBagIcon, ChevronRightIcon, PlusIcon, MinusIcon } from '@heroicons/react/24/solid';
 import { User, Product, CartItem } from '../types';
-import { getProduct } from '../services/storageService';
+import { getProduct, findUserById } from '../services/storageService';
 import { motion, AnimatePresence } from 'motion/react';
 import { safeJsonStringify } from '../lib/utils';
+import { useDialog } from '../services/DialogContext';
 
 interface CartItemExt extends CartItem {
   product?: Product;
@@ -18,8 +19,19 @@ interface CartModalProps {
 }
 
 const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, setCart, onCheckout }) => {
+  const { showAlert } = useDialog();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [hydrationCart, setHydrationCart] = useState<CartItemExt[]>([]);
+
+  useEffect(() => {
+    const uid = localStorage.getItem('cyberphone_current_user_id');
+    if (uid) {
+      findUserById(uid).then(user => {
+        if (user) setCurrentUser(user);
+      });
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -141,7 +153,25 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, setCart, o
                     </div>
                 </div>
                 <button 
-                    onClick={onCheckout}
+                    onClick={() => {
+                        const isRestrictedUser = (user: any) => {
+                          if (!user) return false;
+                          const emailLower = (user.email || '').toLowerCase().trim();
+                          const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+                          if (user.isAdmin || isAdminEmail) return false;
+                          
+                          const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+                          const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+                          const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+                          return !hasApprovedVerification;
+                        };
+
+                        if (isRestrictedUser(currentUser)) {
+                          showAlert("Sua conta está em MODO RESTRITO por falta de verificação de identidade. Por favor, conclua a Verificação de Identidade em Configurações para finalizar a compra.", { type: "error" });
+                          return;
+                        }
+                        onCheckout();
+                    }}
                     className="w-full bg-brand text-white py-6 rounded-3xl font-black uppercase text-sm flex items-center justify-center gap-3 shadow-xl shadow-brand/30 hover:scale-[1.02] active:scale-95 transition-all"
                 >
                     Finalizar Compra

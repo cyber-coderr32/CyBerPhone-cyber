@@ -153,6 +153,23 @@ const CreatePost: React.FC<CreatePostProps> = ({ currentUser, onPostCreated, ref
     e.preventDefault();
     if (!content.trim() && !imageFile && !videoFile && postType !== PostType.LIVE) return;
 
+    const isRestrictedUser = (user: any) => {
+      if (!user) return false;
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+      if (user.isAdmin || isAdminEmail) return false;
+      
+      const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+      const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      return !hasApprovedVerification;
+    };
+
+    if (isRestrictedUser(currentUser)) {
+      showAlert("Sua conta está em MODO RESTRITO por falta de verificação de identidade. Por favor, conclua a Verificação de Identidade em Configurações para criar publicações.", { type: 'error' });
+      return;
+    }
+
     setLoading(true);
     try {
       // Sentinel AI Check

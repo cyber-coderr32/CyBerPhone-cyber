@@ -184,6 +184,28 @@ export const StorePage: React.FC<StorePageProps> = ({
     onOpenCart
 }) => {
   const { showAlert } = useDialog();
+
+  const handleAddToCartSecure = (pid: string, qty: number, color?: string, aff?: string) => {
+    const isRestrictedUser = (user: any) => {
+      if (!user) return false;
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+      if (user.isAdmin || isAdminEmail) return false;
+      
+      const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+      const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      return !hasApprovedVerification;
+    };
+
+    if (isRestrictedUser(currentUser)) {
+      showAlert("Sua conta está em MODO RESTRITO por falta de verificação de identidade. Por favor, conclua a Verificação de Identidade em Configurações para realizar compras.", { type: "error" });
+      return;
+    }
+
+    onAddToCart(pid, qty, color, aff);
+  };
+
   const [products, setProducts] = useState<Product[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [loading, setLoading] = useState(true);
@@ -477,7 +499,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     product={product} 
                                     store={stores.find(s => s.id === product.storeId)}
                                     onNavigate={onNavigate}
-                                    onAddToCart={onAddToCart}
+                                    onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
                                 />
                             </div>
@@ -497,7 +519,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     product={product} 
                                     store={stores.find(s => s.id === product.storeId)}
                                     onNavigate={onNavigate}
-                                    onAddToCart={onAddToCart}
+                                    onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
                                 />
                             </div>
@@ -526,7 +548,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     product={product} 
                                     store={stores.find(s => s.id === product.storeId)}
                                     onNavigate={onNavigate}
-                                    onAddToCart={onAddToCart}
+                                    onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
                                 />
                             ))}

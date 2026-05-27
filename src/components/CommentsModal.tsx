@@ -56,6 +56,23 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
     e.preventDefault();
     if (!newComment.trim() || submitting) return;
 
+    const isRestrictedUser = (user: any) => {
+      if (!user) return false;
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+      if (user.isAdmin || isAdminEmail) return false;
+      
+      const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+      const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      return !hasApprovedVerification;
+    };
+
+    if (isRestrictedUser(currentUser)) {
+      showAlert("Comentário Bloqueado", { type: 'error', title: 'Sua conta está em MODO RESTRITO' });
+      return;
+    }
+
     setSubmitting(true);
     try {
       // Sentinel AI Check

@@ -420,6 +420,23 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
     e.preventDefault();
     if ((!newMessage.trim() && !attachedFile) || !selectedChat || isSending) return;
 
+    const isRestrictedUser = (user: any) => {
+      if (!user) return false;
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+      if (user.isAdmin || isAdminEmail) return false;
+      
+      const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+      const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      return !hasApprovedVerification;
+    };
+
+    if (isRestrictedUser(currentUser)) {
+      showAlert("Sua conta está em MODO RESTRITO por falta de verificação de identidade. Por favor, conclua a Verificação de Identidade em Configurações para enviar mensagens.", { type: 'error', title: 'Acesso Restrito' });
+      return;
+    }
+
     setIsSending(true);
 
     try {
@@ -657,6 +674,24 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
 
   const handleStartCall = async (type: CallType) => {
     if (!selectedChat) return;
+
+    const isRestrictedUser = (user: any) => {
+      if (!user) return false;
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+      if (user.isAdmin || isAdminEmail) return false;
+      
+      const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+      const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      return !hasApprovedVerification;
+    };
+
+    if (isRestrictedUser(currentUser)) {
+      showAlert("Sua conta está em MODO RESTRITO por falta de verificação de identidade. Por favor, conclua a Verificação de Identidade em Configurações para iniciar chamadas.", { type: 'error', title: 'Acesso Restrito' });
+      return;
+    }
+
     if (selectedChat.type === ChatType.PRIVATE) {
         const partnerId = selectedChat.participants.find(p => p !== currentUser.id);
         if (partnerId) {

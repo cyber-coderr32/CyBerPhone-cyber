@@ -187,3 +187,32 @@ body {
 .animate-voice-bar-3 { animation: voice-bar 0.6s ease-in-out infinite alternate; }
 .animate-voice-bar-4 { animation: voice-bar 0.9s ease-in-out infinite alternate; }
 .animate-voice-bar-5 { animation: voice-bar 1.3s ease-in-out infinite alternate; }
+
+/* Enable and style scrollbar specifically for react-phone-input-2 country-list dropdown list */
+.react-tel-input .country-list::-webkit-scrollbar {
+  display: block !important;
+  width: 6px !important;
+}
+
+.react-tel-input .country-list::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.5) !important;
+  border-radius: 3px !important;
+}
+
+.react-tel-input .country-list::-webkit-scrollbar-track {
+  background-color: transparent !important;
+}
+
+.react-tel-input .country-list {
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(156, 163, 175, 0.5) transparent !important;
+  -ms-overflow-style: auto !important;
+  overflow-y: scroll !important;
+  pointer-events: auto !important;
+}
+
+.phone-input-container {
+  position: relative;
+  z-index: 50;
+  pointer-events: auto !important;
+}

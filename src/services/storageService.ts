@@ -288,11 +288,14 @@ export const findUserById = async (userId: string, authUserReference?: any, skip
     let docSnap;
     let data;
     let foundInPrivate = false;
+    let readPrivateSuccess = false;
+    let readPublicSuccess = false;
 
     if (isOwner) {
       try {
         console.log("[STORAGE] Tentando acesso privado (profiles)...");
         docSnap = await getDoc(doc(db, 'profiles', userId));
+        readPrivateSuccess = true;
         if (docSnap.exists()) {
           data = docSnap.data();
           foundInPrivate = true;
@@ -304,16 +307,21 @@ export const findUserById = async (userId: string, authUserReference?: any, skip
     }
 
     if (!foundInPrivate) {
-      docSnap = await getDoc(doc(db, 'public_profiles', userId));
-      if (docSnap.exists()) {
-        data = docSnap.data();
+      try {
+        docSnap = await getDoc(doc(db, 'public_profiles', userId));
+        readPublicSuccess = true;
+        if (docSnap.exists()) {
+          data = docSnap.data();
+        }
+      } catch (err: any) {
+        console.warn("[STORAGE] Falha na leitura pública em findUserById:", err.message || err);
       }
     }
     
     if (data) {
       return mapUserData(userId, data, currentAuth);
-    } else if (currentAuth && isOwner) {
-      // Se for o dono e não existir em lugar nenhum, cria o perfil básico
+    } else if (currentAuth && isOwner && (isOwner ? readPrivateSuccess : true) && readPublicSuccess) {
+      // Se for o dono e REALMENTE não existir em lugar nenhum (e os reads deram sucesso com exists == false), cria o perfil básico
       const newUser = mapUserData(userId, null, currentAuth);
       
       try {
@@ -510,11 +518,26 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
     // Private profile (contains PII)
     try {
       if (db) {
+        // Check if the profile already exists in Firestore to prevent resetting followedUsers, followers list or balances
+        let existingData: any = null;
+        try {
+          const profileSnap = await getDoc(doc(db, 'profiles', uid));
+          if (profileSnap.exists()) {
+            existingData = profileSnap.data();
+          }
+        } catch (readErr) {
+          console.warn("[STORAGE] Error checking existing user profile during creation:", readErr);
+        }
+
+        const balanceVal = existingData?.balance !== undefined ? existingData.balance : 1000;
+        const followedUsersVal = existingData?.followedUsers || [];
+        const followersVal = existingData?.followers || [];
+
         const filteredPrivate = filterProfileData({
             ...newUser,
-            balance: 1000, // Dá saldo inicial de 1000 KZ para testes
-            followedUsers: [],
-            followers: [],
+            balance: balanceVal,
+            followedUsers: followedUsersVal,
+            followers: followersVal,
             updatedAt: Date.now()
         });
         await setDoc(doc(db, 'profiles', uid), filteredPrivate);
@@ -525,9 +548,9 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
             ...publicDataRaw,
             birthDate: newUser.birthDate,
             country: newUser.country || '',
-            balance: 1000, // Sincroniza saldo inicial
-            followedUsers: [],
-            followers: [],
+            balance: balanceVal,
+            followedUsers: followedUsersVal,
+            followers: followersVal,
             updatedAt: Date.now()
         });
         await setDoc(doc(db, 'public_profiles', uid), filteredPublic);
@@ -1070,12 +1093,12 @@ export const toggleFollowUser = async (cur: string, target: string) => {
     const database = db;
     const batch = writeBatch(database);
     
-    // Update both private and public profiles
-    batch.update(doc(database, 'profiles', cur), { followedUsers: newFollowed });
-    batch.update(doc(database, 'public_profiles', cur), { followedUsers: newFollowed });
+    // Update both private and public profiles using set with merge to ensure missing entries are safe
+    batch.set(doc(database, 'profiles', cur), { followedUsers: newFollowed }, { merge: true });
+    batch.set(doc(database, 'public_profiles', cur), { followedUsers: newFollowed }, { merge: true });
     
-    batch.update(doc(database, 'profiles', target), { followers: newFollowers });
-    batch.update(doc(database, 'public_profiles', target), { followers: newFollowers });
+    batch.set(doc(database, 'profiles', target), { followers: newFollowers }, { merge: true });
+    batch.set(doc(database, 'public_profiles', target), { followers: newFollowers }, { merge: true });
 
     // Se estiver seguindo, enviar notificação
     if (!isFollowing) {
@@ -1110,8 +1133,8 @@ export const toggleFollowUser = async (cur: string, target: string) => {
     let newStatus = u2.monetizationStatus || 'INELIGIBLE';
     if (newStatus === 'INELIGIBLE' && meetsFollowers && meetsViews && meetsIdentity) {
         newStatus = 'ELIGIBLE';
-        batch.update(doc(db, 'profiles', target), { monetizationStatus: newStatus });
-        batch.update(doc(db, 'public_profiles', target), { monetizationStatus: newStatus });
+        batch.set(doc(db, 'profiles', target), { monetizationStatus: newStatus }, { merge: true });
+        batch.set(doc(db, 'public_profiles', target), { monetizationStatus: newStatus }, { merge: true });
     }
 
     await batch.commit();

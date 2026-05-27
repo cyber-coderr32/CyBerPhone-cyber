@@ -158,7 +158,7 @@ const base64ToBlob = (base64String: string, contentType = ''): Blob => {
 
 const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLogout, forceUpdate, onSkip }) => {
     const { showAlert } = useDialog();
-    const [verifEngine, setVerifEngine] = useState<'sentinel' | 'veriff'>('veriff');
+    const [verifEngine, setVerifEngine] = useState<'sentinel' | 'veriff'>('sentinel');
 
     // Sentinel State
     const [step, setStep] = useState<'welcome' | 'upload_docs' | 'upload_selfie' | 'verifying' | 'success'>('welcome');
@@ -647,7 +647,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                 <Globe className="h-4 w-4" /> VERIFICAÇÃO SEGURA
                             </h3>
                             <p className="text-xs text-gray-400 dark:text-gray-450 font-sans leading-relaxed">
-                                Seus dados de identidade e reconhecimento facial são processados através do sistema parceiro seguro <strong>Veriff KYC</strong>. De forma rápida e criptografada, seu perfil será autenticado em conformidade com os mais altos padrões de segurança de dados.
+                                Seus dados de identidade e reconhecimento facial são processados através do nosso sistema seguro de inteligência artificial <strong>Sentinela AI</strong>. De forma rápida e altamente criptografada, seu perfil será autenticado e auditado em conformidade com os mais rigorosos padrões de integridade e segurança digital.
                             </p>
                             <div className="space-y-2 mt-4">
                                 <div className="flex gap-2 items-center text-[10px] bg-gray-50 dark:bg-white/5 p-2 rounded-lg text-gray-500">

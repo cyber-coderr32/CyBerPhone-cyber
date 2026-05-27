@@ -654,6 +654,20 @@ const App: React.FC = () => {
         }
 
         switch (currentPage) {
+            case 'id-verification': return (
+                <IDVerification 
+                  user={currentUser} 
+                  onComplete={() => {
+                      refreshCurrentUser();
+                      handleNavigate('settings');
+                  }} 
+                  onLogout={handleLogout} 
+                  forceUpdate={!!isExpired} 
+                  onSkip={() => {
+                      handleNavigate('settings');
+                  }}
+                />
+            );
             case 'feed': return <FeedPage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} />;
             case 'profile': return <ProfilePage currentUser={currentUser} onNavigate={handleNavigate} refreshUser={refreshCurrentUser} userId={pageParams.userId} onOpenWallet={(mode) => setWalletConfig({ isOpen: true, mode })} />;
             case 'chat': return <ChatPage currentUser={currentUser} onNavigate={handleNavigate} params={pageParams} onMessagesRead={refreshUnreadMessagesCount} refreshUser={refreshCurrentUser} />;
@@ -738,6 +752,15 @@ const App: React.FC = () => {
             );
         }
 
+        const verificationStatus = currentUser?.idVerificationStatus || 'NOT_STARTED';
+        const isExpired = currentUser?.idVerificationDocs?.expiresAt && currentUser.idVerificationDocs.expiresAt < Date.now();
+        const emailLower = (currentUser?.email || '').toLowerCase().trim();
+        const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+        const effectiveIsAdmin = currentUser?.isAdmin || isAdminEmail;
+        const localVerified = currentUser ? localStorage.getItem(`cp_user_verified_${currentUser.id}`) === 'true' : false;
+        const localStatus = currentUser ? localStorage.getItem(`cp_user_verification_status_${currentUser.id}`) : null;
+        const hasApprovedVerification = currentUser ? (currentUser.isVerified === true || String(currentUser.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired) || localVerified || localStatus === 'APPROVED') : false;
+
         if (!isOnline && !isOfflineModeEnabled) {
             return <OfflinePage 
               onRetry={() => {
@@ -796,6 +819,15 @@ const App: React.FC = () => {
                       />
                     )}
                     <main className={`flex-grow w-full ${currentUser && currentPage !== 'admin' ? (currentPage === 'reels-page' ? `pt-0 md:pt-0 ${isKeyboardVisible ? 'pb-0' : 'pb-[72px]'} md:pb-0 md:ml-64 px-0` : `pt-[64px] md:pt-[72px] ${isKeyboardVisible ? 'pb-0' : 'pb-[80px]'} md:pb-8 md:ml-64 px-0 md:px-8`) : ''} transition-all overflow-x-hidden`}>
+                        {currentUser && !effectiveIsAdmin && !hasApprovedVerification && currentPage !== 'reels-page' && currentPage !== 'id-verification' && (
+                            <div className="bg-gradient-to-r from-red-600 to-rose-700 text-white text-[11px] font-black py-4 px-6 flex items-center justify-between w-full transition-all cursor-pointer shadow-lg rounded-[2rem] mb-6 hover:brightness-105 active:scale-[0.99]" onClick={() => handleNavigate('id-verification')}>
+                                <div className="flex items-center gap-3">
+                                    <span className="text-sm">⚠️</span>
+                                    <span>MODO RESTRITO: Sua conta não está verificada! Conclua a verificação de identidade para poder curtir, conversar, vender e comprar.</span>
+                                </div>
+                                <span className="bg-white/20 dark:bg-black/30 hover:bg-white/30 text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-all whitespace-nowrap ml-4">Verificar Agora</span>
+                            </div>
+                        )}
                         <div className={`w-full ${currentUser ? 'max-w-7xl mx-auto min-h-[calc(100vh-140px)]' : 'h-full'}`}>
                             <AnimatePresence mode="wait">
                                 <motion.div

@@ -392,7 +392,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                       onChange={phone => setIdentifier(phone)}
                       inputClass="!w-full !p-4 !bg-gray-100 !dark:bg-white/5 !rounded-2xl !text-gray-900 !dark:text-white !outline-none !border-2 !border-transparent !focus:border-[var(--brand-color)] !font-bold !transition-all !h-auto !text-base !pl-14"
                       buttonClass="!bg-transparent !border-0 !rounded-l-2xl !pl-3"
-                      dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-hidden !border-gray-100 !dark:border-white/10"
+                      dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-y-auto !max-h-[220px] !border-gray-100 !dark:border-white/10"
                       placeholder={t('phone_label')}
                       masks={{ br: '(..) .....-....' }}
                       containerClass="!w-full"
@@ -457,7 +457,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                         onChange={phone => setIdentifier(phone)}
                         inputClass="!w-full !p-4 !bg-gray-100 !dark:bg-white/5 !rounded-2xl !text-gray-900 !dark:text-white !outline-none !border-2 !border-transparent !focus:border-[var(--brand-color)] !font-bold !transition-all !h-auto !text-base !pl-14"
                         buttonClass="!bg-transparent !border-0 !rounded-l-2xl !pl-3"
-                        dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-hidden !border-gray-100 !dark:border-white/10"
+                        dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-y-auto !max-h-[220px] !border-gray-100 !dark:border-white/10"
                         placeholder={t('auth_phone_placeholder')}
                         masks={{ br: '(..) .....-....' }}
                         containerClass="!w-full"
@@ -482,7 +482,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                           onChange={phone => setConfirmIdentifier(phone)}
                           inputClass="!w-full !p-4 !bg-gray-100 !dark:bg-white/5 !rounded-2xl !text-gray-900 !dark:text-white !outline-none !border-2 !border-transparent !focus:border-[var(--brand-color)] !font-bold !transition-all !h-auto !text-base !pl-14"
                           buttonClass="!bg-transparent !border-0 !rounded-l-2xl !pl-3"
-                          dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-hidden !border-gray-100 !dark:border-white/10"
+                          dropdownClass="!bg-white !dark:bg-[#12161f] !text-gray-900 !dark:text-white !rounded-xl !shadow-2xl !overflow-y-auto !max-h-[220px] !border-gray-100 !dark:border-white/10"
                           placeholder={t('confirm_email_phone')}
                           masks={{ br: '(..) .....-....' }}
                           containerClass="!w-full"

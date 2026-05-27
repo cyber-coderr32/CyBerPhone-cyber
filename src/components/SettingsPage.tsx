@@ -610,8 +610,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               if (currentUser.idVerificationStatus === 'APPROVED') {
                   showAlert(t('settings_verified_success'), { type: 'success', title: t('settings_verified') });
               } else {
-                  onNavigate('feed');
-                  showAlert(t('settings_verification_in_progress'), { type: 'alert' });
+                  onNavigate('id-verification');
               }
           } 
         }

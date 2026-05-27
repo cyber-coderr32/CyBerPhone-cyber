@@ -598,6 +598,23 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
     e.preventDefault();
     if (!userStore || uploading) return;
 
+    const isRestrictedUser = (user: any) => {
+      if (!user) return false;
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+      if (user.isAdmin || isAdminEmail) return false;
+      
+      const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+      const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      return !hasApprovedVerification;
+    };
+
+    if (isRestrictedUser(currentUser)) {
+      showAlert("Sua conta está em MODO RESTRITO por falta de verificação de identidade. Por favor, conclua a Verificação de Identidade em Configurações para vender e gerenciar produtos.", { type: "error", title: "Acesso Restrito" });
+      return;
+    }
+
     // Sentinel AI Check
     const combinedContent = `${pName} ${pDesc}`;
     const sentinelResult = await checkContent(combinedContent, "product");

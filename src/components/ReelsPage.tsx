@@ -278,6 +278,24 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
   const handleLike = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    
+    const isRestrictedUser = (user: any) => {
+      if (!user) return false;
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+      if (user.isAdmin || isAdminEmail) return false;
+      
+      const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+      const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      return !hasApprovedVerification;
+    };
+
+    if (isRestrictedUser(currentUser)) {
+      showAlert("Sua conta está em MODO RESTRITO por falta de verificação de identidade. Por favor, conclua a Verificação de Identidade em Configurações para realizar esta ação.", { title: "Acesso Restrito" });
+      return;
+    }
+
     const newStatus = !isLiked;
     setIsLiked(newStatus);
     setLikesCount(prev => newStatus ? prev + 1 : prev - 1);

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { AdCampaign, User } from '../types';
 import { findUserById } from '../services/storageService';
+import { useDialog } from '../services/DialogContext';
 import { 
   HeartIcon as HeartOutline, 
   ChatBubbleLeftIcon, 
@@ -20,10 +21,21 @@ interface AdCardProps {
 }
 
 const AdCard: React.FC<AdCardProps> = ({ ad, rank }) => {
+  const { showAlert } = useDialog();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [advertiser, setAdvertiser] = useState<User | null>(null);
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(Math.floor(Math.random() * 500) + 100);
   const [commentsCount] = useState(Math.floor(Math.random() * 50) + 10);
+
+  useEffect(() => {
+    const uid = localStorage.getItem('cyberphone_current_user_id');
+    if (uid) {
+      findUserById(uid).then(user => {
+        if (user) setCurrentUser(user);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (ad.userId) {
@@ -34,6 +46,23 @@ const AdCard: React.FC<AdCardProps> = ({ ad, rank }) => {
   }, [ad.userId]);
 
   const handleLike = () => {
+    const isRestrictedUser = (user: any) => {
+      if (!user) return false;
+      const emailLower = (user.email || '').toLowerCase().trim();
+      const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+      if (user.isAdmin || isAdminEmail) return false;
+      
+      const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
+      const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      return !hasApprovedVerification;
+    };
+
+    if (isRestrictedUser(currentUser)) {
+      showAlert("Sua conta está em MODO RESTRITO por falta de verificação de identidade. Por favor, conclua a Verificação de Identidade em Configurações.", { title: "Acesso Restrito" });
+      return;
+    }
+
     setIsLiked(!isLiked);
     setLikesCount(prev => isLiked ? prev - 1 : prev + 1);
   };
