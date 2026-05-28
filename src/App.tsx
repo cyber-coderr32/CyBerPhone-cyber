@@ -89,7 +89,7 @@ const NotificationManager: React.FC<NotificationManagerProps> = ({
     setUnreadMessagesCount 
 }) => {
     const { t } = useTranslation();
-    const { showSuccess } = useDialog();
+    const { showSuccess, showAlert } = useDialog();
     const lastNotificationIdRef = useRef<string | null>(null);
     const lastMessageCountRef = useRef<number>(0);
 
@@ -111,10 +111,16 @@ const NotificationManager: React.FC<NotificationManagerProps> = ({
                         const actor = await findUserById(latest.actorId);
                         if (actor) {
                             const content = getNotificationContent(latest.type, actor.firstName, latest.groupName, latest.callType);
+                            // Web standard notification (blocked in iframes/some mobiles)
                             showNotification(content.title, { 
                                 body: content.body,
                                 icon: actor.profilePicture,
                                 url: window.location.origin
+                            });
+                            // Safe visual fallback toast overlay
+                            showAlert(content.body, {
+                                title: content.title,
+                                type: 'alert'
                             });
                         }
                     }
@@ -123,9 +129,14 @@ const NotificationManager: React.FC<NotificationManagerProps> = ({
 
                 const msgCount = await getUnreadMessagesCount(userId);
                 if (msgCount > lastMessageCountRef.current) {
+                    const msgBody = t('app_unread_messages', { count: msgCount });
                     showNotification(t('app_new_message'), {
-                        body: t('app_unread_messages', { count: msgCount }),
+                        body: msgBody,
                         url: window.location.origin
+                    });
+                    showAlert(msgBody, {
+                        title: t('app_new_message'),
+                        type: 'alert'
                     });
                 }
                 setUnreadMessagesCount(prev => prev !== msgCount ? msgCount : prev);

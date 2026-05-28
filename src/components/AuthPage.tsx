@@ -1,5 +1,6 @@
 
 import React, { useState, useRef } from 'react';
+import { safeJsonStringify } from '../lib/utils';
 import { User, Page } from '../types';
 import { loginUser, registerUser, saveCurrentUser, recoverPassword, loginWithGoogle } from '../services/storageService';
 import { COUNTRIES } from '../data/countries';
@@ -70,7 +71,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
 
     // Direct JSON-like check on string representation to capture nested errors
     try {
-      const errString = typeof error === 'string' ? error : JSON.stringify(error);
+      const errString = typeof error === 'string' ? error : safeJsonStringify(error);
       if (errString && (errString.includes('auth/invalid-credential') || errString.includes('invalid-credential'))) {
         return t('auth_error_invalid_credentials');
       }

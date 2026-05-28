@@ -32,7 +32,8 @@ import {
   ArrowDownTrayIcon,
   NoSymbolIcon,
   BellIcon,
-  ShieldCheckIcon
+  ShieldCheckIcon,
+  BookmarkIcon
 } from '@heroicons/react/24/outline';
 import ConfirmationModal, { ConfirmationType } from './ConfirmationModal';
 
@@ -600,6 +601,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
           } 
         },
         { id: 'blocked', labelKey: 'usuarios_bloqueados', descKey: 'gerenciar_lista_negra', icon: NoSymbolIcon, onClick: () => onNavigate('blocked-users') },
+        { id: 'saved', labelKey: 'itens_salvos', descKey: 'gerenciar_itens_salvos', icon: BookmarkIcon, onClick: () => onNavigate('saved') },
         { id: 'language', labelKey: 'idioma_do_sistema', descKey: 'alterar_linguagem_global', icon: LanguageIcon, onClick: () => setView('language') },
         { 
           id: 'id-verification',

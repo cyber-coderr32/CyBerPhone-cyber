@@ -147,7 +147,7 @@ export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       
       {/* Premium Stacking Toast Drawer fixed top/bottom */}
       <div 
-        className="fixed bottom-4 right-4 left-4 sm:left-auto md:bottom-6 md:right-6 z-[99999] flex flex-col gap-3 max-w-sm w-auto pointer-events-none"
+        className="fixed top-4 right-4 left-4 sm:left-auto md:top-6 md:right-6 z-[99999] flex flex-col gap-3 max-w-sm w-auto pointer-events-none"
         id="cyberphone-toast-deck"
       >
         <AnimatePresence>
@@ -156,7 +156,7 @@ export const DialogProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             return (
               <motion.div
                 key={toast.id}
-                initial={{ opacity: 0, y: 30, scale: 0.9 }}
+                initial={{ opacity: 0, y: -30, scale: 0.9 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.15 } }}
                 className={`w-full pointer-events-auto rounded-[1.5rem] border backdrop-blur-xl p-4.5 shadow-2xl flex gap-3.5 relative overflow-hidden text-left ${styles.bg}`}

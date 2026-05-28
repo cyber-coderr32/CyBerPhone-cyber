@@ -134,12 +134,18 @@ try {
   `;
 }
 
-// Service worker registration - Disabled due to Redirect/Security issues in AI Studio Iframe
-/*
-if ('serviceWorker' in navigator && window.self === window.top && import.meta.env.PROD) {
-  // Service worker registration
+// Service worker registration - Enabled for top-level window to allow full PWA support & installability
+if ('serviceWorker' in navigator && (window.self === window.top || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+  window.addEventListener('load', () => {
+    const swUrl = '/sw.js';
+    navigator.serviceWorker.register(swUrl)
+      .then((reg) => {
+        console.log('[PWA] Service Worker registrado com sucesso no escopo:', reg.scope);
+      })
+      .catch((err) => {
+        console.error('[PWA] Erro ao registrar o Service Worker:', err);
+      });
+  });
 } else if (window.self !== window.top) {
-  console.log('[PWA] Rodando dentro de um iframe. Registro de Service Worker pulado.');
+  console.log('[PWA] Rodando dentro de um iframe. Registro de Service Worker pulado para garantir compatibilidade.');
 }
-*/
-console.log('[PWA] Service Worker desativado para estabilidade no Iframe.');
