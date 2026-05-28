@@ -1826,6 +1826,7 @@ export const PROFILE_WHITELIST = [
     'userType', 'monetizationGoals', 'monetizationStatus', 'isVerified', 'monetizationTier',
     'balance', 'pendingBalance', 'totalEarnings', 'isMonetized', 'isFrozen',
     'creatorStats', 'isPremium', 'premiumExpiry', 'resellerName', 'resellerBio', 'resellerBanner',
+    'hasStorePremium', 'storePremiumPlan',
     'storeId', 'isSuspended', 'verificationFileUrl', 'totalWithdrawn', 'id', 'createdAt', 'isAdmin'
 ];
 
@@ -2195,6 +2196,15 @@ export const updateUser = async (u: User) => {
     const publicPath = 'public_profiles';
     if (!db) return;
     try {
+        // Auto-assign YouTube-style monetization level upon approval
+        if (u.monetizationStatus === 'APPROVED') {
+            const currentFollowers = u.followers?.length || 0;
+            const currentWatchHours = u.monetizationGoals?.currentWatchHours || 0;
+            const currentShortsViews = u.monetizationGoals?.currentShortsViews || 0;
+            const isL2 = currentFollowers >= 1000 && (currentWatchHours >= 4000 || currentShortsViews >= 10000000);
+            u.monetizationTier = isL2 ? 'LEVEL_2' as any : 'LEVEL_1' as any;
+            u.isMonetized = true;
+        }
         // Filter data using the whitelist
         const updateData = filterProfileData(u);
 
@@ -2205,7 +2215,7 @@ export const updateUser = async (u: User) => {
         const publicFields = [
             'firstName', 'lastName', 'profilePicture', 'coverPhoto', 'bio', 'isVerified', 
             'isOnline', 'followedUsers', 'followers', 'idVerificationStatus', 'balance', 
-            'monetizationStatus', 'lastSeen', 'userType', 'address', 'monetizationGoals', 
+            'monetizationStatus', 'monetizationTier', 'lastSeen', 'userType', 'address', 'monetizationGoals', 
             'academicRole', 'id', 'createdAt', 'isSuspended', 'isFrozen', 'isPremium',
             'birthDate', 'country', 'isAdmin'
         ];
@@ -3724,7 +3734,17 @@ export const deleteComment = async (pid: string, cid: string) => {
     const ref = doc(db, 'posts', pid);
     const d = await getDoc(ref);
     if(d.exists()){
-        const comments = (d.data().comments || []).filter((c:any) => c.id !== cid);
+        const removeRecursive = (list: any[]): any[] => {
+            return list
+                .filter((item: any) => item.id !== cid)
+                .map((item: any) => {
+                    if (item.replies && item.replies.length > 0) {
+                        return { ...item, replies: removeRecursive(item.replies) };
+                    }
+                    return item;
+                });
+        };
+        const comments = removeRecursive(d.data().comments || []);
         await updateDoc(ref, { comments });
     }
 };

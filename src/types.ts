@@ -157,6 +157,8 @@ export interface User {
   isFrozen?: boolean;
   verificationFileUrl?: string;
   blockedUserIds?: string[];
+  hasStorePremium?: boolean;
+  storePremiumPlan?: 'monthly' | 'yearly' | null;
   // Status Online
   isOnline?: boolean;
   lastSeen?: number;

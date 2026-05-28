@@ -1,13 +1,173 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Comment, User, NotificationType } from '../types';
-import { addPostComment, getPosts, generateUUID, toggleReaction, addCommentReply, createNotification } from '../services/storageService';
+import { addPostComment, getPosts, generateUUID, toggleReaction, addCommentReply, createNotification, deleteComment } from '../services/storageService';
 import { XMarkIcon, PaperAirplaneIcon, ChatBubbleOvalLeftIcon, FaceSmileIcon, TrashIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/solid';
 import { DEFAULT_PROFILE_PIC, ANONYMOUS_PROFILE_PIC } from '../data/constants';
 import { checkContent } from '../services/sentinelService';
 import { useDialog } from '../services/DialogContext';
 import { safeJsonStringify } from '../lib/utils';
+
+interface CommentItemProps {
+  c: Comment;
+  depth?: number;
+  currentUser: User;
+  postOwnerId?: string;
+  t: any;
+  handleReaction: (commentId: string, emoji: string) => void;
+  handleDeleteComment: (commentId: string) => void;
+  setReplyingTo: (reply: { id: string, userName: string } | null) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  reactionEmojis: string[];
+}
+
+const CommentItem: React.FC<CommentItemProps> = ({
+  c,
+  depth = 0,
+  currentUser,
+  postOwnerId,
+  t,
+  handleReaction,
+  handleDeleteComment,
+  setReplyingTo,
+  inputRef,
+  reactionEmojis
+}) => {
+  const [showPicker, setShowPicker] = useState(false);
+  const displayName = c.isAnonymous ? t('anonymous_user') : c.userName;
+  const displayPic = c.isAnonymous ? ANONYMOUS_PROFILE_PIC : (c.profilePic || DEFAULT_PROFILE_PIC);
+  const canDelete = currentUser?.id === c.userId || 
+                    currentUser?.id === postOwnerId || 
+                    currentUser?.isAdmin || 
+                    currentUser?.email?.toLowerCase().trim() === 'alfaajmc@gmail.com' || 
+                    currentUser?.email?.toLowerCase().trim() === 'ac926815124@gmail.com';
+
+  const getSCTheme = (amount: number) => {
+    if (amount < 500) return 'border-l-4 border-l-blue-500 bg-blue-500/5 dark:bg-blue-505/10 dark:border-l-blue-400';
+    if (amount < 1500) return 'border-l-4 border-l-teal-500 bg-teal-500/5 dark:bg-teal-505/10 dark:border-l-teal-400';
+    if (amount < 3000) return 'border-l-4 border-l-amber-500 bg-amber-500/5 dark:bg-amber-505/10 dark:border-l-amber-400';
+    if (amount < 6000) return 'border-l-4 border-l-purple-500 bg-purple-500/5 dark:bg-purple-550/10 dark:border-l-purple-400';
+    return 'border-l-4 border-l-red-500 bg-red-500/5 dark:bg-red-505/10 dark:border-l-red-400';
+  };
+
+  return (
+    <div 
+      className={`flex gap-3 group ${depth > 0 ? 'ml-8 border-l dark:border-white/10 pl-2' : ''}`}
+    >
+      <img src={displayPic} className="w-8 h-8 rounded-full object-cover shrink-0 border border-gray-200 dark:border-white/10" alt={displayName} />
+      <div className="flex-1">
+        <div className={`p-3 rounded-2xl rounded-tl-none shadow-sm relative border ${
+          c.isSuperChat 
+            ? `${getSCTheme(c.superChatAmount || 0)} border-transparent` 
+            : 'bg-white dark:bg-zinc-800 border-gray-100 dark:border-white/5'
+        }`}>
+          <div className="flex items-center justify-between gap-1.5 mb-1">
+            <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tight">{displayName}</p>
+            {c.isSuperChat && (
+              <span className="text-[7.5px] font-black uppercase text-amber-500 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 shrink-0">
+                ⚡ Super Chat • {(c.superChatAmount || 0).toLocaleString('pt-AO')} KZ
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed font-medium">{c.text}</p>
+          
+          {/* Reactions Display */}
+          {c.reactions && Object.keys(c.reactions).some(emoji => c.reactions![emoji].length > 0) && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {Object.entries(c.reactions).map(([emoji, users]) => (
+                users.length > 0 && (
+                  <button 
+                    key={emoji}
+                    onClick={() => handleReaction(c.id, emoji)}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] border transition-all ${users.includes(currentUser.id) ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700' : 'bg-gray-50 border-gray-100 dark:bg-white/5 dark:border-white/10'}`}
+                  >
+                    <span>{emoji}</span>
+                    <span className="font-bold dark:text-white">{users.length}</span>
+                  </button>
+                )
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="flex flex-col gap-1.5 mt-1 ml-2">
+          <div className="flex items-center flex-wrap gap-3">
+            <span className="text-[9px] text-gray-400 font-bold">{new Date(c.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+            
+            <button 
+              onClick={() => {
+                setReplyingTo({ id: c.id, userName: c.userName });
+                inputRef.current?.focus();
+              }}
+              className="text-[9px] text-gray-400 font-bold hover:text-blue-500 transition-colors uppercase"
+            >
+              Responder
+            </button>
+
+            <button 
+              onClick={() => setShowPicker(!showPicker)}
+              className={`text-[9px] font-bold uppercase flex items-center gap-1 transition-colors ${showPicker ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'}`}
+            >
+              <FaceSmileIcon className="h-3 w-3 inline" />
+              <span>{t('react', 'Reagir')}</span>
+            </button>
+
+            {canDelete && (
+              <button 
+                onClick={() => handleDeleteComment(c.id)}
+                className="text-[9px] text-red-500 font-bold hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/20 px-1 py-0.5 rounded transition-all uppercase flex items-center gap-0.5"
+                title="Eliminar"
+              >
+                <TrashIcon className="h-2.5 w-2.5" />
+                <span>{t('delete', 'Eliminar')}</span>
+              </button>
+            )}
+          </div>
+
+          {/* Inline Reaction Picker Shelf */}
+          {showPicker && (
+            <div className="flex items-center gap-1.5 bg-gray-100 dark:bg-zinc-700 p-1 rounded-full border border-gray-200 dark:border-zinc-600 shadow-sm w-fit animate-scale-in">
+              {reactionEmojis.map(emoji => (
+                <button 
+                  key={emoji}
+                  onClick={() => {
+                    handleReaction(c.id, emoji);
+                    setShowPicker(false);
+                  }}
+                  className="hover:scale-130 active:scale-95 transition-transform p-1 text-[14px]"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Recursive Replies */}
+        {c.replies && c.replies.length > 0 && (
+          <div className="mt-3 space-y-3">
+            {c.replies.map(reply => (
+              <CommentItem 
+                key={reply.id} 
+                c={reply} 
+                depth={depth + 1}
+                currentUser={currentUser}
+                postOwnerId={postOwnerId}
+                t={t}
+                handleReaction={handleReaction}
+                handleDeleteComment={handleDeleteComment}
+                setReplyingTo={setReplyingTo}
+                inputRef={inputRef}
+                reactionEmojis={reactionEmojis}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 interface CommentsModalProps {
   postId: string;
@@ -19,7 +179,7 @@ interface CommentsModalProps {
 
 const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onClose, onCommentsUpdated, postOwnerId }) => {
   const { t } = useTranslation();
-  const { showAlert } = useDialog();
+  const { showAlert, showConfirm } = useDialog();
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [loading, setLoading] = useState(true);
@@ -47,10 +207,19 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
   }, [postId]);
 
   useEffect(() => {
+    // Lock body-scroll when the comments modal is active to prevent background layout shift
+    const originalStyle = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalStyle;
+    };
+  }, []);
+
+  useEffect(() => {
     if (commentsEndRef.current && !loading) {
-      commentsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      commentsEndRef.current.scrollIntoView({ behavior: 'auto' });
     }
-  }, [comments, loading]);
+  }, [loading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,6 +275,9 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
       setNewComment('');
       await fetchComments();
       onCommentsUpdated();
+      setTimeout(() => {
+        commentsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     } catch (err) {
       console.error("Erro ao comentar:", safeJsonStringify(err));
       showAlert("Ocorreu um erro ao enviar seu comentário.", { type: 'error' });
@@ -123,82 +295,26 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
     }
   };
 
-  const REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😮', '😢', '👍', '🙏'];
-
-  const RenderComment = ({ c, depth = 0 }: { c: Comment, depth?: number }) => {
-    const displayName = c.isAnonymous ? t('anonymous_user') : c.userName;
-    const displayPic = c.isAnonymous ? ANONYMOUS_PROFILE_PIC : (c.profilePic || DEFAULT_PROFILE_PIC);
-
-    return (
-      <div 
-        className={`flex gap-3 group animate-fade-in ${depth > 0 ? 'ml-8 boarder-l dark:border-white/10 pl-2' : ''}`}
-      >
-        <img src={displayPic} className="w-8 h-8 rounded-full object-cover shrink-0 border border-gray-200 dark:border-white/10" alt={displayName} />
-        <div className="flex-1">
-          <div className="bg-white dark:bg-zinc-800 p-3 rounded-2xl rounded-tl-none shadow-sm border border-gray-100 dark:border-white/5 relative">
-            <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-tight mb-1">{displayName}</p>
-            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed font-medium">{c.text}</p>
-            
-            {/* Reactions Display */}
-            {c.reactions && Object.keys(c.reactions).some(emoji => c.reactions![emoji].length > 0) && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {Object.entries(c.reactions).map(([emoji, users]) => (
-                  users.length > 0 && (
-                    <button 
-                      key={emoji}
-                      onClick={() => handleReaction(c.id, emoji)}
-                      className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] border transition-all ${users.includes(currentUser.id) ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/30 dark:border-blue-700' : 'bg-gray-50 border-gray-100 dark:bg-white/5 dark:border-white/10'}`}
-                    >
-                      <span>{emoji}</span>
-                      <span className="font-bold dark:text-white">{users.length}</span>
-                    </button>
-                  )
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-3 ml-2 mt-1">
-            <span className="text-[9px] text-gray-400 font-bold">{new Date(c.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-            
-            <button 
-              onClick={() => {
-                setReplyingTo({ id: c.id, userName: c.userName });
-                inputRef.current?.focus();
-              }}
-              className="text-[9px] text-gray-400 font-bold hover:text-blue-500 transition-colors uppercase"
-            >
-              Responder
-            </button>
-
-            {/* Reaction Picker */}
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              {REACTION_EMOJIS.map(emoji => (
-                <button 
-                  key={emoji}
-                  onClick={() => handleReaction(c.id, emoji)}
-                  className="hover:scale-125 transition-transform p-0.5 text-[12px]"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Recursive Replies */}
-          {c.replies && c.replies.length > 0 && (
-            <div className="mt-3 space-y-3">
-              {c.replies.map(reply => (
-                <RenderComment key={reply.id} c={reply} depth={depth + 1} />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
+  const handleDeleteComment = async (commentId: string) => {
+    if (await showConfirm(t('delete_comment_confirm', 'Deseja realmente eliminar este comentário?'))) {
+      try {
+        await deleteComment(postId, commentId);
+        await fetchComments();
+        onCommentsUpdated();
+      } catch (err) {
+        console.error("Erro ao deletar comentário:", safeJsonStringify(err));
+        showAlert("Não foi possível eliminar o comentário.", { type: 'error' });
+      }
+    }
   };
 
-  return (
-    <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+  const REACTION_EMOJIS = ['❤️', '🔥', '👏', '😂', '😮', '😢', '👍', '🙏'];
+
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[1000] bg-black/85 flex items-center justify-center p-4 animate-fade-in" 
+      onClick={onClose}
+    >
       <div 
         className="bg-white dark:bg-darkcard w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col max-h-[80vh] overflow-hidden relative"
         onClick={(e) => e.stopPropagation()}
@@ -212,7 +328,9 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-gray-50 dark:bg-black/20">
+        <div 
+          className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-gray-50 dark:bg-black/20"
+        >
           {loading ? (
              <div className="flex justify-center py-10">
                <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -224,7 +342,18 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
           ) : (
              <div className="space-y-6">
                {comments.map((comment) => (
-                 <RenderComment key={comment.id} c={comment} />
+                 <CommentItem 
+                   key={comment.id} 
+                   c={comment} 
+                   currentUser={currentUser}
+                   postOwnerId={postOwnerId}
+                   t={t}
+                   handleReaction={handleReaction}
+                   handleDeleteComment={handleDeleteComment}
+                   setReplyingTo={setReplyingTo}
+                   inputRef={inputRef}
+                   reactionEmojis={REACTION_EMOJIS}
+                 />
                ))}
              </div>
           )}
@@ -278,7 +407,8 @@ const CommentsModal: React.FC<CommentsModalProps> = ({ postId, currentUser, onCl
           </form>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

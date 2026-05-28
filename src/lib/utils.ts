@@ -30,55 +30,19 @@ export function formatCurrency(amount: number, currency: string = 'KZ') {
  */
 export const safeJsonStringify = (obj: any, indent = 2): string => {
   const seen = new WeakSet();
-
-  function sanitize(val: any, depth = 0): any {
-    if (val === null || val === undefined) return val;
-    
-    // Limit depth to avoid stack overflows or huge outputs
-    if (depth > 12) {
-      return '[Max Depth Reached]';
-    }
-
-    if (typeof val === 'function') {
-      return `[Function: ${val.name || 'anonymous'}]`;
-    }
-
-    if (typeof val === 'symbol') {
-      return val.toString();
-    }
-
-    if (typeof val !== 'object') {
-      // Large strings
-      if (typeof val === 'string' && val.length > 10000) {
-        return `[Large String: ${val.substring(0, 100)}... (${val.length} bytes)]`;
-      }
-      return val;
-    }
-
-    // Check for circular reference in the current trace path
-    if (seen.has(val)) {
-      return '[Circular Reference]';
-    }
-
-    // Handle standard errors
+  
+  // Custom pre-processing for standard Error objects so we serialize their key info
+  function preProcessErrors(key: string, val: any): any {
     if (val instanceof Error) {
       const errObj: any = {
         name: val.name,
         message: val.message,
         code: (val as any).code || (val as any).status,
       };
-      // Prevent infinite recursion on error fields, convert simple fields
       Object.getOwnPropertyNames(val).forEach(prop => {
-        if (prop !== 'stack') {
+        if (prop !== 'stack' && prop !== 'name' && prop !== 'message') {
           try {
-            const propVal = (val as any)[prop];
-            if (propVal && typeof propVal === 'object') {
-              errObj[prop] = `[Object: ${propVal.constructor?.name || 'Object'}]`;
-            } else if (typeof propVal === 'function') {
-              errObj[prop] = `[Function]`;
-            } else {
-              errObj[prop] = propVal;
-            }
+            errObj[prop] = (val as any)[prop];
           } catch (e) {
             errObj[prop] = "[Unreadable Property]";
           }
@@ -86,66 +50,86 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
       });
       return errObj;
     }
-
-    // Check for browser objects
-    if (typeof window !== 'undefined' && 
-        (val instanceof Node || val instanceof Window || val instanceof Event)) {
-      return `[Browser Object: ${val.constructor?.name || 'DOM'}]`;
-    }
-
-    const constructorName = val.constructor?.name;
-
-    // Aggressive Firebase/Firestore internal object detection to prevent reading internally circular trees
-    const isFirebaseInternal = 
-      constructorName === 'Y2' || 
-      constructorName === 'Ka' || 
-      constructorName === 'Za' || 
-      constructorName === 'Firestore' ||
-      constructorName === 'FirebaseAuthImpl' ||
-      constructorName === 'FirebaseAppImpl' ||
-      constructorName === 'DocumentReference' ||
-      constructorName === 'Query' ||
-      constructorName === 'CollectionReference' ||
-      constructorName === 'DocumentSnapshot' ||
-      constructorName === 'QuerySnapshot' ||
-      constructorName === '_FirebaseAppImpl' ||
-      (val.type && (val.type === 'firestore' || val.type === 'auth')) ||
-      (val._delegate) || 
-      (val.i && (val.i.src || val.i.constructor?.name === 'Ka')) || 
-      (val.src && (val.src.i || val.src.constructor?.name === 'Y2')) ||
-      (val._database && val._path);
-
-    if (isFirebaseInternal) {
-      return `[Firebase Internal Service Object: ${constructorName || 'Object'}]`;
-    }
-
-    seen.add(val);
-
-    // Arrays
-    if (Array.isArray(val)) {
-      const arrCopy = val.map(item => sanitize(item, depth + 1));
-      seen.delete(val);
-      return arrCopy;
-    }
-
-    // Objects
-    const objCopy: any = {};
-    const keys = Object.keys(val);
-    for (const key of keys) {
-      try {
-        objCopy[key] = sanitize(val[key], depth + 1);
-      } catch (e) {
-        objCopy[key] = "[Property Retrieve Error]";
-      }
-    }
-    seen.delete(val);
-    return objCopy;
+    return val;
   }
 
   try {
-    const sanitized = sanitize(obj);
-    return JSON.stringify(sanitized, null, indent);
+    return JSON.stringify(obj, (key, value) => {
+      // First, handle standard Error objects
+      let processedValue = preProcessErrors(key, value);
+
+      if (processedValue === null || processedValue === undefined) return processedValue;
+
+      if (typeof processedValue === 'function') {
+        return `[Function: ${processedValue.name || 'anonymous'}]`;
+      }
+
+      if (typeof processedValue === 'symbol') {
+        return processedValue.toString();
+      }
+
+      if (typeof processedValue === 'object') {
+        if (seen.has(processedValue)) {
+          return '[Circular/Duplicate Reference]';
+        }
+        seen.add(processedValue);
+
+        // Detect DOM elements and browser window objects
+        if (typeof window !== 'undefined' && (processedValue instanceof Node || processedValue instanceof Window || processedValue instanceof Event)) {
+          return `[Browser Object: ${processedValue.constructor?.name || 'DOM'}]`;
+        }
+
+        // Detect Firebase / Firestore / Auth internal structures to prevent traversing circular/private states
+        const constructorName = processedValue.constructor?.name;
+        const isFirebase = 
+          (constructorName && (
+            constructorName === 'Y2' || 
+            constructorName === 'Ka' || 
+            constructorName === 'Za' || 
+            constructorName.includes('Firestore') ||
+            constructorName.includes('Auth') ||
+            constructorName.includes('App') ||
+            constructorName.includes('Storage') ||
+            constructorName.includes('Snapshot') ||
+            constructorName.includes('Reference') ||
+            constructorName.includes('Query')
+          )) ||
+          processedValue._delegate ||
+          processedValue._database ||
+          processedValue._firestore ||
+          processedValue._path ||
+          (processedValue.i && (processedValue.i.src || processedValue.i.constructor?.name === 'Ka')) || 
+          (processedValue.src && (processedValue.src.i || processedValue.src.constructor?.name === 'Y2'));
+
+        if (isFirebase) {
+          return `[Firebase Service Object: ${constructorName || 'Object'}]`;
+        }
+      }
+
+      // Handle long strings
+      if (typeof processedValue === 'string' && processedValue.length > 5000) {
+        return `[Large String: ${processedValue.substring(0, 100)}... (${processedValue.length} bytes)]`;
+      }
+
+      return processedValue;
+    }, indent);
   } catch (err) {
-    return `[Serialization Error: ${err instanceof Error ? err.message : String(err)}]`;
+    // If anything fails, fallback to a completely basic safe stringify
+    try {
+      const basicSeen = new WeakSet();
+      return JSON.stringify(obj, (key, value) => {
+        if (value !== null && typeof value === 'object') {
+          if (basicSeen.has(value)) return '[Circular]';
+          basicSeen.add(value);
+          const cName = value.constructor?.name;
+          if (cName && (cName === 'Y2' || cName === 'Ka' || cName.includes('Firestore') || cName.includes('Auth'))) {
+            return `[Firebase Service Object: ${cName}]`;
+          }
+        }
+        return value;
+      }, indent);
+    } catch (fallbackErr) {
+      return `[Serialization Error: ${err instanceof Error ? err.message : String(err)}]`;
+    }
   }
 };

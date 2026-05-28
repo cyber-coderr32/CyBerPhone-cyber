@@ -15,7 +15,7 @@ import {
     TrashIcon,
     SparklesIcon
 } from '@heroicons/react/24/outline';
-import { Terminal, Copy, Check, Eye, Play, Sparkle, RefreshCw, KeyRound, Globe, Phone, Mail, UserPlus } from 'lucide-react';
+import { Terminal, Copy, Check, Eye, Play, Sparkle, RefreshCw, KeyRound, Globe, Phone, Mail, UserPlus, Shield } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useDialog } from '../services/DialogContext';
 import { COUNTRIES } from '../data/countries';
@@ -126,15 +126,6 @@ const FileDropzone: React.FC<DropzoneProps> = ({ id, label, preview, onSelected,
     );
 };
 
-// Console logger interface for developer feedback
-interface VeriffLogEntry {
-    timestamp: string;
-    method: 'POST' | 'PATCH' | 'GET';
-    url: string;
-    payload?: string;
-    response?: string;
-}
-
 const base64ToBlob = (base64String: string, contentType = ''): Blob => {
     try {
         const parts = base64String.split(';base64,');
@@ -158,7 +149,7 @@ const base64ToBlob = (base64String: string, contentType = ''): Blob => {
 
 const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLogout, forceUpdate, onSkip }) => {
     const { showAlert } = useDialog();
-    const [verifEngine, setVerifEngine] = useState<'sentinel' | 'veriff'>('sentinel');
+    const verifEngine = 'sentinel';
 
     // Sentinel State
     const [step, setStep] = useState<'welcome' | 'upload_docs' | 'upload_selfie' | 'verifying' | 'success'>('welcome');
@@ -173,21 +164,6 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
     const [docBackBase64, setDocBackBase64] = useState<string | null>(null);
     const [selfieBase64, setSelfieBase64] = useState<string | null>(null);
 
-    // Veriff Specific States
-    const [veriffStep, setVeriffStep] = useState<'welcome' | 'create_session' | 'sdk_flow' | 'approved' | 'failed'>('welcome');
-    const [veriffFirstName, setVeriffFirstName] = useState(user.firstName || 'Jane');
-    const [veriffLastName, setVeriffLastName] = useState(user.lastName || 'Doe');
-    const [veriffCountry, setVeriffCountry] = useState('BRA');
-    const [veriffDocType, setVeriffDocType] = useState<'PASSPORT' | 'ID_CARD' | 'DRIVERS_LICENSE'>('PASSPORT');
-
-    // Live API execution properties
-    const [veriffSessionId, setVeriffSessionId] = useState<string | null>(null);
-    const [veriffUrl, setVeriffUrl] = useState<string | null>(null);
-    const [veriffLoading, setVeriffLoading] = useState(false);
-    const [showLogger, setShowLogger] = useState(false);
-    const [apiLogs, setApiLogs] = useState<VeriffLogEntry[]>([]);
-    const [isApiSimulated, setIsApiSimulated] = useState(true);
-
     // Error and validation monitoring
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [validationLogs, setValidationLogs] = useState<string>("Iniciando processador Sentinel AI...");
@@ -198,17 +174,15 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         "Buscando duplicidades de Cédulas no registro de unicidade...",
         "Sentinela AI: Validando alinhamento e foco das imagens...",
         "Sentinela AI: Processando reconhecimento facial biométrico...",
-        "Sentinela AI: Comparando traços fisionômicos com selfie...",
-        "Sentinela AI: Verificando data de validade e assinaturas...",
-        "Quase pronto... Transmitindo aprovação jurídica..."
+        "Sincronizando metadados com as bases soberanas globais..."
     ];
 
-    // Log cycle simulator for authentic feedback
+    // Auto rotate mock progress audit texts
     useEffect(() => {
         if (step === 'verifying') {
             const interval = setInterval(() => {
                 setLogIndex((prev) => {
-                    const next = prev < logsArray.length - 1 ? prev + 1 : prev;
+                    const next = (prev + 1) % logsArray.length;
                     setValidationLogs(logsArray[next]);
                     return next;
                 });
@@ -219,18 +193,6 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
             setValidationLogs(logsArray[0]);
         }
     }, [step]);
-
-    // Add entry to API Payload Console logs
-    const addApiLog = (method: 'POST' | 'PATCH' | 'GET', url: string, payload?: any, rawResponse?: any) => {
-        const entry: VeriffLogEntry = {
-            timestamp: new Date().toLocaleTimeString(),
-            method,
-            url,
-            payload: payload ? JSON.stringify(payload, null, 2) : undefined,
-            response: rawResponse ? JSON.stringify(rawResponse, null, 2) : undefined
-        };
-        setApiLogs((prev) => [entry, ...prev]);
-    };
 
     // Handle standard files converted to base64
     const processFileSelection = (file: File, target: 'front' | 'back' | 'selfie') => {
@@ -395,6 +357,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                 await updateUser(updatedUser);
                 setErrorMsg(failReason);
                 setIsRetrying(false); // return to normal blocking view
+                setStep('upload_docs');
             }
         } catch (err: any) {
             console.error("Erro na validação do Sentinel:", err);
@@ -403,212 +366,19 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         }
     };
 
-    // --- VERIFF INTEGRATION PIPELINE CLIENT ACTIONS ---
-
-    // 1. POST /sessions
-    const handleVeriffCreateSession = async () => {
-        if (!veriffFirstName.trim() || !veriffLastName.trim()) {
-            showAlert("Primeiro nome e sobrenome são obrigatórios.", { type: "error" });
-            return;
-        }
-
-        setVeriffLoading(true);
-        setErrorMsg(null);
-
-        const requestBody = {
-            verification: {
-                person: {
-                    firstName: veriffFirstName,
-                    lastName: veriffLastName
-                },
-                document: {
-                    country: veriffCountry,
-                    type: veriffDocType
-                },
-                vendorData: user.id
-            }
-        };
-
-        try {
-            const res = await fetch('/api/veriff-proxy/sessions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody)
-            });
-
-            const data = await res.json();
-            addApiLog('POST', '/sessions', requestBody, data);
-
-            if (!res.ok) {
-                throw new Error(data.error || "Falha ao criar sessão Veriff");
-            }
-
-            if (data.status === "success" && data.verification) {
-                setVeriffSessionId(data.verification.id);
-                setVeriffUrl(data.verification.url);
-                setIsApiSimulated(data.verification.id.startsWith('ver-sim-'));
-                setVeriffStep('sdk_flow');
-                showAlert("Sessão Veriff criada com sucesso!", { type: "success" });
-            } else {
-                throw new Error("Erro na estrutura de dados retornada pelo Veriff");
-            }
-        } catch (err: any) {
-            console.error("Veriff Error Create Session:", err);
-            setErrorMsg(err.message || "Falha ao conectar com a API do Veriff.");
-            showAlert("Falha ao criar sessão Veriff.", { type: "error" });
-        } finally {
-            setVeriffLoading(false);
-        }
-    };
-
-    // 2. GET /sessions/:id/decision
-    const handleVeriffPollDecision = async () => {
-        if (!veriffSessionId) return;
-
-        setVeriffLoading(true);
-        setErrorMsg(null);
-
-        try {
-            const res = await fetch(`/api/veriff-proxy/sessions/${veriffSessionId}/decision`, {
-                method: 'GET'
-            });
-
-            const data = await res.json();
-            addApiLog('GET', `/sessions/${veriffSessionId}/decision`, null, data);
-
-            if (!res.ok) {
-                throw new Error(data.error || "Falha ao consultar decisão da sessão");
-            }
-
-            if (data.status === 'success' && data.verification?.status === 'approved') {
-                // Verified successfully! Register uniqueness constraint and commit user update
-                await registerUniqueness('documentId', veriffSessionId, user.id);
-
-                const updatedUser: User = {
-                    ...user,
-                    idVerificationStatus: 'APPROVED',
-                    isVerified: true,
-                    documentId: veriffSessionId,
-                    idVerificationDocs: {
-                        frontUrl: "",
-                        backUrl: "",
-                        selfieUrl: "",
-                        submittedAt: Date.now(),
-                        expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000 * 5, // 5 anos
-                        aiConfidence: 1.0,
-                        extractedId: veriffSessionId,
-                        rejectionReason: ""
-                    }
-                };
-
-                try {
-                    localStorage.setItem(`cp_user_verified_${user.id}`, 'true');
-                    localStorage.setItem(`cp_user_verification_status_${user.id}`, 'APPROVED');
-                } catch (localErr) {
-                    console.warn("[LOCALSTORAGE] Erro ao sincronizar cache local de aprovação Veriff:", localErr);
-                }
-
-                await updateUser(updatedUser);
-                setVeriffStep('approved');
-                showAlert("Verificação aprovada no Veriff!", { type: "success" });
-            } else if (data.status === 'success' && data.verification?.status === 'declined') {
-                setVeriffStep('failed');
-                setErrorMsg(data.verification.reason || "Rejeitado na verificação Veriff.");
-            } else {
-                showAlert("Sua verificação Veriff ainda está pendente ou sob análise.", { type: "alert" });
-            }
-        } catch (err: any) {
-            console.error("Veriff Poll Status Error:", err);
-            setErrorMsg(err.message || "Erro ao consultar decisão no Veriff.");
-        } finally {
-            setVeriffLoading(false);
-        }
-    };
-
-
-    // --- RENDERING ROUTINES ---
-
-    // Standard PENDING Review view
-    if (user.idVerificationStatus === 'PENDING') {
+    if (step === 'success' || user.idVerificationStatus === 'APPROVED') {
         return (
-            <div className="min-h-screen bg-gray-50 dark:bg-darkbg flex items-center justify-center p-6">
-                <div className="max-w-md w-full bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-2xl border dark:border-white/10 text-center animate-fade-in">
-                    <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <ArrowPathIcon className="h-10 w-10 text-blue-600 animate-spin" />
+            <div className="min-h-screen bg-gray-50 dark:bg-darkbg flex flex-col items-center justify-center p-4">
+                <div className="max-w-md w-full bg-white dark:bg-darkcard p-8 rounded-[2.5rem] shadow-2xl text-center border dark:border-white/5 space-y-6">
+                    <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-950/30 rounded-full flex items-center justify-center mx-auto">
+                        <CheckCircleIcon className="h-8 w-8 text-emerald-600" />
                     </div>
-                    <h2 className="text-2xl font-black dark:text-white uppercase tracking-tighter mb-2">Verificação em Análise</h2>
-                    <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
-                        Recebemos seus dados e documentos. Nossa equipe de segurança juntamente com a inteligência artificial do Sentinela está auditando seus dados para garantir a integridade da sua conta.
-                    </p>
-                    <div className="bg-blue-50 dark:bg-blue-900/10 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/20 mb-8">
-                        <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Tempo estimado de resposta rápido</p>
+                    <div className="space-y-2">
+                        <span className="text-[10px] font-black uppercase text-brand tracking-widest font-sans">Verificação Concluída</span>
+                        <h2 className="text-3xl font-black dark:text-white uppercase tracking-tighter leading-none">Perfil Autenticado</h2>
                     </div>
-                    <button 
-                        onClick={onLogout}
-                        className="w-full py-4 border-2 border-gray-100 dark:border-white/5 text-gray-400 hover:text-red-500 hover:border-red-500 rounded-2xl font-black uppercase text-xs transition-all flex items-center justify-center gap-2"
-                    >
-                        <ArrowRightOnRectangleIcon className="h-5 w-5" /> Sair da Conta
-                    </button>
-                </div>
-            </div>
-        );
-    }
-
-    // Default Block for Rejection
-    if (user.idVerificationStatus === 'REJECTED' && !isRetrying) {
-        return (
-            <div className="min-h-screen bg-gray-50 dark:bg-darkbg flex items-center justify-center p-6">
-                <div className="max-w-md w-full bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-2xl border border-red-100 dark:border-red-900/20 text-center animate-fade-in">
-                    <div className="w-20 h-20 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <ExclamationTriangleIcon className="h-10 w-10 text-red-600" />
-                    </div>
-                    <h2 className="text-2xl font-black dark:text-white uppercase tracking-tighter mb-2">Verificação Recusada</h2>
-                    <p className="text-sm text-gray-500 font-medium leading-relaxed mb-4">
-                        Infelizmente a verificação de segurança não foi aprovada pelo sistema Sentinela AI.
-                    </p>
-                    {user.idVerificationDocs?.rejectionReason && (
-                        <div className="bg-red-50 dark:bg-red-900/10 p-4 rounded-2xl mb-8 border border-red-100 dark:border-red-950">
-                            <p className="text-xs font-bold text-red-600 dark:text-red-400 font-sans">Motivo: {user.idVerificationDocs.rejectionReason}</p>
-                        </div>
-                    )}
-                    <div className="flex flex-col gap-4">
-                        <button 
-                            onClick={() => {
-                                setIsRetrying(true);
-                                setStep('welcome');
-                                setVeriffStep('welcome');
-                            }}
-                            className="w-full py-4 bg-brand text-white rounded-2xl font-black uppercase text-xs shadow-lg active:scale-95 transition-all cursor-pointer"
-                        >
-                            Tentar Novamente
-                        </button>
-                        <button 
-                            onClick={onLogout}
-                            className="w-full py-4 text-gray-400 hover:text-red-500 font-black uppercase text-xs transition-colors cursor-pointer"
-                        >
-                            Sair da Conta
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // Success Screen
-    if (step === 'success' || veriffStep === 'approved') {
-        return (
-            <div className="min-h-screen bg-gray-50 dark:bg-darkbg flex items-center justify-center p-6">
-                <div className="max-w-md w-full bg-white dark:bg-darkcard p-10 rounded-[3rem] shadow-2xl border dark:border-white/10 text-center">
-                    <motion.div 
-                        initial={{ scale: 0 }}
-                        animate={{ scale: 1 }}
-                        className="w-24 h-24 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-8"
-                    >
-                        <CheckCircleIcon className="h-12 w-12 text-green-600" />
-                    </motion.div>
-                    <h2 className="text-3xl font-black dark:text-white uppercase tracking-tighter mb-4">Aprovado com Sucesso!</h2>
-                    <p className="text-gray-500 dark:text-gray-400 font-medium mb-4 leading-relaxed font-sans text-sm">
-                        Suas informações de identificação e biometria facial foram verificadas em segurança na base fiduciária do {verifEngine === 'veriff' ? "Veriff KYC Platform" : "Sentinela AI"}. O selo dourado de integridade foi ativado no seu perfil.
+                    <p className="text-gray-500 dark:text-gray-400 font-medium leading-relaxed font-sans text-xs">
+                        Suas informações de identificação e biometria facial foram verificadas em segurança na base de dados inteligente do Sentinela AI. O selo dourado de integridade foi plenamente ativado no seu perfil.
                     </p>
                     <button 
                         onClick={onComplete}
@@ -658,7 +428,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                     <ShieldCheckIcon className="h-4 w-4 text-emerald-500" />
                                     <span>Auditoria de autenticidade documental</span>
                                 </div>
-                            </div>
+                             </div>
                         </div>
                     </div>
 
@@ -695,9 +465,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                     <div className="bg-white dark:bg-darkcard p-6 md:p-8 rounded-[2.5rem] shadow-2xl border dark:border-white/10 relative overflow-hidden flex flex-col justify-center min-h-[480px]">
                         <AnimatePresence mode="wait">
                             
-                            {/* ===================== FLOW 1: SENTINEL ENGINE ===================== */}
-                            
-                            {verifEngine === 'sentinel' && step === 'welcome' && (
+                            {step === 'welcome' && (
                                 <motion.div 
                                     key="step-welcome"
                                     initial={{ opacity: 0, x: 20 }}
@@ -731,7 +499,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                 </motion.div>
                             )}
 
-                            {verifEngine === 'sentinel' && step === 'upload_docs' && (
+                            {step === 'upload_docs' && (
                                 <motion.div 
                                     key="step-upload_docs"
                                     initial={{ opacity: 0, x: 20 }}
@@ -748,7 +516,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
 
                                     <div className="space-y-3">
                                         <div className="space-y-1">
-                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Cédula ID / NIF / CPF / BI / Passaporte</label>
+                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Cédula ID / NIF / BI / Passaporte</label>
                                             <input 
                                                 type="text"
                                                 required
@@ -819,7 +587,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                 </motion.div>
                             )}
 
-                            {verifEngine === 'sentinel' && step === 'upload_selfie' && (
+                            {step === 'upload_selfie' && (
                                 <motion.div 
                                     key="step-upload_selfie"
                                     initial={{ opacity: 0, x: 20 }}
@@ -870,7 +638,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                 </motion.div>
                             )}
 
-                            {verifEngine === 'sentinel' && step === 'verifying' && (
+                            {step === 'verifying' && (
                                 <motion.div 
                                     key="step-verifying"
                                     initial={{ opacity: 0, scale: 0.95 }}
@@ -881,7 +649,7 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                         <div className="absolute inset-0 border-4 border-brand/20 rounded-full"></div>
                                         <div className="absolute inset-0 border-4 border-t-brand border-r-transparent border-b-transparent border-l-transparent rounded-full animate-spin"></div>
                                         <div className="absolute inset-2 bg-brand/5 dark:bg-brand/10 rounded-full flex items-center justify-center">
-                                            <ShieldCheckIcon className="h-6 w-6 text-brand animate-pulse" />
+                                            <Shield className="h-6 w-6 text-brand animate-pulse" />
                                         </div>
                                     </div>
 
@@ -893,335 +661,9 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                                     </div>
                                 </motion.div>
                             )}
-                            
-                            {/* ===================== FLOW 2: VERIFF INTEGRATION PIPELINE ===================== */}
-
-                            {verifEngine === 'veriff' && veriffStep === 'welcome' && (
-                                <motion.div 
-                                    key="veriff-welcome"
-                                    initial={{ opacity: 0, x: 20 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    exit={{ opacity: 0, x: -20 }}
-                                    className="space-y-6"
-                                >
-                                    <div className="space-y-4">
-                                        <span className="text-[10px] font-black uppercase tracking-wider text-brand">Veriff KYC Platform</span>
-                                        <h3 className="text-2xl font-black dark:text-white uppercase tracking-tighter">Verificação Oficial Veriff</h3>
-                                        <p className="text-xs text-gray-400 dark:text-gray-400 leading-relaxed font-sans">
-                                            Prepare um documento de identidade original com foto (como Passaporte, Identidade ou Carteira de Motorista) e certifique-se de estar em um local bem iluminado para a etapa de captura facial.
-                                        </p>
-                                        <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl space-y-2">
-                                            <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 uppercase tracking-tight">
-                                                <ShieldCheckIcon className="h-4 w-4" /> Sistema de Proteção Garantida
-                                            </p>
-                                            <p className="text-[9px] text-gray-400 font-sans leading-relaxed">
-                                                Suas informações biográficas e biométricas são transmitidas através de canais criptografados totalmente seguros em conformidade com os regulamentos de privacidade e proteção de dados pessoais.
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <button 
-                                        onClick={() => setVeriffStep('create_session')}
-                                        className="w-full py-4 bg-brand hover:bg-brand/90 text-white rounded-2xl font-black uppercase text-xs tracking-wider shadow-lg shadow-brand/15 flex items-center justify-center gap-2 cursor-pointer"
-                                    >
-                                        <ShieldCheckIcon className="h-4 w-4" /> Iniciar Verificação
-                                    </button>
-                                </motion.div>
-                            )}
-
-                            {/* Veriff Step 1: Create Session */}
-                            {verifEngine === 'veriff' && veriffStep === 'create_session' && (
-                                <motion.div 
-                                    key="veriff-create"
-                                    initial={{ opacity: 0, x: 20 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    exit={{ opacity: 0, x: -20 }}
-                                    className="space-y-4"
-                                >
-                                    <div className="space-y-1">
-                                        <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-[#9c9c9c] uppercase">
-                                            <span>ETAPA 1 DE 2</span>
-                                        </div>
-                                        <h3 className="text-lg font-black dark:text-white uppercase tracking-tighter">Dados do Candidato</h3>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div className="space-y-1">
-                                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><UserPlus className="h-3 w-3 text-brand" /> PRIMEIRO NOME</label>
-                                            <input 
-                                                type="text"
-                                                value={veriffFirstName}
-                                                onChange={(e) => setVeriffFirstName(e.target.value)}
-                                                className="w-full p-2.5 bg-gray-50 dark:bg-white/5 border border-transparent rounded-lg dark:text-white text-xs outline-none focus:border-brand font-bold"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><UserPlus className="h-3 w-3 text-brand" /> SOBRENOME</label>
-                                            <input 
-                                                type="text"
-                                                value={veriffLastName}
-                                                onChange={(e) => setVeriffLastName(e.target.value)}
-                                                className="w-full p-2.5 bg-gray-50 dark:bg-white/5 border border-transparent rounded-lg dark:text-white text-xs outline-none focus:border-brand font-bold"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div className="space-y-1">
-                                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1"><Globe className="h-3 w-3 text-brand" /> NACIONALIDADE DO DOCUMENTO</label>
-                                            <select 
-                                                value={veriffCountry}
-                                                onChange={(e) => setVeriffCountry(e.target.value)}
-                                                className="w-full p-2.5 bg-gray-50 dark:bg-white/5 border border-transparent rounded-lg dark:text-white text-xs outline-none focus:border-brand font-bold cursor-pointer"
-                                            >
-                                                {COUNTRIES.map((c) => (
-                                                    <option key={c.code3} value={c.code3} className="bg-white dark:bg-zinc-900 text-gray-950 dark:text-white">
-                                                        {c.flag} {c.name} ({c.code3})
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1">TIPO DE DOCUMENTO</label>
-                                            <select
-                                                value={veriffDocType}
-                                                onChange={(e) => setVeriffDocType(e.target.value as any)}
-                                                className="w-full p-2.5 bg-gray-50 dark:bg-white/5 border border-transparent rounded-lg dark:text-white text-xs outline-none focus:border-brand font-bold"
-                                            >
-                                                <option value="PASSPORT">Passaporte (Passport)</option>
-                                                <option value="ID_CARD">Identidade (ID Card)</option>
-                                                <option value="DRIVERS_LICENSE">Carteira de Motorista (Driver's License)</option>
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    {errorMsg && (
-                                        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 p-3 rounded-lg text-red-600 dark:text-red-400 text-[10px] font-sans">
-                                            {errorMsg}
-                                        </div>
-                                    )}
-
-                                    <div className="flex gap-3 pt-2">
-                                        <button 
-                                            onClick={() => setVeriffStep('welcome')}
-                                            className="flex-1 py-3 bg-gray-50 dark:bg-white/5 text-gray-500 rounded-xl font-bold uppercase text-[9px] text-center"
-                                        >
-                                            Cancelar
-                                        </button>
-                                        <button 
-                                            onClick={handleVeriffCreateSession}
-                                            disabled={veriffLoading}
-                                            className="flex-[2] py-3 bg-brand text-white rounded-xl font-black uppercase text-[9px] flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 transition-all cursor-pointer"
-                                        >
-                                            {veriffLoading ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <ShieldCheckIcon className="h-4 w-4" />} Criar Verificação
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            )}
-
-                            {/* Veriff Step 2: SDK Container Loop */}
-                            {verifEngine === 'veriff' && veriffStep === 'sdk_flow' && (
-                                <motion.div 
-                                    key="veriff-sdk"
-                                    initial={{ opacity: 0, x: 20 }}
-                                    animate={{ opacity: 1, x: 0 }}
-                                    exit={{ opacity: 0, x: -20 }}
-                                    className="space-y-4"
-                                >
-                                    <div className="space-y-1">
-                                        <div className="flex justify-between items-center text-[9px] font-black tracking-widest text-[#9c9c9c] uppercase">
-                                            <span>ETAPA 2 DE 2</span>
-                                        </div>
-                                        <h3 className="text-lg font-black dark:text-white uppercase tracking-tighter">Realização do Onboarding</h3>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        <div className="border border-brand/20 rounded-2xl bg-slate-900 overflow-hidden shadow-xl">
-                                            <div className="bg-slate-950 p-3 px-4 flex justify-between items-center border-b border-brand/10 bg-[#0d0e14]">
-                                                <div className="flex items-center gap-1.5">
-                                                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
-                                                    <span className="text-[9px] font-semibold text-gray-400 font-sans uppercase tracking-wider">Aguardando Envio de Mídias</span>
-                                                </div>
-                                            </div>
-
-                                            <div className="p-6 flex flex-col items-center text-center space-y-4 relative min-h-[220px] justify-center text-white">
-                                                {isApiSimulated ? (
-                                                    <>
-                                                        <div className="w-14 h-14 rounded-full border border-blue-500/30 flex items-center justify-center bg-blue-500/10 text-blue-400 animate-pulse">
-                                                            <FingerPrintIcon className="h-8 w-8 text-brand" />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <p className="text-xs uppercase text-white font-bold tracking-wider">Ambiente de Testes</p>
-                                                            <p className="text-[10px] text-gray-400 font-sans max-w-[340px]">
-                                                                Sua sessão foi criada no modo de homologação. Utilize o botão abaixo para consultar o status de aprovação ou simular os dados.
-                                                            </p>
-                                                        </div>
-
-                                                        <div className="py-2.5 px-4 bg-white/5 rounded-xl border border-white/10 grid grid-cols-2 gap-4 w-full text-xs">
-                                                            <div className="text-left font-sans">
-                                                                <span className="text-[8px] font-bold text-gray-500 block uppercase">CANDIDATO</span>
-                                                                <span className="text-[10px] font-bold text-white truncate max-w-[120px] block">{veriffFirstName} {veriffLastName}</span>
-                                                            </div>
-                                                            <div className="text-right font-sans">
-                                                                <span className="text-[8px] font-bold text-gray-500 block uppercase">SESSÃO</span>
-                                                                <span className="text-[10px] font-bold text-emerald-400 block">Ativa</span>
-                                                            </div>
-                                                        </div>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <div className="w-14 h-14 rounded-full border border-emerald-500/30 flex items-center justify-center bg-emerald-500/10 text-emerald-400">
-                                                            <ShieldCheckIcon className="h-8 w-8" />
-                                                        </div>
-                                                        <div className="space-y-1">
-                                                            <p className="text-xs font-semibold uppercase text-white">Sessão Oficial com Veriff Estabelecida</p>
-                                                            <p className="text-[10px] text-gray-400 font-sans max-w-[340px]">
-                                                                Abra a url segura abaixo para completar seu onboarding biométrico com o fluxo real de imagens do Veriff:
-                                                            </p>
-                                                        </div>
-                                                    </>
-                                                )}
-
-                                                {veriffUrl && (
-                                                    <a 
-                                                        href={veriffUrl}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="py-2 px-6 bg-brand hover:bg-brand/80 text-white rounded-lg text-[10px] font-black uppercase text-center w-full block tracking-wider"
-                                                    >
-                                                        Abrir URL de Verificação Segura (Veriff)
-                                                    </a>
-                                                )}
-
-                                                <button 
-                                                    onClick={handleVeriffPollDecision}
-                                                    disabled={veriffLoading}
-                                                    className="py-3 px-6 bg-green-600 border border-green-500 hover:bg-green-500 text-white font-black uppercase text-[10.5px] rounded-xl flex items-center justify-center gap-2 tracking-wide shadow-md active:scale-95 transition-all w-full cursor-pointer"
-                                                >
-                                                    {veriffLoading ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />} Verificar Status da Aprovação
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <button 
-                                            onClick={() => {
-                                                setVeriffSessionId(null);
-                                                setVeriffUrl(null);
-                                                setVeriffStep('create_session');
-                                            }}
-                                            className="w-full text-center py-2 text-[9px] font-black text-gray-400 hover:text-red-500 uppercase cursor-pointer"
-                                        >
-                                            Reiniciar Processo
-                                        </button>
-                                    </div>
-
-                                    {errorMsg && (
-                                        <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 p-3 rounded-lg text-red-600 dark:text-red-400 text-[11px] font-sans">
-                                            {errorMsg}
-                                        </div>
-                                    )}
-
-                                    <div className="flex gap-3 pt-2">
-                                        <button 
-                                            onClick={() => setVeriffStep('create_session')}
-                                            className="w-full py-3 bg-gray-50 dark:bg-white/5 text-gray-500 rounded-xl font-bold uppercase text-[9px] text-center"
-                                        >
-                                            Voltar Etapa
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            )}
-
-                            {/* Veriff Failed View */}
-                            {verifEngine === 'veriff' && veriffStep === 'failed' && (
-                                <motion.div 
-                                    key="veriff-failed"
-                                    initial={{ opacity: 0, scale: 0.95 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    className="py-6 text-center space-y-4"
-                                >
-                                    <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto">
-                                        <ExclamationTriangleIcon className="h-8 w-8 text-red-600" />
-                                    </div>
-                                    <h4 className="text-xl font-bold dark:text-white uppercase tracking-tighter">O Veriff Recusou sua Auditoria</h4>
-                                    {errorMsg && (
-                                        <div className="bg-red-50 dark:bg-red-950/10 border border-red-100 dark:border-red-900/20 p-4 rounded-xl max-w-sm mx-auto">
-                                            <p className="text-xs text-red-600 dark:text-red-400 font-bold font-sans">Erro: {errorMsg}</p>
-                                        </div>
-                                    )}
-                                    <button 
-                                        onClick={() => setVeriffStep('welcome')}
-                                        className="py-3 px-6 bg-brand text-white rounded-xl text-xs uppercase font-black tracking-wider shadow cursor-pointer"
-                                    >
-                                        Voltar à tela inicial
-                                    </button>
-                                </motion.div>
-                            )}
 
                         </AnimatePresence>
                     </div>
-
-                    {/* ===================== LOGS & DEBUG LEVEL INTERACTOR DRAWER ===================== */}
-                    {verifEngine === 'veriff' && showLogger && (
-                        <div className="bg-[#0c0d12] border border-blue-900/40 rounded-[2rem] p-5 shadow-2xl relative overflow-hidden animate-fade-in font-mono text-[10.5px]">
-                            <div className="flex justify-between items-center mb-3">
-                                <div className="flex items-center gap-2">
-                                    <Terminal className="h-4 w-4 text-blue-500 animate-pulse" />
-                                    <span className="font-sans font-black dark:text-white text-[11px] uppercase tracking-wider">Veriff HMAC Signing Console</span>
-                                </div>
-                                <button 
-                                    onClick={() => setApiLogs([])}
-                                    className="text-[9px] font-sans font-bold bg-[#171924] text-gray-400 hover:text-white px-2 py-1 roundedcursor-pointer"
-                                >
-                                    Limpar Logs
-                                </button>
-                            </div>
-
-                            {apiLogs.length === 0 ? (
-                                <p className="text-[#555a72] italic font-sans py-6 text-center text-[10px]">Nenhuma requisição realizada ainda nesta sessão. Ative uma das etapas de API acima para visualizar os cabeçalhos criptografados da assinatura.</p>
-                            ) : (
-                                <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
-                                    {apiLogs.map((log, index) => (
-                                        <div key={index} className="border-b border-[#1c1d29] pb-3 space-y-2">
-                                            <div className="flex justify-between items-center bg-[#141622] p-1.5 px-3 rounded-lg border border-[#1b1c2b]">
-                                                <div className="flex gap-2 items-center">
-                                                    <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded ${
-                                                        log.method === 'POST' ? 'bg-blue-600 text-white' : 
-                                                        log.method === 'PATCH' ? 'bg-amber-600 text-white' : 'bg-green-600 text-white'
-                                                     }`}>{log.method}</span>
-                                                    <span className="text-gray-300 font-bold font-mono">{log.url}</span>
-                                                </div>
-                                                <span className="text-gray-500 block text-[9px]">{log.timestamp}</span>
-                                            </div>
-
-                                            {/* Signature details header mock for client instruction */}
-                                            <div className="px-3 py-2 bg-[#10111a] rounded text-[9.5px] text-[#717790] leading-relaxed border border-blue-950/20">
-                                                <p className="font-bold text-gray-400 uppercase tracking-tighter text-[8px] mb-1">Generated Request Auth Headers</p>
-                                                <div className="space-y-1">
-                                                    <p><span className="text-brand font-bold">X-AUTH-CLIENT:</span> veriff_api_token_fiduciário_production_prod</p>
-                                                    <p className="truncate"><span className="text-brand font-bold">X-SIGNATURE:</span> {Array.from({length:64}, () => Math.floor(Math.random()*16).toString(16)).join('')}</p>
-                                                </div>
-                                            </div>
-
-                                            {log.payload && (
-                                                <div className="p-2.5 bg-[#090a10] rounded-lg">
-                                                    <p className="text-[8px] font-black text-gray-500 uppercase tracking-wider mb-1">Request JSON Body Payload</p>
-                                                    <p className="text-gray-300 whitespace-pre">{log.payload}</p>
-                                                </div>
-                                            )}
-
-                                            {log.response && (
-                                                <div className="p-2.5 bg-[#07080f] rounded-lg">
-                                                    <p className="text-[8px] font-black text-emerald-500 uppercase tracking-wider mb-1">Raw Response Body</p>
-                                                    <p className="text-[#a4e1b7] whitespace-pre-wrap">{log.response}</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
                 </div>
 
             </div>

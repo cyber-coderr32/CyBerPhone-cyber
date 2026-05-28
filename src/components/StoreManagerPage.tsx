@@ -844,6 +844,56 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
     showAlert("Código de rastreio atualizado!", { type: "success" });
   };
 
+  const [subscribing, setSubscribing] = useState(false);
+
+  const handleBuyStorePremium = async (planType: 'monthly' | 'yearly', price: number) => {
+    const planName = planType === 'monthly' ? 'CyberStore Mensal' : 'CyberStore Elite Anual';
+    const isConfirmed = await showConfirm(
+      `Deseja assinar o plano ${planName} por ${formatCurrency(price)}? O valor será debitado do saldo da sua carteira.`
+    );
+    if (!isConfirmed) return;
+
+    setSubscribing(true);
+    try {
+      const currentBalance = currentUser.balance || 0;
+      if (currentBalance >= price) {
+        const updatedBalance = currentBalance - price;
+        await updateUser({
+          ...currentUser,
+          balance: updatedBalance,
+          hasStorePremium: true,
+          storePremiumPlan: planType,
+          isPremium: true
+        });
+        refreshUser();
+        showAlert(`Assinatura do ${planName} reatada e ativada com sucesso! Seu selo de Verificação de Loja foi concedido.`, { type: 'success' });
+        setIsCreatingStore(true);
+      } else {
+        const topupConfirmed = await showConfirm(
+          `Saldo Insuficiente! O plano custa ${formatCurrency(price)}, mas você possui apenas ${formatCurrency(currentBalance)}. Deseja realizar uma recarga rápida simulada de 50.000,00 KZ agora para concluir a ativação?`
+        );
+        if (topupConfirmed) {
+          const simulatedBalance = (currentUser.balance || 0) + 50000 - price;
+          await updateUser({
+            ...currentUser,
+            balance: simulatedBalance,
+            hasStorePremium: true,
+            storePremiumPlan: planType,
+            isPremium: true
+          });
+          refreshUser();
+          showAlert(`Simulação de depósito e assinatura realizadas com sucesso! Selo de Verificação concedido e ${planName} ativo.`, { type: 'success' });
+          setIsCreatingStore(true);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      showAlert("Erro ao processar assinatura do plano.", { type: "error" });
+    } finally {
+      setSubscribing(false);
+    }
+  };
+
   const [isCreatingStore, setIsCreatingStore] = useState(false);
   const [creationStep, setCreationStep] = useState(1);
   const [newStoreName, setNewStoreName] = useState(
@@ -879,6 +929,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
         description: newStoreDesc,
         brandColor: newStoreColor,
         productIds: [],
+        isVerified: currentUser.hasStorePremium ? true : false,
+        verificationStatus: currentUser.hasStorePremium ? 'APPROVED' : 'NOT_STARTED',
       };
 
       const success = await createStore(newStore);
@@ -910,6 +962,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
       </div>
     );
   }
+
+  const holdsMonetizationL1 = currentUser.monetizationStatus === 'APPROVED' && (currentUser.monetizationTier === 'LEVEL_1' || currentUser.monetizationTier === 'LEVEL_2');
+  const hasPremiumStoreAccess = currentUser.hasStorePremium === true || currentUser.isPremium === true;
+  const isEligibleToCreate = holdsMonetizationL1 || hasPremiumStoreAccess;
 
   if (!userStore) {
     return (
@@ -966,13 +1022,30 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-4">
-                <button
-                  onClick={() => setIsCreatingStore(true)}
-                  className="px-10 py-5 bg-blue-600 text-white rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-2xl shadow-blue-600/30 hover:scale-[1.02] active:scale-95 transition-all"
-                >
-                  Ativar Loja Pro - GRATUITO
-                </button>
+              <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
+                {isEligibleToCreate ? (
+                  <button
+                    onClick={() => setIsCreatingStore(true)}
+                    className="px-10 py-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-650 text-white rounded-[2rem] font-black uppercase text-xs tracking-widest shadow-2xl shadow-blue-600/30 hover:scale-[1.02] active:scale-95 transition-all text-center"
+                  >
+                    Ativar Loja Pro {currentUser.hasStorePremium ? 'Premium ' : 'L1 '}Grátis
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const el = document.getElementById('premium-plans-section');
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth' });
+                      } else {
+                        showAlert("Sua conta ainda não atingiu o Nível 1 de Monetização do CyberPhone. Escolha um dos planos CyberStore Premium logo abaixo de forma instantânea para começar!", { type: 'warning', title: 'Ativação Dependente' });
+                      }
+                    }}
+                    className="px-10 py-5 bg-gray-300 dark:bg-zinc-800 text-gray-400 dark:text-zinc-500 rounded-[2rem] font-black uppercase text-xs tracking-widest cursor-pointer hover:bg-gray-400 dark:hover:bg-zinc-700 transition-all flex items-center gap-2 justify-center"
+                  >
+                    <LockClosedIcon className="w-4 h-4 text-orange-500 shrink-0" />
+                    Ativar Loja Pro (Bloqueado)
+                  </button>
+                )}
                 <button
                   onClick={() => onNavigate("legal")}
                   className="px-10 py-5 bg-gray-100 dark:bg-white/5 text-gray-900 dark:text-white rounded-[2rem] font-black uppercase text-xs tracking-widest hover:bg-gray-200 transition-all"
@@ -996,6 +1069,121 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Premium Plans selector section */}
+        <div id="premium-plans-section" className="mt-16 bg-white dark:bg-darkcard border border-gray-100 dark:border-white/10 rounded-[3rem] p-8 md:p-16 shadow-2xl relative overflow-hidden animate-fade-in text-sans">
+          <div className="absolute top-0 right-0 p-8 opacity-[0.03] dark:opacity-[0.05] pointer-events-none">
+            <CheckBadgeIcon className="w-96 h-96 text-blue-600" />
+          </div>
+
+          <div className="text-center md:text-left mb-10 relative z-10">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-amber-500 rounded-full text-[10px] font-black uppercase tracking-widest mb-4">
+              <CheckBadgeIcon className="w-4 h-4 text-amber-500 shrink-0" /> Planos CyberStore Premium
+            </div>
+            <h3 className="text-2xl md:text-4xl font-black uppercase tracking-tighter dark:text-white mb-2">
+              Opte por Ativação Direta & Verificação
+            </h3>
+            <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm mt-1 max-w-2xl font-medium leading-relaxed">
+              Não quer esperar bater as metas da monetização? Escolha um plano premium, crie sua loja hoje mesmo e garanta o selo oficial de verificação de loja para passar credibilidade total aos seus clientes!
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
+            {/* Plan 1: CyberStore Start */}
+            <div className="relative rounded-[2.5rem] bg-gradient-to-b from-gray-50 to-white dark:from-[#11141d] dark:to-[#0a0c10] border border-gray-200 dark:border-white/10 p-8 flex flex-col justify-between hover:border-blue-500/40 dark:hover:border-blue-500/40 transition-all shadow-lg group">
+              <div>
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full border border-blue-100 dark:border-blue-900/30">PLAN MENSAL</span>
+                    <h4 className="text-xl font-black uppercase tracking-tight dark:text-white mt-3">CyberStore Mensal</h4>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-2xl font-black dark:text-white tracking-tighter">2.990,00</span>
+                    <span className="text-xs text-gray-400 font-bold block">KZ / mês</span>
+                  </div>
+                </div>
+                
+                <p className="text-gray-500 dark:text-gray-450 text-xs font-medium leading-relaxed mb-8">
+                  Acesso instantâneo para configurar sua loja pro e começar a faturar imediatamente.
+                </p>
+
+                <ul className="space-y-3.5 mb-8">
+                  <li className="flex items-center gap-2.5 text-xs text-gray-600 dark:text-gray-300">
+                    <CheckCircleIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span>Criação de loja instantânea e sem burocracia</span>
+                  </li>
+                  <li className="flex items-center gap-2.5 text-xs text-gray-600 dark:text-gray-300">
+                    <CheckCircleIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span>Selo de <strong>Verificação de Loja</strong> padrão ativo</span>
+                  </li>
+                  <li className="flex items-center gap-2.5 text-xs text-gray-600 dark:text-gray-300">
+                    <CheckCircleIcon className="w-4 h-4 text-blue-500 shrink-0" />
+                    <span>Acesso a todos os tipos de produtos digitais/físicos</span>
+                  </li>
+                </ul>
+              </div>
+
+              <button
+                onClick={() => handleBuyStorePremium('monthly', 2990)}
+                disabled={subscribing}
+                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black uppercase text-xs tracking-widest transition-all scale-100 active:scale-95 hover:shadow-lg shadow-blue-500/20 cursor-pointer text-center"
+              >
+                {subscribing ? 'Ativando...' : 'Assinar Mensal'}
+              </button>
+            </div>
+
+            {/* Plan 2: CyberStore Elite */}
+            <div className="relative rounded-[2.5rem] bg-gradient-to-br from-[#121626] to-black border-2 border-indigo-500/40 p-8 flex flex-col justify-between hover:border-indigo-400 dark:hover:border-indigo-400 transition-all shadow-xl group">
+              <div className="absolute -top-3.5 right-6 bg-gradient-to-r from-amber-500 to-orange-600 text-white text-[9px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full shadow-lg">
+                RECOMENDADO
+              </div>
+
+              <div>
+                <div className="flex justify-between items-start mb-6">
+                  <div>
+                    <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">PLAN ANUAL</span>
+                    <h4 className="text-xl font-black uppercase tracking-tight text-white mt-3">CyberStore Elite Anual</h4>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-2xl font-black text-white tracking-tighter">19.990,00</span>
+                    <span className="text-xs text-gray-400 font-bold block">KZ / ano</span>
+                  </div>
+                </div>
+                
+                <p className="text-gray-400 text-xs font-medium leading-relaxed mb-8">
+                  Para grandes criadores e marcas. Obtenha destaque máximo e verificação ULTRA com um plano anual econômico.
+                </p>
+
+                <ul className="space-y-3.5 mb-8">
+                  <li className="flex items-center gap-2.5 text-xs text-gray-300">
+                    <CheckCircleIcon className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>Criação instantânea de loja</span>
+                  </li>
+                  <li className="flex items-center gap-2.5 text-xs text-gray-300">
+                    <CheckCircleIcon className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>Selo de <strong>Verificação ULTRA Gold</strong></span>
+                  </li>
+                  <li className="flex items-center gap-2.5 text-xs text-gray-300">
+                    <CheckCircleIcon className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span><strong>+15% de Destaque Extra</strong> na Busca de Itens</span>
+                  </li>
+                  <li className="flex items-center gap-2.5 text-xs text-gray-300">
+                    <CheckCircleIcon className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>Suporte VIP e canais com Engenharia 24/7</span>
+                  </li>
+                </ul>
+              </div>
+
+              <button
+                onClick={() => handleBuyStorePremium('yearly', 19990)}
+                disabled={subscribing}
+                className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-2xl font-black uppercase text-xs tracking-widest transition-all scale-100 active:scale-95 shadow-2xl shadow-indigo-600/30 cursor-pointer text-center"
+              >
+                {subscribing ? 'Ativando...' : 'Assinar Anual (Economize 45%)'}
+              </button>
             </div>
           </div>
         </div>

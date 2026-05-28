@@ -36,7 +36,8 @@ import {
   Eye,
   Flag,
   RotateCcw,
-  CheckCircle2
+  CheckCircle2,
+  Zap
 } from 'lucide-react';
 
 interface LiveStreamViewerProps {
@@ -116,6 +117,86 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const [donationModalOpen, setDonationModalOpen] = useState<boolean>(false);
   const [customAmount, setCustomAmount] = useState<string>('');
   const [customMessage, setCustomMessage] = useState<string>('');
+
+  // Super Chat states
+  const [superChatModalOpen, setSuperChatModalOpen] = useState<boolean>(false);
+  const [customSCAmount, setCustomSCAmount] = useState<string>('500');
+  const [superChatText, setSuperChatText] = useState<string>('');
+  const [submittingSuperChat, setSubmittingSuperChat] = useState<boolean>(false);
+  const [selectedActiveSuperChat, setSelectedActiveSuperChat] = useState<any>(null);
+  const [nowTick, setNowTick] = useState<number>(Date.now());
+
+  // Effect to progress Super Chat expiry countdown ticks in real-time
+  useEffect(() => {
+    const t = setInterval(() => {
+      setNowTick(Date.now());
+    }, 4000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Helper to determine theme classes and active stickiness durations for Super Chat amounts
+  const getSuperChatTheme = useCallback((amount: number) => {
+    if (amount < 500) {
+      return {
+        bgHeader: 'bg-blue-600',
+        bgBody: 'bg-blue-700',
+        textHeader: 'text-white/80',
+        textBody: 'text-white',
+        accentColor: 'text-cyan-300',
+        colorName: 'blue',
+        duration: 30000 // 30 seconds
+      };
+    } else if (amount < 1500) {
+      return {
+        bgHeader: 'bg-teal-600',
+        bgBody: 'bg-teal-700',
+        textHeader: 'text-white/80',
+        textBody: 'text-white',
+        accentColor: 'text-green-300',
+        colorName: 'green',
+        duration: 60000 // 1 minute
+      };
+    } else if (amount < 3000) {
+      return {
+        bgHeader: 'bg-yellow-600 dark:bg-amber-600',
+        bgBody: 'bg-yellow-700 dark:bg-amber-700',
+        textHeader: 'text-white/80',
+        textBody: 'text-white',
+        accentColor: 'text-amber-100 font-black',
+        colorName: 'amber',
+        duration: 180000 // 3 minutes
+      };
+    } else if (amount < 6000) {
+      return {
+        bgHeader: 'bg-purple-600',
+        bgBody: 'bg-purple-700',
+        textHeader: 'text-white/80',
+        textBody: 'text-white',
+        accentColor: 'text-pink-300',
+        colorName: 'purple',
+        duration: 300000 // 5 minutes
+      };
+    } else {
+      return {
+        bgHeader: 'bg-red-600',
+        bgBody: 'bg-red-700',
+        textHeader: 'text-white/80',
+        textBody: 'text-white',
+        accentColor: 'text-yellow-300',
+        colorName: 'red',
+        duration: 600000 // 10 minutes
+      };
+    }
+  }, []);
+
+  const activeSuperChats = useMemo(() => {
+    return comments.filter((c: any) => {
+      if (!c.isSuperChat) return false;
+      const theme = getSuperChatTheme(c.superChatAmount || 0);
+      const duration = c.superChatDuration || theme.duration;
+      return c.timestamp + duration > nowTick;
+    });
+  }, [comments, nowTick, getSuperChatTheme]);
   
   const [donationAlert, setDonationAlert] = useState<{ donor: string; amount: number; message: string } | null>(null);
   const lastAlertIdRef = useRef<string | null>(null);
@@ -1082,6 +1163,73 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     }
   };
 
+  // Funcionalidade de criar Super Chat
+  const handleBuySuperChat = async () => {
+    if (!post || !hostProfile) return;
+    const amount = Number(customSCAmount);
+    if (isNaN(amount) || amount <= 0) {
+      showError('Por favor, informe um valor de contribuição válido para o Super Chat.');
+      return;
+    }
+
+    if (amount < 150) {
+      showError('O valor mínimo para criar um Super Chat com destaque é de 155 KZ.');
+      return;
+    }
+
+    if ((currentUser.balance || 0) < amount) {
+      showError('Saldo insuficiente para enviar este Super Chat. Carregue a sua carteira CyberPhone primeiro!');
+      return;
+    }
+
+    const theme = getSuperChatTheme(amount);
+    const labelDurationStr = theme.duration >= 60000 
+      ? `${theme.duration / 60000} min` 
+      : `${theme.duration / 1000} seg`;
+
+    const confirm = await showConfirm(
+      `Você deseja enviar um Super Chat de ${amount.toLocaleString('pt-AO')} KZ para ${hostProfile.firstName}? Sua mensagem ficará em destaque no topo por ${labelDurationStr}!`,
+      { title: 'Confirmar Super Chat', confirmText: 'Comprar e Enviar', cancelText: 'Cancelar' }
+    );
+
+    if (confirm) {
+      setSubmittingSuperChat(true);
+      try {
+        const ok = await processDonation(currentUser.id, post.userId, amount, `Super Chat na transmissão: ${post.liveStream?.title || ''}`);
+        if (ok) {
+          showSuccess(`Super Chat de ${amount.toLocaleString('pt-AO')} KZ enviado com sucesso! 🎉`);
+          setSuperChatModalOpen(false);
+          setCustomSCAmount('500');
+          setSuperChatText('');
+          await refreshUser();
+
+          // Mandar o super chat no liveChat
+          const superChatMessage = {
+            id: 'sc-' + Date.now(),
+            userId: currentUser.id,
+            userName: currentUser.firstName + ' ' + (currentUser.lastName || ''),
+            profilePic: currentUser.profilePicture || DEFAULT_PROFILE_PIC,
+            text: superChatText.trim(),
+            timestamp: Date.now(),
+            isSuperChat: true,
+            superChatAmount: amount,
+            superChatColor: theme.colorName,
+            superChatDuration: theme.duration
+          };
+
+          await sendLiveMessage(post.id, superChatMessage);
+        } else {
+          showError(t('donation_failed', 'Ocorreu um erro ao processar a transferência.'));
+        }
+      } catch (err) {
+        console.error(err);
+        showError('Erro ao registrar Super Chat.');
+      } finally {
+        setSubmittingSuperChat(false);
+      }
+    }
+  };
+
   // Host finaliza a live
   const handleEndStream = async () => {
     if (!post) return;
@@ -1824,6 +1972,84 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             </div>
           </div>
 
+          {/* PRATELEIRA DE SUPER CHATS EM DESTAQUE */}
+          {activeSuperChats.length > 0 && (
+            <div className="px-3.5 py-2.5 bg-[#09090c] border-b border-white/10 flex gap-2 overflow-x-auto scrollbar-thin scrollbar-thumb-neutral-850 scrollbar-track-transparent items-center select-none shrink-0 animate-fade-in">
+              <span className="text-[7.5px] font-black text-red-500 uppercase tracking-widest shrink-0 bg-red-500/10 px-1.5 py-1.5 rounded border border-red-500/20 mr-1 animate-pulse flex items-center gap-1">
+                <Zap className="w-2.5 h-2.5 fill-red-500 text-red-500" /> SUPER CHATS
+              </span>
+              {activeSuperChats.map((sc: any, scIdx: number) => {
+                const theme = getSuperChatTheme(sc.superChatAmount || 0);
+                const isSelected = selectedActiveSuperChat?.id === sc.id;
+                
+                // Calculate remaining display percentage
+                const elapsed = nowTick - sc.timestamp;
+                const duration = sc.superChatDuration || theme.duration;
+                const percentRemaining = Math.max(0, Math.min(100, 100 - (elapsed / duration) * 100));
+
+                return (
+                  <button
+                    key={sc.id || scIdx}
+                    onClick={() => setSelectedActiveSuperChat(isSelected ? null : sc)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-white shadow-md hover:scale-[1.03] active:scale-95 transition-all shrink-0 cursor-pointer relative overflow-hidden ${theme.bgHeader} ${
+                      isSelected ? 'ring-2 ring-white/60 border-white/20 animate-pulse' : 'border-white/5'
+                    }`}
+                  >
+                    {/* Time indicator line */}
+                    <div 
+                      className="absolute bottom-0 left-0 h-1 bg-black/40 transition-all duration-1000" 
+                      style={{ width: `${percentRemaining}%` }}
+                    />
+                    
+                    <img 
+                      src={sc.profilePic || DEFAULT_PROFILE_PIC} 
+                      className="w-5.5 h-5.5 rounded-lg object-cover border border-white/20 shrink-0" 
+                      referrerPolicy="no-referrer"
+                    />
+                    <span className="text-[10px] font-black font-mono leading-none">{(sc.superChatAmount || 0).toLocaleString('pt-AO')} KZ</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* DETALHES DO SUPER CHAT SELECIONADO NO TOPO */}
+          {selectedActiveSuperChat && activeSuperChats.some((s: any) => s.id === selectedActiveSuperChat.id) && (
+            <div className="bg-[#0b0c10] border-b border-white/10 p-3 flex flex-col font-sans text-white animate-fade-in shrink-0 relative">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <img 
+                    src={selectedActiveSuperChat.profilePic || DEFAULT_PROFILE_PIC} 
+                    className="w-6.5 h-6.5 rounded-lg object-cover border border-white/10" 
+                    referrerPolicy="no-referrer" 
+                  />
+                  <div>
+                    <p className="text-[10px] font-black text-neutral-200">{selectedActiveSuperChat.userName}</p>
+                    <p className="text-[8px] uppercase tracking-wider text-amber-500 font-extrabold flex items-center gap-0.5 animate-pulse">
+                      <Zap className="w-2.5 h-2.5 fill-amber-500 text-amber-500" /> Super Chat Solicitado
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-[10px] font-black font-mono px-2 py-0.5 rounded ${getSuperChatTheme(selectedActiveSuperChat.superChatAmount).accentColor} bg-black/20`}>
+                    {selectedActiveSuperChat.superChatAmount.toLocaleString('pt-AO')} KZ
+                  </span>
+                  <button 
+                    onClick={() => setSelectedActiveSuperChat(null)} 
+                    className="p-1 hover:bg-white/10 rounded text-neutral-400 hover:text-white transition-colors cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              {selectedActiveSuperChat.text && (
+                <p className="text-[11px] text-neutral-300 bg-black/40 p-2.5 rounded-xl italic leading-relaxed border border-white/5 break-words">
+                  "{selectedActiveSuperChat.text}"
+                </p>
+              )}
+            </div>
+          )}
+
         {/* FEED DE COMENTÁRIOS DO CHAT */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3.5 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent">
           {comments.length === 0 ? (
@@ -1848,6 +2074,40 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                       <p className="text-[9px] font-black tracking-widest text-amber-400 uppercase leading-none">DOAÇÃO DA STREAM</p>
                       <p className="text-[11px] font-medium text-neutral-200 mt-1.5 break-words">{c.text}</p>
                     </div>
+                  </div>
+                );
+              }
+
+              if (c.isSuperChat) {
+                const theme = getSuperChatTheme(c.superChatAmount || 0);
+                return (
+                  <div key={c.id || index} className="rounded-xl overflow-hidden shadow-lg border border-white/5 animate-fade-in flex flex-col font-sans">
+                    <div className={`p-3 ${theme.bgHeader} flex gap-2.5 items-center`}>
+                      <img 
+                        src={displayUserPic} 
+                        alt={displayUserName} 
+                        className="w-7.5 h-7.5 rounded-lg object-cover border border-white/15 animate-pulse"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className={`text-[9.5px] font-bold tracking-widest uppercase truncate leading-none ${theme.textHeader}`}>
+                            {displayUserName}
+                          </p>
+                          <span className={`text-[9.5px] font-black px-2 py-0.5 rounded text-white font-mono bg-black/25 shrink-0 ${theme.accentColor}`}>
+                            {(c.superChatAmount || 0).toLocaleString('pt-AO')} KZ
+                          </span>
+                        </div>
+                        <p className={`text-[8px] font-extrabold uppercase tracking-wider mt-1 opacity-80 leading-none ${theme.textHeader} flex items-center gap-0.5`}>
+                          <Zap className="w-2.5 h-2.5 fill-current text-yellow-300" /> Super Chat
+                        </p>
+                      </div>
+                    </div>
+                    {c.text && (
+                      <div className={`p-3 ${theme.bgBody} text-[11px] leading-relaxed break-words whitespace-pre-wrap font-medium ${theme.textBody}`}>
+                        {c.text}
+                      </div>
+                    )}
                   </div>
                 );
               }
@@ -1879,14 +2139,24 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         {/* INPUT DE ENVIO DO CHAT */}
         <form onSubmit={handleSendChat} className="p-3 border-t border-white/5 bg-black/40 flex items-center gap-2">
           {!isHost && (
-            <button 
-              type="button"
-              onClick={() => setDonationModalOpen(true)}
-              className="p-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 rounded-xl shadow-lg transition-transform hover:scale-105 active:scale-95 outline-none flex items-center justify-center shrink-0"
-              title="Apoiar com Gorjeta / Doação"
-            >
-              <Coins className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex gap-1.5 shrink-0">
+              <button 
+                type="button"
+                onClick={() => setDonationModalOpen(true)}
+                className="p-2.5 bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 rounded-xl shadow-lg transition-transform hover:scale-105 active:scale-95 outline-none flex items-center justify-center shrink-0"
+                title="Apoiar com Gorjeta / Doação"
+              >
+                <Coins className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                type="button"
+                onClick={() => setSuperChatModalOpen(true)}
+                className="p-2.5 bg-gradient-to-r from-red-500 to-orange-600 hover:from-red-600 hover:to-orange-700 text-white rounded-xl shadow-lg transition-transform hover:scale-105 active:scale-95 outline-none flex items-center justify-center shrink-0 border border-red-500/20"
+                title="Enviar Super Chat (Destaque)"
+              >
+                <Zap className="w-3.5 h-3.5 text-yellow-300 fill-yellow-300" />
+              </button>
+            </div>
           )}
           <input 
             type="text" 
@@ -1990,6 +2260,132 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               className="w-full py-3 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 disabled:opacity-30 disabled:pointer-events-none text-slate-950 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-amber-500/15 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
               Confirmar e Enviar Gorjeta 💎
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 3B. MODAL DE COMPRA DE SUPER CHATS (Espectadores) */}
+      {superChatModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
+          <div className="w-full max-w-sm bg-[#0d0d12] border border-white/10 rounded-[28px] p-6 shadow-2xl relative animate-scale-up font-sans text-white">
+            <button 
+              onClick={() => {
+                setSuperChatModalOpen(false);
+                setSuperChatText('');
+              }}
+              className="absolute top-4 right-4 p-2 rounded-full hover:bg-white/5 text-gray-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex flex-col items-center text-center mb-5">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-r from-red-500 to-orange-600 text-white flex items-center justify-center mb-2.5 shadow-lg shadow-red-500/20 animate-pulse">
+                <Zap className="w-5.5 h-5.5 text-yellow-300 fill-yellow-300 animate-bounce" />
+              </div>
+              <h3 className="text-sm font-black text-white uppercase tracking-widest mb-1">
+                Enviar Super Chat
+              </h3>
+              <p className="text-[10px] text-gray-400 max-w-xs leading-normal">
+                Compre uma mensagem destacada no topo. Quanto maior a contribuição, maior o tempo de destaque e mais chamativa o tema de cor!
+              </p>
+            </div>
+
+            {/* Saldo da pessoa */}
+            <div className="flex items-center justify-between bg-zinc-950/50 border border-white/5 rounded-2xl px-4 py-2.5 mb-4">
+              <span className="text-[9px] uppercase font-black tracking-widest text-neutral-400">Teu Saldo:</span>
+              <span className="text-xs font-black text-emerald-400 font-mono">
+                {(currentUser.balance || 0).toLocaleString('pt-AO', { minimumFractionDigits: 2 })} KZ
+              </span>
+            </div>
+
+            {/* Lista de Super Chats Rápidos */}
+            <p className="text-[8.5px] font-black text-neutral-450 uppercase tracking-widest mb-2 px-1">Valores com Destaque:</p>
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {[
+                { amount: 155, time: '30 seg' },
+                { amount: 500, time: '1 min' },
+                { amount: 1500, time: '3 min' },
+                { amount: 3000, time: '5 min' },
+                { amount: 6000, time: '10 min' }
+              ].map((preset) => (
+                <button 
+                  key={preset.amount}
+                  type="button"
+                  onClick={() => setCustomSCAmount(preset.amount.toString())}
+                  className={`flex flex-col p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                    customSCAmount === preset.amount.toString() 
+                      ? 'bg-red-500/10 border-red-500 shadow-md shadow-red-500/5 scale-102' 
+                      : 'bg-zinc-900/60 border-white/5 hover:border-white/10 hover:bg-zinc-800'
+                  }`}
+                >
+                  <span className="text-[10px] font-black text-white">{preset.amount} KZ</span>
+                  <span className="text-[8px] text-gray-450 mt-0.5">{preset.time}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Custom Amount input e custom message */}
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="text-[8.5px] font-black text-neutral-450 uppercase tracking-widest block mb-1 px-1">Valor Personalizado (KZ):</label>
+                <input 
+                  type="number" 
+                  min="150"
+                  value={customSCAmount}
+                  onChange={(e) => setCustomSCAmount(e.target.value)}
+                  placeholder="Mínimo 155 KZ"
+                  className="w-full bg-neutral-900 border border-white/10 text-[11px] text-white rounded-xl px-3.5 py-2.5 font-mono focus:outline-none focus:border-red-500 hover:bg-neutral-800 transition-colors"
+                />
+              </div>
+
+              <div>
+                <label className="text-[8.5px] font-black text-neutral-450 uppercase tracking-widest block mb-1 px-1">Texto do Super Chat:</label>
+                <textarea 
+                  rows={2}
+                  maxLength={150}
+                  value={superChatText}
+                  onChange={(e) => setSuperChatText(e.target.value)}
+                  placeholder="Escreva algo para destacar ao vivo..."
+                  className="w-full bg-neutral-900 border border-white/10 text-[11px] text-white rounded-xl px-3.5 py-2 focus:outline-none focus:border-red-500 hover:bg-neutral-800 transition-colors resize-none leading-relaxed"
+                />
+                <span className="text-[8px] font-bold text-neutral-500 block text-right mt-1 px-1">
+                  {superChatText.length}/150 caracteres
+                </span>
+              </div>
+            </div>
+
+            {/* Preview da Aparência do Super Chat */}
+            {Number(customSCAmount) > 0 && (
+              <div className="mb-5 bg-neutral-950/40 p-2.5 border border-white/5 rounded-2xl">
+                <span className="text-[7.5px] font-black text-neutral-450 uppercase tracking-wider block mb-2 text-center">Visualização Prévia:</span>
+                <div className="rounded-xl overflow-hidden text-left border border-black/20 shadow-lg scale-95 flex flex-col font-sans">
+                  <div className={`p-2.5 ${getSuperChatTheme(Number(customSCAmount)).bgHeader} flex gap-2 items-center`}>
+                    <img src={currentUser.profilePicture || DEFAULT_PROFILE_PIC} className="w-6 h-6 rounded-md object-cover border border-white/10 shrink-0" referrerPolicy="no-referrer" />
+                    <div className="min-w-0 flex-1 leading-none">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[8.5px] font-black text-white uppercase tracking-wider truncate mr-1">
+                          {currentUser.firstName}
+                        </span>
+                        <span className="text-[9px] font-bold text-white px-1.5 py-0.5 bg-black/15 rounded leading-none shrink-0 font-mono">
+                          {Number(customSCAmount).toLocaleString('pt-AO')} KZ
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`p-2.5 ${getSuperChatTheme(Number(customSCAmount)).bgBody} text-[10px] font-medium leading-normal italic text-white`}>
+                    {superChatText.trim() || 'Minha mensagem de destaque de Super Chat!'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={handleBuySuperChat}
+              disabled={submittingSuperChat || !customSCAmount || Number(customSCAmount) < 150}
+              className="w-full py-3 bg-gradient-to-r from-red-500 via-orange-500 to-yellow-600 disabled:opacity-30 disabled:pointer-events-none text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-red-500/15 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer text-center"
+            >
+              {submittingSuperChat ? 'Processando...' : 'Comprar e Enviar Super Chat'}
             </button>
           </div>
         </div>

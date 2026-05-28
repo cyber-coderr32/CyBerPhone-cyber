@@ -142,6 +142,7 @@ service cloud.firestore {
               'userType', 'monetizationGoals', 'monetizationStatus', 'isVerified', 'monetizationTier',
               'balance', 'pendingBalance', 'totalEarnings', 'isMonetized', 'isFrozen',
               'creatorStats', 'isPremium', 'premiumExpiry', 'resellerName', 'resellerBio', 'resellerBanner',
+              'hasStorePremium', 'storePremiumPlan',
               'storeId', 'isSuspended', 'verificationFileUrl', 'totalWithdrawn', 'id', 'createdAt', 'timestamp'
             ])) ||
           // Case 2: Partial update (don't force full validation if owner)
@@ -154,6 +155,7 @@ service cloud.firestore {
               'userType', 'monetizationGoals', 'monetizationStatus', 'isVerified', 'monetizationTier',
               'balance', 'pendingBalance', 'totalEarnings', 'isMonetized', 'isFrozen',
               'creatorStats', 'isPremium', 'premiumExpiry', 'resellerName', 'resellerBio', 'resellerBanner',
+              'hasStorePremium', 'storePremiumPlan',
               'storeId', 'isSuspended', 'verificationFileUrl', 'totalWithdrawn', 'id', 'createdAt', 'timestamp'
             ]))
         ) && (!incoming().diff(existing()).affectedKeys().hasAny(['isAdmin']) || isAdmin())
@@ -176,6 +178,7 @@ service cloud.firestore {
             'isOnline', 'followedUsers', 'followers', 'idVerificationStatus', 'balance', 
             'monetizationStatus', 'lastSeen', 'userType', 'address', 'monetizationGoals', 'academicRole',
             'id', 'createdAt', 'isSuspended', 'isFrozen', 'isPremium', 'birthDate', 'country',
+            'hasStorePremium', 'storePremiumPlan',
             'updatedAt', 'timestamp', 'isMonetized', 'monetizationTier', 'blockedUserIds', 'isAdmin'
           ]) && (!incoming().diff(existing()).affectedKeys().hasAny(['isAdmin']) || isAdmin())
         ) ||

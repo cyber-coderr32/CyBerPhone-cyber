@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { User, Page } from '../types';
 import { 
@@ -34,6 +35,15 @@ const ShareModal: React.FC<ShareModalProps> = ({
   const { t } = useTranslation();
   const { showAlert } = useDialog();
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalStyle = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalStyle;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -100,8 +110,8 @@ const ShareModal: React.FC<ShareModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/75 animate-fade-in" onClick={onClose}>
       <div 
         className="bg-white dark:bg-[#1a1c23] w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl border border-black/5 dark:border-white/10 animate-scale-in"
         onClick={e => e.stopPropagation()}
@@ -177,7 +187,8 @@ const ShareModal: React.FC<ShareModalProps> = ({
           to { transform: translateY(0); opacity: 1; transform: scale(1); }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 };
 
