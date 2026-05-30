@@ -7,7 +7,7 @@ import { auth, db, storage, isFirebaseConfigured } from './firebaseClient';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, sendPasswordResetEmail, signInWithPopup, GoogleAuthProvider, updatePassword } from 'firebase/auth';
 import { 
   collection, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, addDoc, onSnapshot,
-  getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion, increment, writeBatch, serverTimestamp
+  getDocFromServer, getDocsFromServer, QuerySnapshot, DocumentData, arrayUnion, arrayRemove, increment, writeBatch, serverTimestamp
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
@@ -534,7 +534,15 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
         const followersVal = existingData?.followers || [];
 
         const filteredPrivate = filterProfileData({
+            ...existingData,
             ...newUser,
+            coverPhoto: newUser.coverPhoto || existingData?.coverPhoto || '',
+            profilePicture: (newUser.profilePicture && newUser.profilePicture !== DEFAULT_PROFILE_PIC) ? newUser.profilePicture : (existingData?.profilePicture || newUser.profilePicture),
+            bio: newUser.bio || existingData?.bio || '',
+            country: newUser.country || existingData?.country || '',
+            phone: newUser.phone || existingData?.phone || '',
+            gender: newUser.gender || existingData?.gender || null,
+            birthDate: userData.birthDate || existingData?.birthDate || newUser.birthDate,
             balance: balanceVal,
             followedUsers: followedUsersVal,
             followers: followersVal,
@@ -545,9 +553,14 @@ export const createFirestoreUser = async (uid: string, userData: any, authUser: 
         // Public profile (no PII)
         const { email, phone, documentId, balance, ...publicDataRaw } = newUser;
         const filteredPublic = filterProfileData({
+            ...existingData,
             ...publicDataRaw,
             birthDate: newUser.birthDate,
             country: newUser.country || '',
+            coverPhoto: newUser.coverPhoto || existingData?.coverPhoto || '',
+            profilePicture: (newUser.profilePicture && newUser.profilePicture !== DEFAULT_PROFILE_PIC) ? newUser.profilePicture : (existingData?.profilePicture || newUser.profilePicture),
+            bio: publicDataRaw.bio || existingData?.bio || '',
+            gender: publicDataRaw.gender || existingData?.gender || null,
             balance: balanceVal,
             followedUsers: followedUsersVal,
             followers: followersVal,
@@ -1082,33 +1095,76 @@ export const createNotification = async (recipientId: string, actorId: string, t
 export const toggleFollowUser = async (cur: string, target: string) => {
   if (!isFirebaseConfigured || !db) return;
   try {
-    const u1 = await findUserById(cur);
-    const u2 = await findUserById(target);
-    if (!u1 || !u2) return;
+    // 1. Obter perfil atualizado diretamente do servidor (bypassing local offline caching)
+    let u1Doc;
+    try {
+      u1Doc = await getDocFromServer(doc(db, 'profiles', cur));
+    } catch {
+      u1Doc = await getDoc(doc(db, 'profiles', cur));
+    }
 
-    const isFollowing = u1.followedUsers.includes(target);
-    const newFollowed = isFollowing ? u1.followedUsers.filter(i => i !== target) : [...u1.followedUsers, target];
-    const newFollowers = isFollowing ? u2.followers.filter(i => i !== cur) : [...u2.followers, cur];
-    
+    if (!u1Doc.exists()) {
+      try {
+        u1Doc = await getDocFromServer(doc(db, 'public_profiles', cur));
+      } catch {
+        u1Doc = await getDoc(doc(db, 'public_profiles', cur));
+      }
+    }
+
+    if (!u1Doc.exists()) return;
+    const u1Data = u1Doc.data();
+    const followedUsers: string[] = u1Data.followedUsers || [];
+    const isFollowing = followedUsers.includes(target);
+
+    // 2. Obter perfil do target do servidor
+    let u2Doc;
+    try {
+      u2Doc = await getDocFromServer(doc(db, 'profiles', target));
+    } catch {
+      u2Doc = await getDoc(doc(db, 'profiles', target));
+    }
+
+    if (!u2Doc.exists()) {
+      try {
+        u2Doc = await getDocFromServer(doc(db, 'public_profiles', target));
+      } catch {
+        u2Doc = await getDoc(doc(db, 'public_profiles', target));
+      }
+    }
+
+    if (!u2Doc.exists()) return;
+    const u2Data = u2Doc.data();
+    const u2Followers: string[] = u2Data.followers || [];
+
     const database = db;
     const batch = writeBatch(database);
-    
-    // Update both private and public profiles using set with merge to ensure missing entries are safe
-    batch.set(doc(database, 'profiles', cur), { followedUsers: newFollowed }, { merge: true });
-    batch.set(doc(database, 'public_profiles', cur), { followedUsers: newFollowed }, { merge: true });
-    
-    batch.set(doc(database, 'profiles', target), { followers: newFollowers }, { merge: true });
-    batch.set(doc(database, 'public_profiles', target), { followers: newFollowers }, { merge: true });
 
-    // Se estiver seguindo, enviar notificação
-    if (!isFollowing) {
+    const curRef = doc(database, 'profiles', cur);
+    const curPubRef = doc(database, 'public_profiles', cur);
+    const targetRef = doc(database, 'profiles', target);
+    const targetPubRef = doc(database, 'public_profiles', target);
+
+    if (isFollowing) {
+      // Unfollow atomic operation
+      batch.set(curRef, { followedUsers: arrayRemove(target) }, { merge: true });
+      batch.set(curPubRef, { followedUsers: arrayRemove(target) }, { merge: true });
+      batch.set(targetRef, { followers: arrayRemove(cur) }, { merge: true });
+      batch.set(targetPubRef, { followers: arrayRemove(cur) }, { merge: true });
+    } else {
+      // Follow atomic operation
+      batch.set(curRef, { followedUsers: arrayUnion(target) }, { merge: true });
+      batch.set(curPubRef, { followedUsers: arrayUnion(target) }, { merge: true });
+      batch.set(targetRef, { followers: arrayUnion(cur) }, { merge: true });
+      batch.set(targetPubRef, { followers: arrayUnion(cur) }, { merge: true });
+
+      // Enviar notificação se acabou de seguir
       const notifId = `notif-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       batch.set(doc(database, 'notifications', notifId), {
         id: notifId,
         type: NotificationType.NEW_FOLLOWER,
         actorId: cur,
-        actorName: `${u1.firstName} ${u1.lastName}`,
-        actorProfilePic: u1.profilePicture || DEFAULT_PROFILE_PIC,
+        actorName: `${u1Data.firstName || 'Usuário'} ${u1Data.lastName || 'CyberPhone'}`,
+        actorProfilePic: u1Data.profilePicture || DEFAULT_PROFILE_PIC,
         recipientId: target,
         timestamp: Date.now(),
         isRead: false
@@ -1116,7 +1172,7 @@ export const toggleFollowUser = async (cur: string, target: string) => {
     }
 
     // Verificar metas de monetização
-    const goals = u2.monetizationGoals || { 
+    const goals = u2Data.monetizationGoals || { 
         followersGoal: 1000, 
         watchHoursGoal: 4000, 
         shortsViewsGoal: 10000000,
@@ -1125,12 +1181,13 @@ export const toggleFollowUser = async (cur: string, target: string) => {
         currentShortsViews: 0
     };
     
-    const currentFollowers = newFollowers.length;
-    const meetsFollowers = currentFollowers >= goals.followersGoal;
+    const countDelta = isFollowing ? -1 : 1;
+    const currentFollowersCount = Math.max(0, u2Followers.length + countDelta);
+    const meetsFollowers = currentFollowersCount >= goals.followersGoal;
     const meetsViews = (goals.currentWatchHours || 0) >= goals.watchHoursGoal || (goals.currentShortsViews || 0) >= goals.shortsViewsGoal;
-    const meetsIdentity = u2.idVerificationStatus === 'APPROVED';
+    const meetsIdentity = u2Data.idVerificationStatus === 'APPROVED';
 
-    let newStatus = u2.monetizationStatus || 'INELIGIBLE';
+    let newStatus = u2Data.monetizationStatus || 'INELIGIBLE';
     if (newStatus === 'INELIGIBLE' && meetsFollowers && meetsViews && meetsIdentity) {
         newStatus = 'ELIGIBLE';
         batch.set(doc(db, 'profiles', target), { monetizationStatus: newStatus }, { merge: true });
@@ -2301,10 +2358,16 @@ export const updateUserPassword = async (p: string) => {
         await updatePassword(auth.currentUser, p);
     } catch (error: any) {
         console.error("[STORAGE] Erro ao alterar senha no Firebase Auth:", safeJsonStringify(error));
-        if (error.code === 'auth/requires-recent-login' || error.message?.includes('requires-recent-login')) {
-            throw new Error("Segurança: Para alterar ou definir uma senha, você precisa ter feito login de forma muito recente. Por favor, saia (Logout) e entre novamente antes de tentar definir sua senha.");
+        if (error.code === 'auth/requires-recent-login' || error.message?.includes('requires-recent-login') || error.code === 'auth/credential-too-old') {
+            throw new Error("Segurança de Conta: Por segurança do Firebase, para alterar sua senha você precisa ter feito login recentemente. Por favor, faça Logout (Sair) e entre de novo para prosseguir com a mudança de senha de forma segura.");
         }
-        throw error;
+        if (error.code === 'auth/weak-password') {
+            throw new Error("Senha Fraca: A nova senha deve conter pelo menos 6 caracteres e ser mais forte.");
+        }
+        if (error.code === 'auth/user-mismatch' || error.code === 'auth/user-not-found') {
+            throw new Error("Usuário inválido ou sessão expirada. Por favor, faça login novamente.");
+        }
+        throw new Error(error.message || "Erro desconhecido ao atualizar a senha no Firebase Auth.");
     }
 };
 

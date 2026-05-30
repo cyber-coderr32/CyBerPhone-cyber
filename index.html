@@ -7,7 +7,11 @@
     <title>CyberPhone | Rede Social</title>
     
     <!-- PWA Meta Tags -->
-    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="152x152" href="/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon-192x192.png">
+    <link rel="apple-touch-icon" sizes="167x167" href="/icon-192x192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="CyberPhone">
@@ -17,17 +21,21 @@
     <meta name="theme-color" content="#0a0c10">
     
     <script>
-      // Escuta o evento de instalação para Debug no console
+      // Escuta o evento de instalação para Debug no console e disponibiliza para o React
       window.addEventListener('beforeinstallprompt', (e) => {
         console.log('[PWA] O browser identificou que o app é instalável!');
-        // Note: deferredPrompt é gerenciado no App.tsx
+        e.preventDefault();
+        window.deferredPrompt = e;
+        window.dispatchEvent(new CustomEvent('pwa-installable', { detail: e }));
       });
 
       window.addEventListener('appinstalled', (evt) => {
         console.log('[PWA] App instalado com sucesso pelo usuário.');
+        window.deferredPrompt = null;
+        window.dispatchEvent(new CustomEvent('pwa-installed'));
       });
 
-      // Auditoria básica de PWA
+      // Registro e Auditoria do Service Worker para PWA funcional
       window.addEventListener('load', () => {
         const isIframe = window.self !== window.top;
         
@@ -37,7 +45,13 @@
             : '[PWA] Service Worker não é suportado neste navegador ou conexão não segura (HTTPS necessário).';
           console.warn(msg);
         } else {
-          console.log('[PWA] Service Worker suportado.');
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('[PWA] Service Worker registrado com sucesso no escopo:', registration.scope);
+            })
+            .catch((error) => {
+              console.error('[PWA] Falha ao registrar o Service Worker:', error);
+            });
         }
       });
     </script>

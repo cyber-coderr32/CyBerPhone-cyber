@@ -18,7 +18,7 @@ const SavedPostsPage: React.FC<SavedPostsPageProps> = ({ currentUser, onNavigate
 
   useEffect(() => {
     loadSavedPosts();
-  }, [currentUser.id]);
+  }, [currentUser]);
 
   const loadSavedPosts = async () => {
     setLoading(true);
@@ -35,8 +35,7 @@ const SavedPostsPage: React.FC<SavedPostsPageProps> = ({ currentUser, onNavigate
   const handleFollowToggle = async (userId: string) => {
     try {
       await followUser(currentUser.id, userId);
-      refreshUser();
-      setTimeout(() => window.location.reload(), 1);
+      if (refreshUser) await refreshUser();
     } catch (err) {
       console.error("Error toggling follow status:", safeJsonStringify(err));
     }

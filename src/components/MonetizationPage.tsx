@@ -389,13 +389,22 @@ const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser, onNavi
 
           <div className="mt-8 pt-4 border-t border-gray-100 dark:border-white/5">
             {!goals.termsAccepted ? (
-              <button 
-                onClick={handleAcceptTerms}
-                disabled={loading}
-                className="w-full py-3 bg-gray-100 dark:bg-white/10 text-gray-900 dark:text-white rounded-2xl text-[10px] font-black uppercase hover:bg-red-500 hover:text-white active:scale-95 transition-all text-center flex items-center justify-center gap-2"
-              >
-                <FileText className="w-4 h-4" /> Aceitar as Regras de Termos
-              </button>
+              <div className="flex flex-col gap-2">
+                <button 
+                  onClick={handleAcceptTerms}
+                  disabled={loading}
+                  className="w-full py-3 bg-gray-100 dark:bg-white/10 text-gray-900 dark:text-white rounded-2xl text-[10px] font-black uppercase hover:bg-red-500 hover:text-white active:scale-95 transition-all text-center flex items-center justify-center gap-2"
+                >
+                  <FileText className="w-4 h-4" /> Aceitar as Regras de Termos
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('terms')}
+                  className="text-[10px] text-blue-500 hover:text-blue-600 font-bold uppercase transition-all tracking-wider text-center underline cursor-pointer"
+                >
+                  Ler todas as regras de uso antes de aceitar
+                </button>
+              </div>
             ) : (!currentUser.monetizationStatus || currentUser.monetizationStatus === 'INELIGIBLE') ? (
               <button 
                 onClick={() => handleApply('LEVEL_1')}
@@ -551,10 +560,18 @@ const MonetizationPage: React.FC<MonetizationPageProps> = ({ currentUser, onNavi
       </div>
 
       {/* Transparency section with YouTube Partner Program icons */}
-      <div className="mt-16 text-center border-t border-gray-100 dark:border-white/5 pt-12">
-        <h5 className="text-sm font-black uppercase text-gray-900 dark:text-white mb-2 tracking-wide">Transparência e Regras de Segurança</h5>
-        <p className="text-[11px] text-gray-400 font-medium max-w-lg mx-auto leading-relaxed uppercase tracking-wider mb-6">
+      <div 
+        onClick={() => onNavigate('terms')}
+        className="mt-16 text-center border-t border-gray-100 dark:border-white/5 pt-12 cursor-pointer group hover:opacity-90 active:scale-[0.99] transition-all"
+      >
+        <h5 className="text-sm font-black uppercase text-gray-900 dark:text-white mb-2 tracking-wide group-hover:text-blue-500 transition-colors flex items-center justify-center gap-1.5">
+          <FileText className="w-4 h-4 text-blue-500" /> Transparência e Regras de Segurança
+        </h5>
+        <p className="text-[11px] text-gray-400 font-medium max-w-lg mx-auto leading-relaxed uppercase tracking-wider mb-3">
           Visamos manter o ecossistema saudável. Criadores fáceis de identificar, autênticos e com boas diretrizes evitam strikes de propriedade intelectual.
+        </p>
+        <p className="text-[10px] text-blue-500 hover:underline font-black uppercase tracking-widest mb-6">
+          Clique aqui para ler nosso Regulamento & Termos de Uso completos
         </p>
         <div className="flex flex-wrap justify-center gap-4">
           <div className="flex items-center gap-2 text-[9.5px] font-black uppercase text-gray-500 dark:text-gray-450 bg-gray-100 dark:bg-white/5 px-4 py-2 rounded-full border dark:border-white/5">

@@ -192,6 +192,7 @@ const App: React.FC = () => {
         const hasVisited = localStorage.getItem('cp_has_visited');
         return hasVisited ? 'auth' : 'landing';
     });
+    const [previousPage, setPreviousPage] = useState<Page | null>(null);
     const [pageParams, setPageParams] = useState<Record<string, string>>(() => {
         const params = new URLSearchParams(window.location.search);
         const reelsParam = params.get('reels');
@@ -513,7 +514,12 @@ const App: React.FC = () => {
             markNotificationsAsRead(u.id);
             refreshCurrentUser();
         }
-        setCurrentPage(page);
+        setCurrentPage(prev => {
+            if (prev !== page) {
+                setPreviousPage(prev);
+            }
+            return page;
+        });
         if (page !== 'auth' && page !== 'landing') {
             sessionStorage.setItem('cyberphone_last_page', page);
         }
@@ -593,8 +599,20 @@ const App: React.FC = () => {
 
     function renderPage() {
         // PERMITIR PÁGINAS PÚBLICAS MESMO SEM USUÁRIO
-        if (currentPage === 'terms') return <LegalPage type="terms" onBack={() => handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any))} />;
-        if (currentPage === 'privacy') return <LegalPage type="privacy" onBack={() => handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any))} />;
+        if (currentPage === 'terms') return <LegalPage type="terms" onBack={() => {
+            if (previousPage && previousPage !== 'terms' && previousPage !== 'privacy') {
+                handleNavigate(previousPage);
+            } else {
+                handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any));
+            }
+        }} />;
+        if (currentPage === 'privacy') return <LegalPage type="privacy" onBack={() => {
+            if (previousPage && previousPage !== 'terms' && previousPage !== 'privacy') {
+                handleNavigate(previousPage);
+            } else {
+                handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any));
+            }
+        }} />;
         if (currentPage === 'support') return <SupportPage currentUser={currentUser || { id: 'public' } as User} onNavigate={handleNavigate} />;
 
         if (!currentUser) {

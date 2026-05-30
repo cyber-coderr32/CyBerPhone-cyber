@@ -134,8 +134,8 @@ try {
   `;
 }
 
-// Service worker registration - Enabled for top-level window to allow full PWA support & installability
-if ('serviceWorker' in navigator && (window.self === window.top || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+// Service worker registration - Robust registration catching sandbox/iframe errors gracefully
+if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     const swUrl = '/sw.js';
     navigator.serviceWorker.register(swUrl)
@@ -143,9 +143,7 @@ if ('serviceWorker' in navigator && (window.self === window.top || window.locati
         console.log('[PWA] Service Worker registrado com sucesso no escopo:', reg.scope);
       })
       .catch((err) => {
-        console.error('[PWA] Erro ao registrar o Service Worker:', err);
+        console.warn('[PWA] Informação: Registro de Service Worker pulado ou não suportado neste contexto (comum em iFrames ou modo anônimo):', err.message);
       });
   });
-} else if (window.self !== window.top) {
-  console.log('[PWA] Rodando dentro de um iframe. Registro de Service Worker pulado para garantir compatibilidade.');
 }

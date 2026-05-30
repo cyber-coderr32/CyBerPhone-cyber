@@ -15,7 +15,8 @@ import {
   RocketLaunchIcon,
   CheckBadgeIcon,
   SparklesIcon,
-  FireIcon
+  FireIcon,
+  PencilIcon
 } from '@heroicons/react/24/solid';
 import { motion, AnimatePresence } from 'motion/react';
 import { useDialog } from '../services/DialogContext';
@@ -35,19 +36,21 @@ const ProductCard = ({
     store, 
     onNavigate, 
     onAddToCart, 
-    showAlert 
+    showAlert,
+    currentUser
 }: { 
     product: Product, 
     store?: Store, 
     onNavigate: any, 
     onAddToCart: any, 
-    showAlert: any 
+    showAlert: any,
+    currentUser?: User
 }) => (
     <motion.div 
         layout
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="group bg-white dark:bg-white/5 rounded-[32px] overflow-hidden border border-gray-100 dark:border-white/5 hover:border-brand/40 transition-all hover:shadow-2xl hover:shadow-brand/10 cursor-pointer flex flex-col h-full"
+        className="group bg-white dark:bg-white/5 rounded-[32px] overflow-hidden border border-gray-100 dark:border-white/5 hover:border-brand/40 transition-all hover:shadow-2xl hover:shadow-brand/10 cursor-pointer flex flex-col h-full relative"
         onClick={() => onNavigate('product-detail', { productId: product.id })}
     >
         <div className="aspect-square relative overflow-hidden shrink-0">
@@ -61,9 +64,21 @@ const ProductCard = ({
                 </div>
             )}
             {store?.isVerified && (
-                <div className="absolute top-4 right-14 bg-blue-500 text-white p-1.5 rounded-full shadow-lg" title="Loja Verificada">
+                <div className="absolute top-4 right-20 bg-blue-500 text-white p-1.5 rounded-full shadow-lg" title="Loja Verificada">
                     <CheckBadgeIcon className="w-4 h-4" />
                 </div>
+            )}
+            {store?.userId === currentUser?.id && (
+                <button 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        onNavigate('manage-store', { editProductId: product.id });
+                    }}
+                    className="absolute top-4 right-14 bg-blue-600 text-white p-2 text-gray-100 rounded-xl hover:bg-blue-700 hover:text-white transition-all shadow-md"
+                    title="Editar Produto"
+                >
+                    <PencilIcon className="w-4 h-4" />
+                </button>
             )}
             <button 
                 onClick={(e) => {
@@ -501,6 +516,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     onNavigate={onNavigate}
                                     onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
+                                    currentUser={currentUser}
                                 />
                             </div>
                         ))}
@@ -521,6 +537,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     onNavigate={onNavigate}
                                     onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
+                                    currentUser={currentUser}
                                 />
                             </div>
                         ))}
@@ -550,6 +567,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     onNavigate={onNavigate}
                                     onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
+                                    currentUser={currentUser}
                                 />
                             ))}
                         </div>

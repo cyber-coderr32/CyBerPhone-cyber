@@ -53,7 +53,7 @@ const ExplorePage: React.FC<ExplorePageProps> = ({ currentUser, onNavigate, refr
       }
     };
     loadExplore();
-  }, [currentUser.id]);
+  }, [currentUser]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -83,8 +83,9 @@ const ExplorePage: React.FC<ExplorePageProps> = ({ currentUser, onNavigate, refr
   const handleFollow = async (targetId: string) => {
     try {
       await toggleFollowUser(currentUser.id, targetId);
-      refreshUser();
-      setTimeout(() => window.location.reload(), 1);
+      if (refreshUser) {
+        await refreshUser();
+      }
     } catch (error) {
       console.error("Error following:", safeJsonStringify(error));
     }

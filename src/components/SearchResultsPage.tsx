@@ -85,7 +85,6 @@ const SearchResultsPage: React.FC<SearchResultsPageProps> = ({
     try {
       await toggleFollowUser(currentUser.id, targetId);
       if (refreshUser) await refreshUser();
-      setTimeout(() => window.location.reload(), 1);
     } catch (error) {
       console.error("Error following:", safeJsonStringify(error));
     }

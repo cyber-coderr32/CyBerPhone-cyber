@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { User, Post, AdCampaign, PostType, Story, GroupedStory, CyberEvent, ChatConversation, Page } from '../types';
-import { getPosts, getAds, getStories, getUsers, toggleFollowUser, getEvents, getChats, joinGroup, markStoryAsViewed, getPromotedItems } from '../services/storageService';
+import { getPosts, getAds, getStories, getUsers, toggleFollowUser, getEvents, getChats, joinGroup, markStoryAsViewed, getPromotedItems, findUserById } from '../services/storageService';
 import { safeJsonStringify } from '../lib/utils';
 import { DEFAULT_PROFILE_PIC } from '../data/constants';
 import PostCard from './PostCard';
@@ -37,7 +37,7 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
   const { showAlert } = useDialog();
   const [allItems, setAllItems] = useState<FeedItem[]>([]);
   const [visibleItems, setVisibleItems] = useState<FeedItem[]>([]);
-  const [displayLimit, setDisplayLimit] = useState(ITEMS_PER_PAGE);
+  const displayLimitRef = useRef(ITEMS_PER_PAGE);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -53,6 +53,7 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
   const [activeFeedTab, setActiveFeedTab] = useState<'all' | 'reels' | 'videos'>('all');
   const observerTarget = useRef<HTMLDivElement>(null);
   const createPostRef = useRef<HTMLDivElement>(null);
+  const isCurrentlyLoadingMoreRef = useRef(false);
 
   useEffect(() => {
     const handleFocusIn = (e: FocusEvent) => {
@@ -118,14 +119,18 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
           getPromotedItems().catch(() => [])
         ]);
 
-        // Filtrar Posts Normais e Reels - APENAS SEGUIDOS OU PRÓPRIOS E NÃO BLOQUEADOS
-        const myFollows = currentUser.followedUsers || [];
-        const myBlocked = currentUser.blockedUserIds || [];
+        // Obter versão em tempo real/ultra-recente do perfil para contornar qualquer delay de propagação de props do React
+        const freshUser = await findUserById(currentUser.id).catch(() => currentUser) || currentUser;
+
+        // Filtrar Posts Normais e Reels - APENAS SEGUIDOS, DE QUEM NOS SEGUE, OU PRÓPRIOS E NÃO BLOQUEADOS
+        const myFollows = freshUser.followedUsers || [];
+        const myFollowers = freshUser.followers || [];
+        const myBlocked = freshUser.blockedUserIds || [];
         const publicPosts = (allPosts || []).filter(p => !myBlocked.includes(p.userId));
-        const userAge = (Date.now() - currentUser.birthDate) / (31557600000); // Years approximation
+        const userAge = (Date.now() - freshUser.birthDate) / (31557600000); // Years approximation
 
         const filteredPosts = publicPosts.filter(p => {
-          const isOwnOrFollowed = p.userId === currentUser.id || myFollows.includes(p.userId);
+          const isOwnOrFollowed = p.userId === currentUser.id || myFollows.includes(p.userId) || myFollowers.includes(p.userId);
           
           if (p.isBoosted) {
               // Targeting for boosted posts (Auction Discovery)
@@ -264,10 +269,10 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
         setAllItems(combined);
         
         if (isRefresh) {
-            setVisibleItems(combined.slice(0, displayLimit));
+            setVisibleItems(combined.slice(0, displayLimitRef.current));
         } else {
             setVisibleItems(combined.slice(0, ITEMS_PER_PAGE));
-            setDisplayLimit(ITEMS_PER_PAGE);
+            displayLimitRef.current = ITEMS_PER_PAGE;
         }
     } catch (e) {
         console.error("Erro crítico ao carregar feed:", safeJsonStringify(e));
@@ -275,31 +280,39 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
     } finally {
         setLoading(false);
     }
-  }, [currentUser.id, currentUser.followedUsers, currentUser.blockedUserIds, currentUser.isPremium, displayLimit, t, onNavigate, refreshUser, activeFeedTab]);
+  }, [currentUser.id, currentUser.followedUsers, currentUser.followers, currentUser.blockedUserIds, currentUser.isPremium, t, onNavigate, refreshUser, activeFeedTab]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const loadMoreItems = useCallback(() => {
-    if (loadingMore || visibleItems.length >= allItems.length) return;
+    if (loading || loadingMore || isCurrentlyLoadingMoreRef.current || visibleItems.length >= allItems.length) return;
+    isCurrentlyLoadingMoreRef.current = true;
     setLoadingMore(true);
+    
     setTimeout(() => {
-      const nextLimit = displayLimit + ITEMS_PER_PAGE;
+      const nextLimit = displayLimitRef.current + ITEMS_PER_PAGE;
+      displayLimitRef.current = nextLimit;
       setVisibleItems(allItems.slice(0, nextLimit));
-      setDisplayLimit(nextLimit);
       setLoadingMore(false);
-    }, 400);
-  }, [displayLimit, allItems, loadingMore, visibleItems.length]);
+      isCurrentlyLoadingMoreRef.current = false;
+    }, 300);
+  }, [allItems, loading, loadingMore, visibleItems.length]);
+
+  const loadMoreItemsRef = useRef(loadMoreItems);
+  useEffect(() => {
+    loadMoreItemsRef.current = loadMoreItems;
+  });
 
   useEffect(() => {
     const observer = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && !loading && !loadingMore && visibleItems.length < allItems.length) {
-        loadMoreItems();
+      if (entries[0].isIntersecting) {
+        loadMoreItemsRef.current();
       }
-    }, { threshold: 0.1, rootMargin: '100px' });
+    }, { threshold: 0.1, rootMargin: '250px' });
 
     if (observerTarget.current) observer.observe(observerTarget.current);
     return () => observer.disconnect();
-  }, [loading, loadingMore, loadMoreItems, visibleItems.length, allItems.length]);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 1000);
@@ -319,22 +332,11 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
 
   const handleFollow = async (targetId: string) => {
     try {
-      // Optimistic Update
-      const prevFollows = [...(currentUser.followedUsers || [])];
-      const isFollowing = prevFollows.includes(targetId);
-      let newFollows = isFollowing ? prevFollows.filter(id => id !== targetId) : [...prevFollows, targetId];
-      
-      // We can't update currentUser directly here as it's a prop, 
-      // but refreshUser will update it in App.tsx. 
-      // To be "simultaneous", we manually trigger a reload with the NEW following list if possible.
-      
       await toggleFollowUser(currentUser.id, targetId);
-      refreshUser(); 
-      
-      // The key to Request 5: immediate feedback
-      setTimeout(() => {
-          loadData(true);
-      }, 100);
+      if (refreshUser) {
+        await refreshUser();
+      }
+      await loadData(true);
     } catch (error) {
       console.error("Error toggling follow status:", safeJsonStringify(error));
     }
@@ -583,22 +585,54 @@ const FeedPage: React.FC<FeedPageProps> = ({ currentUser, onNavigate, refreshUse
                 <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
                 <p className="mt-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">{t('loading_feed')}</p>
               </div>
+            ) : allItems.length === 0 ? (
+              <div className="py-16 px-6 text-center bg-white dark:bg-darkcard rounded-[2.5rem] border border-gray-100 dark:border-white/5 shadow-xl animate-fade-in flex flex-col items-center">
+                <div className="w-16 h-16 rounded-full bg-blue-50 dark:bg-blue-600/10 flex items-center justify-center mb-4">
+                  <UserGroupIcon className="w-8 h-8 text-blue-600 animate-pulse" />
+                </div>
+                <h3 className="text-base font-black uppercase tracking-tight text-gray-900 dark:text-white mb-2">{t('feed_empty_title') || 'Feed Silencioso'}</h3>
+                <p className="text-[11px] text-gray-400 font-medium max-w-sm mx-auto leading-relaxed uppercase tracking-wider mb-6">
+                  {activeFeedTab === 'reels' 
+                    ? 'Nenhum reel disponível no momento. Publique o primeiro!' 
+                    : activeFeedTab === 'videos' 
+                    ? 'Ainda não há publicações de vídeo disponíveis.' 
+                    : 'Que tal seguir novas conexões ou publicar uma novidade para agitar o feed?'}
+                </p>
+                <div className="flex flex-wrap gap-3 justify-center">
+                  <button 
+                    onClick={() => loadData(true)} 
+                    className="bg-gray-100 dark:bg-white/10 hover:bg-gray-200 text-gray-900 dark:text-white px-5 py-3 rounded-2xl font-black text-[9px] uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <ArrowPathIcon className="w-4 h-4" /> {t('refresh') || 'Atualizar'}
+                  </button>
+                  <button 
+                    onClick={() => onNavigate('explore')} 
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-2xl font-black text-[9px] uppercase tracking-wider shadow-md transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <SparklesIcon className="w-4 h-4" /> {t('explore_label') || 'Descobrir Criadores'}
+                  </button>
+                </div>
+              </div>
             ) : (
               <>
                 {renderedItems}
 
-                <div ref={observerTarget} className="h-24 flex flex-col items-center justify-center">
-                  {loadingMore && (
-                    <>
+                {/* Single stable height container containing both loader and end-state to completely eliminate layout shifting and jitter */}
+                <div className="h-36 w-full flex flex-col items-center justify-center relative shrink-0">
+                  {loadingMore ? (
+                    <div className="flex flex-col items-center animate-pulse">
                       <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                      <p className="mt-3 text-[9px] font-black text-gray-400 uppercase tracking-widest">{t('loading_dots')}</p>
-                    </>
-                  )}
-                  {isAtEnd && !loadingMore && (
-                    <div className="flex flex-col items-center gap-2 opacity-50 py-8">
-                       <CheckCircleIcon className="h-8 w-8 text-green-500" />
-                       <p className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">{t('end_of_content')}</p>
+                      <p className="mt-2 text-[9px] font-black text-gray-400 uppercase tracking-widest">{t('loading_dots') || 'Carregando mais conteúdo...'}</p>
                     </div>
+                  ) : isAtEnd ? (
+                    <div className="flex flex-col items-center gap-2 animate-fade-in text-gray-500 text-center px-4">
+                       <CheckCircleIcon className="h-10 w-10 text-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 p-2 rounded-full shadow-sm" />
+                       <p className="text-[10px] font-black text-gray-900 dark:text-white uppercase tracking-[0.2em]">{t('end_of_content')}</p>
+                       <span className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Todas as novidades do momento foram lidas!</span>
+                    </div>
+                  ) : (
+                    /* Invisible intersection observer anchor when more items can be loaded, placed safely inside the container */
+                    <div ref={observerTarget} className="absolute inset-0 w-full h-full pointer-events-none" />
                   )}
                 </div>
               </>

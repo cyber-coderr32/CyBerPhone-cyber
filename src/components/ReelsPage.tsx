@@ -463,8 +463,11 @@ const ReelItem: React.FC<ReelItemProps> = ({
 
       {/* COLUMN DESIGN - GUARANTEES ZERO CONTENT OVERLAP OR MULTI-SCREEN STICKINESS */}
       
+      {/* Full-width elegant immersive dark gradient overlay at the bottom to avoid any vertical division/lines and maximize contrast */}
+      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-[#000000]/95 via-[#000000]/45 to-transparent z-10 pointer-events-none" />
+
       {/* COLUMN 1 (LEFT SIDE - 75% WIDTH): User data and descriptions */}
-      <div className="absolute left-0 bottom-0 w-[calc(100%-76px)] p-4 pb-6 bg-gradient-to-t from-black/95 via-black/40 to-transparent z-10 pt-28 pointer-events-none flex flex-col gap-3">
+      <div className="absolute left-0 bottom-0 w-[calc(100%-76px)] p-4 pb-6 z-20 pt-28 pointer-events-none flex flex-col gap-3">
         
         {/* Author / Creator Header */}
         <div className="flex items-center gap-3 pointer-events-auto">

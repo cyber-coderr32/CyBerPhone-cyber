@@ -127,9 +127,9 @@ const Footer: React.FC<FooterProps> = ({
       </footer>
 
       {/* DESKTOP SIDEBAR */}
-      <aside className="hidden md:flex flex-col w-64 h-screen fixed left-0 top-0 bg-white dark:bg-[#0a0c10] border-r dark:border-white/5 z-50 p-6">
+      <aside className={`hidden md:flex flex-col w-64 h-screen fixed left-0 top-0 ${activePage === 'reels-page' ? 'bg-[#000000] border-r border-white/10 text-white' : 'bg-white dark:bg-[#0a0c10] border-r border-gray-100 dark:border-white/5'} z-50 p-6 transition-colors duration-300`}>
         <div className="mb-10 px-2 cursor-pointer" onClick={() => onNavigate('feed')}>
-          <Logo size="md" />
+          <Logo size="md" variant={activePage === 'reels-page' ? 'white' : 'default'} />
         </div>
 
         <nav className="flex-grow space-y-2 overflow-y-auto no-scrollbar">
@@ -140,7 +140,13 @@ const Footer: React.FC<FooterProps> = ({
               <button 
                 key={item.id}
                 onClick={() => onNavigate(item.id as Page, item.params)} 
-                className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all group relative ${isActive ? 'bg-brand text-white shadow-xl shadow-brand/20' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'}`}
+                className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl transition-all group relative ${
+                  isActive 
+                    ? 'bg-brand text-white shadow-xl shadow-brand/20' 
+                    : activePage === 'reels-page'
+                    ? 'text-gray-400 hover:text-white hover:bg-white/10'
+                    : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'
+                }`}
               >
                 <Icon className={`h-6 w-6 ${isActive ? '' : 'group-hover:scale-110 transition-transform'}`} />
                 <span className="font-black text-sm uppercase tracking-tighter">{item.label}</span>
@@ -153,23 +159,35 @@ const Footer: React.FC<FooterProps> = ({
             );
           })}
 
-            <div className="pt-6 mt-6 border-t dark:border-white/5 space-y-1">
-              <p className="px-4 text-[10px] font-black uppercase text-gray-400 tracking-widest mb-4">{t('discovery_label')}</p>
+            <div className={`pt-6 mt-6 border-t ${activePage === 'reels-page' ? 'border-white/10' : 'border-gray-100 dark:border-white/5'} space-y-1`}>
+              <p className={`px-4 text-[10px] font-black uppercase ${activePage === 'reels-page' ? 'text-white/40' : 'text-gray-400'} tracking-widest mb-4`}>{t('discovery_label')}</p>
               
               <button 
                   onClick={() => onNavigate('explore')} 
-                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${activePage === 'explore' ? 'bg-brand/10 text-brand' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'}`}
+                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${
+                    activePage === 'explore' 
+                      ? 'bg-brand/10 text-brand' 
+                      : activePage === 'reels-page'
+                      ? 'text-gray-400 hover:text-white hover:bg-white/10'
+                      : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'
+                  }`}
                 >
                   <SparklesIcon className={`h-6 w-6 ${activePage === 'explore' ? 'text-brand' : 'group-hover:scale-110 transition-transform'}`} />
                   <span className="font-black text-sm uppercase tracking-tighter">{t('nav_explorar')}</span>
               </button>
 
-              <div className="pt-4 mt-4 border-t border-dashed dark:border-white/5 space-y-1">
-                <p className="px-4 text-[10px] font-black uppercase text-gray-400 tracking-widest mb-4">{t('nav_business')}</p>
+              <div className={`pt-4 mt-4 border-t border-dashed ${activePage === 'reels-page' ? 'border-white/10' : 'border-gray-100 dark:border-white/5'} space-y-1`}>
+                <p className={`px-4 text-[10px] font-black uppercase ${activePage === 'reels-page' ? 'text-white/40' : 'text-gray-400'} tracking-widest mb-4`}>{t('nav_business')}</p>
                 
                 <button 
                     onClick={() => onNavigate('creator-center')} 
-                    className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${activePage === 'creator-center' ? 'bg-brand/10 text-brand' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'}`}
+                    className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${
+                      activePage === 'creator-center' 
+                        ? 'bg-brand/10 text-brand' 
+                        : activePage === 'reels-page'
+                        ? 'text-gray-400 hover:text-white hover:bg-white/10'
+                        : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'
+                    }`}
                   >
                     {activePage === 'creator-center' ? <ChartSolid className="h-6 w-6 text-brand" /> : <ChartPieIcon className="h-6 w-6 group-hover:scale-110 transition-transform" />}
                     <span className="font-black text-sm uppercase tracking-tighter">{t('nav_performance')}</span>
@@ -177,7 +195,13 @@ const Footer: React.FC<FooterProps> = ({
 
                 <button 
                   onClick={() => onNavigate('monetization')} 
-                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${activePage === 'monetization' ? 'bg-brand/10 text-brand' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'}`}
+                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${
+                    activePage === 'monetization' 
+                      ? 'bg-brand/10 text-brand' 
+                      : activePage === 'reels-page'
+                      ? 'text-gray-400 hover:text-white hover:bg-white/10'
+                      : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'
+                  }`}
                 >
                   <SparklesIcon className={`h-6 w-6 ${activePage === 'monetization' ? 'text-brand' : 'group-hover:scale-110 transition-transform'}`} />
                   <span className="font-black text-sm uppercase tracking-tighter">{t('nav_monetization')}</span>
@@ -185,7 +209,13 @@ const Footer: React.FC<FooterProps> = ({
 
                 <button 
                   onClick={() => onNavigate('ads')} 
-                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${activePage === 'ads' ? 'bg-brand/10 text-brand' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'}`}
+                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${
+                    activePage === 'ads' 
+                      ? 'bg-brand/10 text-brand' 
+                      : activePage === 'reels-page'
+                      ? 'text-gray-400 hover:text-white hover:bg-white/10'
+                      : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'
+                  }`}
                 >
                   <MegaphoneIcon className={`h-6 w-6 ${activePage === 'ads' ? 'text-brand' : 'group-hover:scale-110 transition-transform'}`} />
                   <span className="font-black text-sm uppercase tracking-tighter">{t('nav_ads')}</span>
@@ -193,27 +223,43 @@ const Footer: React.FC<FooterProps> = ({
 
                 <button 
                   onClick={() => onNavigate('cyber-assistant')} 
-                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${activePage === 'cyber-assistant' ? 'bg-brand/10 text-brand' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'}`}
+                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all group ${
+                    activePage === 'cyber-assistant' 
+                      ? 'bg-brand/10 text-brand' 
+                      : activePage === 'reels-page'
+                      ? 'text-gray-400 hover:text-white hover:bg-white/10'
+                      : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'
+                  }`}
                 >
                   {activePage === 'cyber-assistant' ? <CpuSolid className="h-6 w-6 text-brand" /> : <CpuChipIcon className="h-6 w-6 group-hover:scale-110 transition-transform" />}
                   <span className="font-black text-sm uppercase tracking-tighter">{t('nav_cyber_assistant')}</span>
-                  <span className="ml-auto text-[8px] font-black bg-brand/10 text-brand px-2 py-0.5 rounded-md uppercase">AI</span>
+                  <span className={`ml-auto text-[8px] font-black px-2 py-0.5 rounded-md uppercase ${activePage === 'reels-page' ? 'bg-brand/20 text-brand' : 'bg-brand/10 text-brand'}`}>AI</span>
                 </button>
               </div>
             </div>
         </nav>
 
-        <div className="pt-6 border-t dark:border-white/5 space-y-2">
+        <div className={`pt-6 border-t ${activePage === 'reels-page' ? 'border-white/10' : 'border-gray-100 dark:border-white/5'} space-y-2`}>
            <button 
             onClick={() => onNavigate('settings')} 
-            className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all ${activePage === 'settings' ? 'text-blue-600' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'}`}
+            className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all ${
+              activePage === 'settings' 
+                ? 'text-blue-600' 
+                : activePage === 'reels-page'
+                ? 'text-gray-400 hover:text-white hover:bg-white/10'
+                : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5'
+            }`}
           >
             <Cog6ToothIcon className="h-6 w-6" />
             <span className="font-black text-xs uppercase tracking-widest">{t('nav_settings')}</span>
           </button>
           <button 
             onClick={onLogout} 
-            className="w-full flex items-center gap-4 px-4 py-3 rounded-2xl text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-all"
+            className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl transition-all ${
+              activePage === 'reels-page'
+                ? 'text-red-400 hover:bg-red-500/10'
+                : 'text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10'
+            }`}
           >
             <PowerIcon className="h-6 w-6" />
             <span className="font-black text-xs uppercase tracking-widest">{t('nav_logout')}</span>

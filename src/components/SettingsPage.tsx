@@ -77,7 +77,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const { t, i18n } = useTranslation();
   const { showAlert } = useDialog();
-  const [view, setView] = useState<'main' | 'edit-profile' | 'appearance' | 'language'>('main');
+  const [view, setView] = useState<'main' | 'edit-profile' | 'appearance' | 'language' | 'pwa'>('main');
   
   const [firstName, setFirstName] = useState(currentUser.firstName);
   const [lastName, setLastName] = useState(currentUser.lastName);
@@ -208,9 +208,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error(safeJsonStringify(err));
-      showAlert(t('settings_save_error'), { type: 'error' });
+      showAlert(err?.message || t('settings_save_error'), { type: 'error' });
     } finally {
       setIsSaving(false);
     }
@@ -230,6 +230,176 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         setShowDeleteConfirm(false);
     }
   };
+
+  if (view === 'pwa') {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
+    const [installable, setInstallable] = useState(!!(window as any).deferredPrompt);
+    const [installed, setInstalled] = useState(isStandalone);
+
+    React.useEffect(() => {
+      const handleInstallable = () => setInstallable(true);
+      const handleInstalled = () => {
+        setInstallable(false);
+        setInstalled(true);
+      };
+      window.addEventListener('pwa-installable', handleInstallable);
+      window.addEventListener('pwa-installed', handleInstalled);
+      return () => {
+        window.removeEventListener('pwa-installable', handleInstallable);
+        window.removeEventListener('pwa-installed', handleInstalled);
+      };
+    }, []);
+
+    const handleInstallClick = async () => {
+      const promptEvent = (window as any).deferredPrompt;
+      if (!promptEvent) {
+        showAlert("O arquivo instalador ainda não foi carregado pelo navegador ou você está navegando dentro da visualização do Estúdio. Abra em uma aba externa para poder realizar a instalação nativa do CyberPhone no seu aparelho celular ou desktop.", { type: 'warning' });
+        return;
+      }
+      promptEvent.prompt();
+      const { outcome } = await promptEvent.userChoice;
+      console.log(`[PWA] Escolha do usuário ao instalar: ${outcome}`);
+      (window as any).deferredPrompt = null;
+      setInstallable(false);
+    };
+
+    const isIframe = window.self !== window.top;
+
+    return (
+      <div className="container mx-auto p-4 md:p-8 pt-24 pb-20 max-w-4xl animate-fade-in">
+        <div className="flex items-center gap-6 mb-10">
+          <button onClick={() => setView('main')} className="p-3 bg-white dark:bg-darkcard rounded-2xl shadow-md text-gray-400 hover:text-brand transition-all flex items-center justify-center cursor-pointer"><ArrowLeftIcon className="h-6 w-6" /></button>
+          <div className="space-y-1">
+            <h2 className="text-3xl font-black dark:text-white tracking-tighter uppercase">Instalação & Estabilidade PWA</h2>
+            <p className="text-[10px] text-gray-400 font-extrabold uppercase tracking-widest">CyberPhone Progressive Web App</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <div className="md:col-span-2 space-y-8">
+            {/* Status Card */}
+            <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border border-gray-100 dark:border-white/10 flex flex-col md:flex-row items-center gap-6">
+              <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-blue-600/10 flex items-center justify-center shrink-0">
+                <ArrowDownTrayIcon className="h-7 w-7 text-blue-600 animate-bounce" />
+              </div>
+              <div className="flex-grow space-y-1 text-center md:text-left">
+                <h3 className="font-black text-xs uppercase dark:text-white tracking-tight">Status do Aplicativo PWA</h3>
+                <p className="text-[11px] text-gray-400 leading-relaxed font-semibold">
+                  {installed 
+                    ? "✓ O CyberPhone está operando no Dispositivo como aplicativo independente (Standalone) de alta performance!"
+                    : isIframe 
+                    ? "⚠️ Você está na pré-visualização. Clique no botão de abrir em nova aba no canto superior direito para instalar o PWA como app real." 
+                    : installable 
+                    ? "★ Pronto para instalação estável! Clique no botão abaixo para fixar o ícone oficial em sua tela." 
+                    : "No momento o navegador não enviou prompt de instalação rápida. Veja abaixo instruções manuais para seu celular."}
+                </p>
+              </div>
+            </div>
+
+            {/* Main Action Block */}
+            <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border border-gray-100 dark:border-white/10 space-y-6">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ações Disponíveis</h3>
+              
+              {installable ? (
+                <button
+                  type="button"
+                  onClick={handleInstallClick}
+                  className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer"
+                >
+                  <ArrowDownTrayIcon className="h-5 w-5" /> Instalar CyberPhone no Dispositivo
+                </button>
+              ) : installed ? (
+                <div className="p-6 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-2xl text-emerald-600 dark:text-emerald-400 flex items-center gap-4">
+                  <span className="text-2xl">✓</span>
+                  <div>
+                    <h4 className="font-black text-xs uppercase tracking-wider">Instalado com Sucesso</h4>
+                    <p className="text-[11px] font-bold leading-normal mt-1 text-emerald-600/80 dark:text-emerald-400/80">CyberPhone já está funcionando totalmente isolado, otimizado para economizar bateria e rede!</p>
+                  </div>
+                </div>
+              ) : isIframe ? (
+                <div className="space-y-4">
+                  <a
+                    href={window.location.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer"
+                  >
+                    Abrir App em Nova Aba Completa
+                  </a>
+                  <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider text-center">Precisa abrir fora do editor do estúdio para habilitar suporte a instalação PWA nativa</p>
+                </div>
+              ) : (
+                <div className="p-6 bg-gray-50 dark:bg-white/5 border border-dashed border-gray-200 dark:border-white/10 rounded-2xl text-gray-500 dark:text-gray-400">
+                  <h4 className="font-black text-xs uppercase tracking-wider mb-2">Instalação por Atalho Rápido</h4>
+                  <p className="text-xs font-bold leading-relaxed mb-4">Caso o botão automático não apareça, você pode instalar através do próprio menu do navegador:</p>
+                  <ul className="text-xs list-disc pl-5 space-y-2 font-semibold">
+                    <li>No <strong>Google Chrome / Microsoft Edge</strong>: clique no ícone de instalar que aparece no lado direito da barra de endereço de URL.</li>
+                    <li>No celular ou tablet: use o menu complementar (<span className="font-black">:::</span>) e selecione <span className="underline">"Adicionar à tela inicial"</span> ou <span className="underline">"Instalar aplicativo"</span>.</li>
+                  </ul>
+                </div>
+              )}
+
+              {/* iOS Safari Guide Section - Crucial for stable execution on iPhones/iPads */}
+              <div className="border-t border-gray-100 dark:border-white/10 pt-6 space-y-4">
+                <h4 className="font-black text-[10px] uppercase tracking-wider text-gray-900 dark:text-white flex items-center gap-2">
+                  <span>📱</span> Guia para iOS / Apple Safari (iPhones e iPads)
+                </h4>
+                <p className="text-[11px] text-gray-400 font-semibold leading-relaxed">O sistema iOS não suporta instalação de um clique automática. Mas você pode instalar em segundos de forma estável seguindo esses passos:</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-gray-50 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/5 flex flex-col items-center text-center space-y-2">
+                    <span className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 flex items-center justify-center font-black text-xs">1</span>
+                    <p className="text-[9px] font-black uppercase tracking-tight dark:text-white">Abrir no Safari</p>
+                    <p className="text-[8px] text-gray-400 font-bold leading-relaxed">Certifique-se de carregar este aplicativo no navegador oficial Safari incorporado.</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/5 flex flex-col items-center text-center space-y-2">
+                    <span className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 flex items-center justify-center font-black text-xs">2</span>
+                    <p className="text-[9px] font-black uppercase tracking-tight dark:text-white">Compartilhar</p>
+                    <p className="text-[8px] text-gray-400 font-bold leading-relaxed">Clique no ícone de compartilhamento (quadrado com flecha apontando para cima).</p>
+                  </div>
+                  <div className="bg-gray-50 dark:bg-white/5 p-4 rounded-2xl border border-gray-100 dark:border-white/5 flex flex-col items-center text-center space-y-2">
+                    <span className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-500/10 text-blue-600 flex items-center justify-center font-black text-xs">3</span>
+                    <p className="text-[9px] font-black uppercase tracking-tight dark:text-white">Tela Inicial</p>
+                    <p className="text-[8px] text-gray-400 font-bold leading-relaxed">Role a lista para baixo e toque em "Adicionar à Tela de Início".</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-8">
+            {/* Benefits box */}
+            <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] shadow-xl border border-gray-100 dark:border-white/10 space-y-6">
+              <h3 className="font-black text-[10px] uppercase tracking-wider dark:text-white">Benefícios do App</h3>
+              
+              <div className="space-y-4">
+                <div className="flex gap-4">
+                  <span className="text-xl">🚀</span>
+                  <div>
+                    <h4 className="font-black text-xs uppercase tracking-tight dark:text-white">Alta Performance</h4>
+                    <p className="text-[9px] text-gray-400 leading-normal font-bold">Arquivos principais pré-armazenados em cache rápida local reduzindo tempos de carregamento.</p>
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <span className="text-xl">🎛️</span>
+                  <div>
+                    <h4 className="font-black text-xs uppercase tracking-tight dark:text-white">Notificações Diretas</h4>
+                    <p className="text-[9px] text-gray-400 leading-normal font-bold">Mensagens e alertas entregues em tempo real pelo motor push, mesmo com o celular em modo repouso.</p>
+                  </div>
+                </div>
+                <div className="flex gap-4">
+                  <span className="text-xl">🔋</span>
+                  <div>
+                    <h4 className="font-black text-xs uppercase tracking-tight dark:text-white">Super Economia</h4>
+                    <p className="text-[9px] text-gray-400 leading-normal font-bold">Uso consciente de dados móveis inteligentes e carga de armazenamento local compactada.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (view === 'language') {
     return (
@@ -603,6 +773,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         { id: 'blocked', labelKey: 'usuarios_bloqueados', descKey: 'gerenciar_lista_negra', icon: NoSymbolIcon, onClick: () => onNavigate('blocked-users') },
         { id: 'saved', labelKey: 'itens_salvos', descKey: 'gerenciar_itens_salvos', icon: BookmarkIcon, onClick: () => onNavigate('saved') },
         { id: 'language', labelKey: 'idioma_do_sistema', descKey: 'alterar_linguagem_global', icon: LanguageIcon, onClick: () => setView('language') },
+        { id: 'pwa', labelKey: 'config_pwa', descKey: 'instalar_pwa_desc', icon: ArrowDownTrayIcon, onClick: () => setView('pwa') },
         { 
           id: 'id-verification',
           labelKey: 'verificacao_de_identidade', 
@@ -650,8 +821,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                       <item.icon className="h-6 w-6" />
                     </div>
                     <div>
-                      <p className="font-black text-sm dark:text-white uppercase tracking-tight">{t(item.labelKey)}</p>
-                      <p className="text-xs text-gray-400 font-bold">{t(item.descKey)}</p>
+                      <p className="font-black text-sm dark:text-white uppercase tracking-tight">
+                        {item.id === 'pwa' ? 'Estabilidade & Instalação PWA' : t(item.labelKey)}
+                      </p>
+                      <p className="text-xs text-gray-400 font-bold">
+                        {item.id === 'pwa' ? 'Fixar ou atualizar app no seu celular/computador' : t(item.descKey)}
+                      </p>
                     </div>
                   </div>
                   <ChevronDownIcon className="h-5 w-5 text-gray-300 -rotate-90" />

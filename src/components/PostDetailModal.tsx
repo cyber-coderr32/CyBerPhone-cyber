@@ -156,9 +156,8 @@ const PostDetailModal: React.FC<PostDetailModalProps> = ({ post, currentUser, on
     e.stopPropagation();
     try {
       await toggleFollowUser(currentUser.id, post.userId);
-      refreshUser();
+      if (refreshUser) await refreshUser();
       onUpdate();
-      setTimeout(() => window.location.reload(), 1);
     } catch (err) {
       console.error("Error following:", safeJsonStringify(err));
     }
