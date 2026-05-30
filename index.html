@@ -35,23 +35,14 @@
         window.dispatchEvent(new CustomEvent('pwa-installed'));
       });
 
-      // Registro e Auditoria do Service Worker para PWA funcional
+      // Registro de Eventos essenciais do PWA
       window.addEventListener('load', () => {
         const isIframe = window.self !== window.top;
-        
         if (!('serviceWorker' in navigator)) {
           const msg = isIframe 
             ? '[PWA] Service Worker não disponível dentro de iFrames (Pré-visualização). Abra em uma nova aba para testar o PWA.'
             : '[PWA] Service Worker não é suportado neste navegador ou conexão não segura (HTTPS necessário).';
           console.warn(msg);
-        } else {
-          navigator.serviceWorker.register('/sw.js')
-            .then((registration) => {
-              console.log('[PWA] Service Worker registrado com sucesso no escopo:', registration.scope);
-            })
-            .catch((error) => {
-              console.error('[PWA] Falha ao registrar o Service Worker:', error);
-            });
         }
       });
     </script>
