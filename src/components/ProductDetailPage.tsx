@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { User, Product, Page, Store } from '../types';
-import { getProduct, getStores, findUserById } from '../services/storageService';
+import { getProduct, getStores, findUserById, adminDeleteProduct } from '../services/storageService';
 import { formatCurrency, safeJsonStringify } from '../lib/utils';
-import { Pencil } from 'lucide-react';
+import { Pencil, Trash } from 'lucide-react';
 import { 
   ShoppingBagIcon, 
   ArrowLeftIcon,
@@ -91,16 +91,17 @@ const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
     onOpenCart,
     affiliateId 
 }) => {
-  const { showAlert } = useDialog();
+  const { showAlert, showConfirm, showSuccess, showError, showLoading, hideLoading } = useDialog();
   const [product, setProduct] = useState<Product | null>(null);
   const [store, setStore] = useState<Store | null>(null);
   const [loading, setLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [isOwnerOrAdmin, setIsOwnerOrAdmin] = useState(false);
 
   useEffect(() => {
     loadProduct();
-  }, [productId]);
+  }, [productId, currentUser]);
 
   const loadProduct = async () => {
     if (!productId) {
@@ -115,6 +116,16 @@ const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
         const stores = await getStores();
         const foundStore = stores.find(s => s.id === data.storeId);
         if (foundStore) setStore(foundStore);
+
+        if (currentUser) {
+          const emailLower = (currentUser.email || '').toLowerCase().trim();
+          const isAdmin = currentUser.isAdmin || emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+          const userStore = stores.find(s => s.userId === currentUser.id);
+          const isOwner = foundStore?.userId === currentUser.id || data.userId === currentUser.id || (userStore && data.storeId === userStore.id);
+          setIsOwnerOrAdmin(!!(isOwner || isAdmin));
+        } else {
+          setIsOwnerOrAdmin(false);
+        }
       }
     } catch (err) {
       console.error("Error loading product:", safeJsonStringify(err));
@@ -187,14 +198,42 @@ const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
               </div>
             </div>
 
-            {store?.userId === currentUser.id && (
-              <button 
-                onClick={() => onNavigate('manage-store', { editProductId: product.id })}
-                className="flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest leading-none shadow-lg shadow-indigo-600/20 hover:scale-105 transition-all outline-none"
-              >
-                <Pencil className="w-3 h-3" />
-                Editar Produto
-              </button>
+            {isOwnerOrAdmin && (
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => onNavigate('manage-store', { editProductId: product.id })}
+                  className="flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest leading-none shadow-lg shadow-indigo-600/20 hover:scale-105 transition-all outline-none"
+                >
+                  <Pencil className="w-3 h-3" />
+                  Editar Produto
+                </button>
+                <button 
+                  onClick={async () => {
+                    const confirm = await showConfirm(`Tem certeza de que deseja eliminar permanentemente o produto "${product.name}"? Esta ação não pode ser desfeita.`, {
+                      title: "Eliminar Produto",
+                      confirmText: "Sim, Eliminar",
+                      cancelText: "Cancelar",
+                      type: "warning"
+                    });
+                    if (confirm) {
+                      try {
+                        showLoading("Eliminando produto...");
+                        await adminDeleteProduct(product.id);
+                        showSuccess("Produto eliminado com sucesso!");
+                        onNavigate('store');
+                      } catch (err) {
+                        showError("Erro ao eliminar o produto.");
+                      } finally {
+                        hideLoading();
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-1.5 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest leading-none shadow-lg shadow-red-600/20 hover:scale-105 transition-all outline-none"
+                >
+                  <Trash className="w-3 h-3" />
+                  Eliminar Produto
+                </button>
+              </div>
             )}
           </div>
 
@@ -311,6 +350,50 @@ const ProductDetailPage: React.FC<ProductDetailPageProps> = ({
                 </div>
              </div>
           </div>
+          {/* Admin/Seller Management Block */}
+          {isOwnerOrAdmin && (
+             <div className="mt-8 p-6 bg-gradient-to-r from-blue-500/10 to-indigo-500/10 border border-blue-500/20 rounded-[30px] flex flex-col md:flex-row items-center justify-between gap-4 w-full">
+                <div>
+                   <p className="text-[10px] font-black uppercase text-blue-600 dark:text-blue-400 tracking-widest mb-1">Painel administrativo</p>
+                   <p className="text-sm font-black text-gray-900 dark:text-white uppercase leading-tight">Painel de Administração do Produto</p>
+                </div>
+                <div id="admin-product-actions" className="flex items-center gap-2 w-full md:w-auto shrink-0">
+                    <button 
+                      onClick={() => onNavigate('manage-store', { editProductId: product.id })}
+                      className="flex-1 md:flex-initial flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 py-3.5 rounded-2xl text-xs font-black uppercase tracking-widest leading-none shadow-lg shadow-indigo-600/20 hover:scale-[1.05] transition-all outline-none"
+                    >
+                      <Pencil className="w-4 h-4" />
+                      Editar Produto
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        const confirm = await showConfirm(`Tem certeza de que deseja eliminar permanentemente o produto "${product.name}"? Esta ação não pode ser desfeita.`, {
+                          title: "Eliminar Produto",
+                          confirmText: "Sim, Eliminar",
+                          cancelText: "Cancelar",
+                          type: "warning"
+                        });
+                        if (confirm) {
+                          try {
+                            showLoading("Eliminando produto...");
+                            await adminDeleteProduct(product.id);
+                            showSuccess("Produto eliminado com sucesso!");
+                            onNavigate('store');
+                          } catch (err) {
+                            showError("Erro ao eliminar o produto.");
+                          } finally {
+                            hideLoading();
+                          }
+                        }
+                      }}
+                      className="flex items-center justify-center gap-2 bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white px-5 py-3.5 rounded-2xl text-xs font-black tracking-widest leading-none shadow-lg shadow-red-600/20 hover:scale-[1.05] transition-all outline-none"
+                      title="Eliminar Produto"
+                    >
+                      <Trash className="w-4 h-4" />
+                    </button>
+                </div>
+             </div>
+          )}
         </div>
       </div>
 

@@ -1,4 +1,116 @@
 
+// Interceptação global de console para prevenir erros de "Converting circular structure to JSON"
+// causados por serializadores de iframe/telemetria no console.error / console.warn
+(function() {
+  function sanitizeConsoleArg(arg: any, seen = new WeakSet()): any {
+    if (arg === null || arg === undefined) return arg;
+    if (typeof arg !== 'object') {
+      if (typeof arg === 'function') {
+        return `[Function: ${arg.name || 'anonymous'}]`;
+      }
+      if (typeof arg === 'symbol') {
+        return arg.toString();
+      }
+      return arg;
+    }
+
+    if (seen.has(arg)) {
+      return '[Circular/Duplicate Reference]';
+    }
+    seen.add(arg);
+
+    if (arg instanceof Error) {
+      const errObj: any = {
+        name: arg.name,
+        message: arg.message,
+        code: (arg as any).code || (arg as any).status,
+        stack: arg.stack,
+      };
+      Object.getOwnPropertyNames(arg).forEach(prop => {
+        if (prop !== 'stack' && prop !== 'name' && prop !== 'message') {
+          try {
+            errObj[prop] = sanitizeConsoleArg((arg as any)[prop], seen);
+          } catch (e) {
+            errObj[prop] = "[Unreadable Property]";
+          }
+        }
+      });
+      return errObj;
+    }
+
+    if (typeof window !== 'undefined') {
+      try {
+        if ((typeof Node !== 'undefined' && arg instanceof Node) || 
+            (typeof Window !== 'undefined' && arg instanceof Window) || 
+            (typeof Event !== 'undefined' && arg instanceof Event)) {
+          return `[Browser Object: ${arg.constructor?.name || 'DOM'}]`;
+        }
+      } catch (e) {}
+    }
+
+    const cName = arg.constructor?.name;
+    if (cName && (
+      cName === 'Y2' || 
+      cName === 'Ka' || 
+      cName === 'Za' || 
+      cName.includes('Firestore') || 
+      cName.includes('Auth') || 
+      cName.includes('Firebase') ||
+      cName.includes('App') ||
+      cName.includes('Storage') ||
+      cName.includes('Snapshot') ||
+      cName.includes('Reference') ||
+      cName.includes('Query')
+    )) {
+      return `[Firebase Service Object: ${cName}]`;
+    }
+    
+    if (arg._delegate || arg._database || arg._firestore || arg._path) {
+      return `[Firebase Service Object (implicit): ${cName || 'Object'}]`;
+    }
+
+    if (Array.isArray(arg)) {
+      return arg.map(item => sanitizeConsoleArg(item, seen));
+    }
+
+    const copy: any = {};
+    for (const key in arg) {
+      if (Object.prototype.hasOwnProperty.call(arg, key)) {
+        try {
+          copy[key] = sanitizeConsoleArg(arg[key], seen);
+        } catch (e) {
+          copy[key] = "[Unreadable Property]";
+        }
+      }
+    }
+    return copy;
+  }
+
+  const originalConsoleError = console.error;
+  console.error = function(...args) {
+    const safeArgs = args.map(arg => {
+      try {
+        return sanitizeConsoleArg(arg);
+      } catch (e) {
+        return `[Serialization Error: ${e instanceof Error ? e.message : String(e)}]`;
+      }
+    });
+    originalConsoleError.apply(console, safeArgs);
+  };
+
+  const originalConsoleWarn = console.warn;
+  console.warn = function(...args) {
+    const safeArgs = args.map(arg => {
+      try {
+        return sanitizeConsoleArg(arg);
+      } catch (e) {
+        return `[Serialization Error: ${e instanceof Error ? e.message : String(e)}]`;
+      }
+    });
+    originalConsoleWarn.apply(console, safeArgs);
+  };
+})();
+
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 

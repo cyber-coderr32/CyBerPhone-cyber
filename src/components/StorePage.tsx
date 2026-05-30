@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Product, Store, Page } from '../types';
-import { getProducts, getStores, findUserById } from '../services/storageService';
+import { getProducts, getStores, findUserById, adminDeleteProduct } from '../services/storageService';
 import { formatCurrency, safeJsonStringify } from '../lib/utils';
 import { 
   ShoppingBagIcon, 
@@ -16,7 +16,8 @@ import {
   CheckBadgeIcon,
   SparklesIcon,
   FireIcon,
-  PencilIcon
+  PencilIcon,
+  TrashIcon
 } from '@heroicons/react/24/solid';
 import { motion, AnimatePresence } from 'motion/react';
 import { useDialog } from '../services/DialogContext';
@@ -37,92 +38,136 @@ const ProductCard = ({
     onNavigate, 
     onAddToCart, 
     showAlert,
-    currentUser
+    currentUser,
+    onRefresh
 }: { 
     product: Product, 
     store?: Store, 
     onNavigate: any, 
     onAddToCart: any, 
     showAlert: any,
-    currentUser?: User
-}) => (
-    <motion.div 
-        layout
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="group bg-white dark:bg-white/5 rounded-[32px] overflow-hidden border border-gray-100 dark:border-white/5 hover:border-brand/40 transition-all hover:shadow-2xl hover:shadow-brand/10 cursor-pointer flex flex-col h-full relative"
-        onClick={() => onNavigate('product-detail', { productId: product.id })}
-    >
-        <div className="aspect-square relative overflow-hidden shrink-0">
-            <img 
-                src={product.imageUrls?.[0] || 'https://via.placeholder.com/400'} 
-                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-            />
-            {product.discountPercentage && (
-                <div className="absolute top-4 left-4 bg-red-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter shadow-lg">
-                    -{product.discountPercentage}%
-                </div>
-            )}
-            {store?.isVerified && (
-                <div className="absolute top-4 right-20 bg-blue-500 text-white p-1.5 rounded-full shadow-lg" title="Loja Verificada">
-                    <CheckBadgeIcon className="w-4 h-4" />
-                </div>
-            )}
-            {store?.userId === currentUser?.id && (
+    currentUser?: User,
+    onRefresh?: () => void
+}) => {
+    const { showConfirm, showSuccess, showError, showLoading, hideLoading } = useDialog();
+
+    return (
+        <motion.div 
+            layout
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="group bg-white dark:bg-white/5 rounded-[32px] overflow-hidden border border-gray-100 dark:border-white/5 hover:border-brand/40 transition-all hover:shadow-2xl hover:shadow-brand/10 cursor-pointer flex flex-col h-full relative"
+            onClick={() => onNavigate('product-detail', { productId: product.id })}
+        >
+            <div className="aspect-square relative overflow-hidden shrink-0">
+                <img 
+                    src={product.imageUrls?.[0] || 'https://via.placeholder.com/400'} 
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                />
+                {product.discountPercentage && (
+                    <div className="absolute top-4 left-4 bg-red-600 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter shadow-lg z-10">
+                        -{product.discountPercentage}%
+                    </div>
+                )}
+                {store?.isVerified && (
+                    <div className="absolute top-4 right-32 bg-blue-500 text-white p-1.5 rounded-full shadow-lg z-10" title="Loja Verificada">
+                        <CheckBadgeIcon className="w-4 h-4" />
+                    </div>
+                )}
                 <button 
                     onClick={(e) => {
                         e.stopPropagation();
-                        onNavigate('manage-store', { editProductId: product.id });
+                        onAddToCart(product.id, 1);
+                        showAlert(`${product.name.slice(0, 15)}... adicionado ao carrinho!`, { type: 'success' });
                     }}
-                    className="absolute top-4 right-14 bg-blue-600 text-white p-2 text-gray-100 rounded-xl hover:bg-blue-700 hover:text-white transition-all shadow-md"
-                    title="Editar Produto"
+                    className="absolute top-4 right-4 bg-white/80 dark:bg-black/40 backdrop-blur-md p-2 rounded-xl text-gray-900 dark:text-white opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0 hover:bg-brand hover:text-white z-20"
                 >
-                    <PencilIcon className="w-4 h-4" />
+                    <PlusIcon className="w-5 h-5" />
                 </button>
-            )}
-            <button 
-                onClick={(e) => {
-                    e.stopPropagation();
-                    onAddToCart(product.id, 1);
-                    showAlert(`${product.name.slice(0, 15)}... adicionado ao carrinho!`, { type: 'success' });
-                }}
-                className="absolute top-4 right-4 bg-white/80 dark:bg-black/40 backdrop-blur-md p-2 rounded-xl text-gray-900 dark:text-white opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0 hover:bg-brand hover:text-white"
-            >
-                <PlusIcon className="w-5 h-5" />
-            </button>
-        </div>
-        
-        <div className="p-5 flex flex-col flex-1">
-            <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-1">
-                    <TagIcon className="w-3 h-3 text-brand" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-brand">{product.category}</span>
-                </div>
-                {store && (
-                    <span className="text-[8px] font-bold text-gray-400 truncate max-w-[80px] uppercase">By {store.name}</span>
-                )}
             </div>
-            <h4 className="font-black uppercase text-gray-900 dark:text-white text-sm truncate leading-tight mb-2 group-hover:text-brand transition-colors">{product.name}</h4>
             
-            <div className="flex items-center justify-between mt-auto pt-3">
-                <div className="flex flex-col">
-                    {product.discountPercentage ? (
-                        <>
-                            <span className="text-xs text-gray-400 line-through font-bold">{formatCurrency(product.originalPrice || product.price)}</span>
-                            <span className="text-lg font-black text-brand">{formatCurrency(product.price)}</span>
-                        </>
-                    ) : (
-                        <span className="text-lg font-black text-gray-900 dark:text-white">{formatCurrency(product.price)}</span>
+            <div className="p-5 flex flex-col flex-1">
+                <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1">
+                        <TagIcon className="w-3 h-3 text-brand" />
+                        <span className="text-[9px] font-black uppercase tracking-widest text-brand">{product.category}</span>
+                    </div>
+                    {store && (
+                        <span className="text-[8px] font-bold text-gray-400 truncate max-w-[80px] uppercase">By {store.name}</span>
                     )}
                 </div>
-                <div className="flex items-center gap-1 bg-gray-100 dark:bg-white/10 px-2.5 py-1 rounded-full">
-                    <StarIcon className="w-3.5 h-3.5 text-yellow-500" />
-                    <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300">{product.averageRating?.toFixed(1) || '0.0'}</span>
+                <h4 className="font-black uppercase text-gray-900 dark:text-white text-sm truncate leading-tight mb-2 group-hover:text-brand transition-colors">{product.name}</h4>
+                
+                <div className="flex items-center justify-between mt-auto pt-3">
+                    <div className="flex flex-col">
+                        {product.discountPercentage ? (
+                            <>
+                                <span className="text-xs text-gray-400 line-through font-bold">{formatCurrency(product.originalPrice || product.price)}</span>
+                                <span className="text-lg font-black text-brand">{formatCurrency(product.price)}</span>
+                            </>
+                        ) : (
+                            <span className="text-lg font-black text-gray-900 dark:text-white">{formatCurrency(product.price)}</span>
+                        )}
+                    </div>
+                    <div className="flex items-center gap-1 bg-gray-100 dark:bg-white/10 px-2.5 py-1 rounded-full">
+                        <StarIcon className="w-3.5 h-3.5 text-yellow-500" />
+                        <span className="text-[10px] font-bold text-gray-600 dark:text-gray-300">{product.averageRating?.toFixed(1) || '0.0'}</span>
+                    </div>
                 </div>
+
+                {/* Admin/Seller Actions Panel */}
+                {(() => {
+                    if (!currentUser) return false;
+                    const emailLower = (currentUser.email || '').toLowerCase().trim();
+                    const isAdmin = currentUser.isAdmin || emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
+                    const isProductOwner = store?.userId === currentUser.id || product.userId === currentUser.id;
+                    return isProductOwner || isAdmin;
+                })() && (
+                    <div className="mt-4 pt-3 border-t border-gray-100 dark:border-white/5 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button 
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onNavigate('manage-store', { editProductId: product.id });
+                            }}
+                            className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white py-2 rounded-xl font-black text-[9px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 hover:scale-[1.02] active:scale-95 shadow-md shadow-blue-500/10"
+                            title="Editar Produto"
+                        >
+                            <PencilIcon className="w-3.5 h-3.5" />
+                            Editar
+                        </button>
+                        <button 
+                            onClick={async (e) => {
+                                e.stopPropagation();
+                                const confirm = await showConfirm(`Tem certeza de que deseja eliminar o produto "${product.name}"? Esta ação não pode ser desfeita.`, {
+                                    title: "Eliminar Produto",
+                                    confirmText: "Sim, Eliminar",
+                                    cancelText: "Cancelar",
+                                    type: "warning"
+                                });
+                                if (confirm) {
+                                    try {
+                                        showLoading("Eliminando produto...");
+                                        await adminDeleteProduct(product.id);
+                                        showSuccess("Produto eliminado com sucesso!");
+                                        if (onRefresh) onRefresh();
+                                    } catch (err) {
+                                        showError("Erro ao eliminar o produto.");
+                                    } finally {
+                                        hideLoading();
+                                    }
+                                }
+                            }}
+                            className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white p-2 rounded-xl transition-all hover:scale-[1.02] active:scale-95 shadow-md shadow-red-500/10"
+                            title="Eliminar Produto"
+                        >
+                            <TrashIcon className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
             </div>
-        </div>
-    </motion.div>
-);
+        </motion.div>
+    );
+};
 
 const SectionHeader = ({ title, icon: Icon, subtitle }: { title: string, icon: any, subtitle?: string }) => (
     <div className="flex items-center justify-between mb-8">
@@ -517,6 +562,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
                                     currentUser={currentUser}
+                                    onRefresh={loadData}
                                 />
                             </div>
                         ))}
@@ -538,6 +584,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
                                     currentUser={currentUser}
+                                    onRefresh={loadData}
                                 />
                             </div>
                         ))}
@@ -568,6 +615,7 @@ export const StorePage: React.FC<StorePageProps> = ({
                                     onAddToCart={handleAddToCartSecure}
                                     showAlert={showAlert}
                                     currentUser={currentUser}
+                                    onRefresh={loadData}
                                 />
                             ))}
                         </div>

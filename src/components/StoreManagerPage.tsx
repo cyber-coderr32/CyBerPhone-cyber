@@ -28,6 +28,9 @@ import {
   deleteOrder,
   promoteProduct,
   payStoreVerificationFee,
+  getTransactions,
+  requestWithdrawal,
+  releaseFundsToSeller,
 } from "../services/storageService";
 import {
   PlusIcon,
@@ -39,6 +42,7 @@ import {
   XMarkIcon,
   MagnifyingGlassIcon,
   PaintBrushIcon,
+  PencilIcon,
   ClipboardDocumentListIcon,
   CurrencyDollarIcon,
   TruckIcon,
@@ -101,7 +105,8 @@ type ManagerTab =
   | "orders"
   | "branding"
   | "affiliates"
-  | "verification";
+  | "verification"
+  | "financial";
 
 const BRAND_COLORS = [
   { name: "Azul CyBer", hex: "#2563eb" },
@@ -179,7 +184,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
   onNavigate,
   params,
 }) => {
-  const { showAlert, showConfirm } = useDialog();
+  const { showAlert, showConfirm, showSuccess, showError, showLoading, hideLoading } = useDialog();
 
   // Primary States
   const [pType, setPType] = useState<ProductType>(ProductType.DIGITAL_COURSE);
@@ -210,6 +215,34 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
   const [brandDesc, setBrandDesc] = useState("");
   const [brandColor, setBrandColor] = useState(BRAND_COLORS[0].hex);
   const [deletingSaleId, setDeletingSaleId] = useState<string | null>(null);
+
+  // Financial Tab States
+  const [userTransactions, setUserTransactions] = useState<any[]>([]);
+  const [financialLoading, setFinancialLoading] = useState(false);
+  const [isWithdrawModalOpen, setIsWithdrawModalOpen] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawIban, setWithdrawIban] = useState("");
+  const [withdrawBankName, setWithdrawBankName] = useState("");
+  const [withdrawBeneficiary, setWithdrawBeneficiary] = useState("");
+  const [withdrawMethod, setWithdrawMethod] = useState("bank"); // bank, multicaixa, cyberpay
+
+  const loadTransactions = async () => {
+    setFinancialLoading(true);
+    try {
+      const txs = await getTransactions(currentUser.id);
+      setUserTransactions(txs.sort((a, b) => b.timestamp - a.timestamp));
+    } catch (err) {
+      console.error("Error loading transactions:", err);
+    } finally {
+      setFinancialLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "financial") {
+      loadTransactions();
+    }
+  }, [activeTab]);
 
   // Product Form
   const [pName, setPName] = useState("");
@@ -1474,6 +1507,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
             { id: "dashboard", label: "Resumo", icon: ChartBarIcon },
             { id: "inventory", label: "Estoque", icon: ArchiveBoxIcon },
             { id: "orders", label: "Pedidos", icon: ClipboardDocumentListIcon },
+            { id: "financial", label: "Financeiro & Saques", icon: BanknotesIcon },
             { id: "affiliates", label: "Afiliados", icon: LinkIcon },
             { id: "branding", label: "Marca", icon: PaintBrushIcon },
             { id: "verification", label: "Insights", icon: ShieldCheckIcon },
@@ -1703,8 +1737,9 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                       <button
                         onClick={() => openEditModal(p)}
                         className="bg-white dark:bg-white/10 p-2.5 rounded-xl text-orange-600 hover:bg-orange-600 hover:text-white transition-all shadow-md active:scale-90"
+                        title="Editar Estoque / Produto"
                       >
-                        <PlusIcon className="h-4 w-4" />
+                        <PencilIcon className="h-4 w-4" />
                       </button>
                     </div>
                   ))
@@ -1894,7 +1929,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
           </div>
 
           <div className="bg-white dark:bg-darkcard rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Desktop View */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left">
                 <thead className="bg-gray-50 dark:bg-white/5">
                   <tr>
@@ -1921,7 +1957,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                 <tbody className="divide-y divide-gray-100 dark:divide-white/5">
                   {storeProducts.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-8 py-20 text-center">
+                      <td colSpan={6} className="px-8 py-20 text-center">
                         <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">
                           Nenhum produto cadastrado
                         </p>
@@ -2013,9 +2049,10 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => openEditModal(p)}
-                              className="p-3 bg-blue-50 text-blue-600 dark:bg-blue-900/10 rounded-xl hover:bg-blue-600 hover:text-white transition-all"
+                              className="p-3 bg-blue-50 text-blue-600 dark:bg-blue-900/10 rounded-xl hover:bg-blue-600 hover:text-white transition-all flex items-center gap-1"
+                              title="Editar Produto"
                             >
-                              <PaintBrushIcon className="h-4 w-4" />
+                              <PencilIcon className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => setDeleteProductTarget(p.id)}
@@ -2030,6 +2067,97 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Cards View */}
+            <div className="block md:hidden p-6 space-y-4">
+              {storeProducts.length === 0 ? (
+                <div className="py-20 text-center">
+                  <p className="text-gray-400 font-bold uppercase text-[10px] tracking-widest">
+                    Nenhum produto cadastrado
+                  </p>
+                </div>
+              ) : (
+                storeProducts
+                .slice(
+                  (invPage - 1) * ITEMS_PER_PAGE,
+                  invPage * ITEMS_PER_PAGE,
+                )
+                .map((p) => (
+                  <div key={p.id} className="bg-gray-50 dark:bg-white/5 p-5 rounded-3xl border border-gray-100 dark:border-white/5 space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 bg-gray-100 dark:bg-white/5 rounded-2xl overflow-hidden shrink-0">
+                        <img
+                          src={p.imageUrls[0]}
+                          alt=""
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-black dark:text-white uppercase tracking-tight truncate">
+                          {p.name}
+                        </p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                          {p.category}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 border-t border-b border-gray-100 dark:border-white/5 py-3 text-xs">
+                      <div>
+                        <span className="text-gray-400 font-bold uppercase text-[8px] tracking-wider block mb-1">Tipo</span>
+                        <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase inline-block ${
+                          p.type === ProductType.PHYSICAL ? 'bg-blue-100 text-blue-600' :
+                          p.type === ProductType.DIGITAL_COURSE ? 'bg-purple-100 text-purple-600' :
+                          'bg-indigo-100 text-indigo-600'
+                        }`}>
+                          {p.type === ProductType.PHYSICAL ? 'Físico' :
+                           p.type === ProductType.DIGITAL_COURSE ? 'Curso' :
+                           p.type === ProductType.DIGITAL_EBOOK ? 'E-book' : 'Digital'}
+                        </span>
+                      </div>
+                      
+                      <div className="text-right">
+                        <span className="text-gray-400 font-bold uppercase text-[8px] tracking-wider block mb-1">Preço</span>
+                        <span className="font-black text-gray-900 dark:text-white text-sm">{formatCurrency(p.price)}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col">
+                        <span className="text-gray-400 font-bold uppercase text-[8px] tracking-wider mb-1">Estoque</span>
+                        <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase w-max ${
+                          p.type === ProductType.PHYSICAL &&
+                          p.physicalDetails &&
+                          p.physicalDetails.stock < 10
+                            ? "bg-red-100 text-red-600"
+                            : "bg-green-100 text-green-600"
+                        }`}>
+                          {p.type === ProductType.PHYSICAL
+                            ? `${p.physicalDetails?.stock || 0} UNID.`
+                            : "DIGITAL"}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => openEditModal(p)}
+                          className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 text-white dark:bg-blue-600 rounded-xl hover:bg-blue-700 transition-all text-[10px] font-black uppercase tracking-wider shadow-md shadow-blue-500/20"
+                        >
+                          <PencilIcon className="h-3.5 w-3.5" /> Editar
+                        </button>
+                        <button
+                          onClick={() => setDeleteProductTarget(p.id)}
+                          className="p-2.5 bg-red-50 text-red-500 dark:bg-red-900/20 rounded-xl hover:bg-red-600 hover:text-white transition-all border border-red-100 dark:border-red-900/20"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
             <Pagination
               total={storeProducts.length}
@@ -2312,6 +2440,38 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                               Aguardando Cliente Confirmar Recebimento
                             </p>
                           </div>
+                        )}
+
+                        {!sale.fundsReleased && sale.status !== OrderStatus.CANCELED && (
+                          <button
+                            onClick={async () => {
+                              const confirm = await showConfirm(
+                                `Deseja liberar manualmente os fundos (KZ ${Number(sale.sellerEarnings || 0).toLocaleString()}) desta venda agora? Isso creditará o saldo diretamente em sua carteira.`,
+                                {
+                                  title: "Liberar Saldo da Venda",
+                                  confirmText: "Sim, Liberar Saldo",
+                                  cancelText: "Cancelar",
+                                  type: "warning"
+                                }
+                              );
+                              if (confirm) {
+                                try {
+                                  showLoading("Liberando fundos...");
+                                  await releaseFundsToSeller(sale.id);
+                                  await updateSaleStatus(sale.id, OrderStatus.COMPLETED);
+                                  loadData();
+                                  showAlert("Saldo creditado com sucesso em sua carteira!", { type: "success" });
+                                } catch (err: any) {
+                                  showError(err.message || "Erro ao liberar saldo.");
+                                } finally {
+                                  hideLoading();
+                                }
+                              }
+                            }}
+                            className="bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-[1.8rem] font-bold text-[11px] uppercase tracking-wider flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all w-full mt-3 shadow-lg shadow-green-600/20"
+                          >
+                            <CheckBadgeIcon className="h-4 w-4" /> Liberar Saldo da Venda
+                          </button>
                         )}
 
                         {(sale.status === OrderStatus.CANCELED ||
@@ -2680,6 +2840,359 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                  </div>
               </div>
            </div>
+         </div>
+       )}
+
+       {activeTab === "financial" && (
+         <div className="space-y-10 animate-fade-in pb-20 p-4 sm:p-8">
+           {/* Financial KPI Cards */}
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+             <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl relative overflow-hidden group">
+               <div className="absolute top-4 right-4 bg-green-500/10 p-3 rounded-2xl text-green-500">
+                 <BanknotesIcon className="w-6 h-6" />
+               </div>
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Saldo Disponível</p>
+               <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-6 font-mono">
+                 {formatCurrency(currentUser.balance || 0)}
+               </h3>
+               <button
+                 disabled={(currentUser.balance || 0) < 5000}
+                 onClick={() => setIsWithdrawModalOpen(true)}
+                 className="w-full py-4 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-green-600/20 active:scale-95 transition-all outline-none"
+               >
+                 {(currentUser.balance || 0) < 5000 ? "Mínimo 5.000,00 KZ" : "Solicitar Saque Bancário"}
+               </button>
+             </div>
+
+             <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl relative overflow-hidden group">
+               <div className="absolute top-4 right-4 bg-orange-500/10 p-3 rounded-2xl text-orange-500">
+                 <ArrowPathIcon className="w-6 h-6 bg-transparent" />
+               </div>
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Em Custódia (Pendente)</p>
+               <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2 font-mono">
+                 {formatCurrency(
+                   currentUser.pendingBalance !== undefined
+                     ? currentUser.pendingBalance
+                     : storeSales
+                         .filter((s) => !s.fundsReleased && s.status !== OrderStatus.CANCELED)
+                         .reduce((acc, s) => acc + (s.sellerEarnings || 0), 0)
+                 )}
+               </h3>
+               <p className="text-[8px] font-bold text-gray-400 leading-relaxed uppercase">
+                 Garantia de segurança: Liberado automaticamente após confirmação de entrega do comprador.
+               </p>
+             </div>
+
+             <div className="bg-white dark:bg-darkcard p-8 rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl relative overflow-hidden group">
+               <div className="absolute top-4 right-4 bg-blue-500/10 p-3 rounded-2xl text-blue-500">
+                 <CheckCircleIcon className="w-6 h-6" />
+               </div>
+               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Sacado</p>
+               <h3 className="text-3xl font-black text-gray-900 dark:text-white mb-2 font-mono">
+                 {formatCurrency(currentUser.totalWithdrawn || 0)}
+               </h3>
+               <p className="text-[8px] font-bold text-gray-400 leading-relaxed uppercase">
+                 Volume já liquidado em sua conta bancária internacional.
+               </p>
+             </div>
+           </div>
+
+           {/* Transactions List */}
+           <div className="bg-white dark:bg-darkcard rounded-[3rem] border border-gray-100 dark:border-white/5 shadow-xl overflow-hidden">
+             <div className="p-8 border-b dark:border-white/5 flex items-center justify-between">
+               <div>
+                 <h3 className="text-xl font-black uppercase tracking-tight dark:text-white">
+                   Histórico Financeiro
+                 </h3>
+                 <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mt-1">
+                   Demonstrativo de Vendas, Comissões e Levantamentos
+                 </p>
+               </div>
+               <button
+                 onClick={loadTransactions}
+                 className="p-3 bg-gray-50 dark:bg-white/5 rounded-2xl text-gray-400 hover:text-blue-600 transition-all border border-transparent hover:border-gray-100 dark:hover:border-white/5"
+                 title="Sincronizar Carteira"
+               >
+                 <ArrowPathIcon className={`w-5 h-5 ${financialLoading ? "animate-spin" : ""}`} />
+               </button>
+             </div>
+
+             <div className="overflow-x-auto">
+               {financialLoading ? (
+                 <div className="py-20 text-center">
+                   <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                     Carregando extrato bancário virtual...
+                   </p>
+                 </div>
+               ) : userTransactions.length === 0 ? (
+                 <div className="py-20 text-center">
+                   <BanknotesIcon className="w-16 h-16 text-gray-200 dark:text-white/5 mx-auto mb-4" />
+                   <h3 className="text-sm font-black text-gray-500 uppercase tracking-widest">
+                     Nenhuma transação registrada
+                   </h3>
+                   <p className="text-[10px] font-bold text-gray-300 uppercase tracking-widest mt-2 leading-relaxed">
+                     As transações de vendas de produtos e saques de saldo aparecerão aqui.
+                   </p>
+                 </div>
+               ) : (
+                 <table className="w-full text-left border-collapse">
+                   <thead>
+                     <tr className="bg-gray-50 dark:bg-white/5 border-b dark:border-white/5">
+                       <th className="px-8 py-5 text-[9px] font-black uppercase text-gray-400 tracking-widest">Transação</th>
+                       <th className="px-8 py-5 text-[9px] font-black uppercase text-gray-400 tracking-widest">Tipo</th>
+                       <th className="px-8 py-5 text-[9px] font-black uppercase text-gray-400 tracking-widest">Descrição</th>
+                       <th className="px-8 py-5 text-[9px] font-black uppercase text-gray-400 tracking-widest">Data</th>
+                       <th className="px-8 py-5 text-[9px] font-black uppercase text-gray-400 tracking-widest">Status</th>
+                       <th className="px-8 py-5 text-[9px] font-black uppercase text-gray-400 tracking-widest text-right">Valor</th>
+                     </tr>
+                   </thead>
+                   <tbody className="divide-y divide-gray-50 dark:divide-white/5">
+                     {userTransactions.map((tx) => (
+                       <tr key={tx.id} className="hover:bg-gray-50/50 dark:hover:bg-white/[0.01] transition-all">
+                         <td className="px-8 py-5">
+                           <span className="text-xs font-black dark:text-white font-mono tracking-wider uppercase">
+                             #{tx.id.substring(0, 8)}
+                           </span>
+                         </td>
+                         <td className="px-8 py-5">
+                           <span
+                             className={`text-[8px] font-black px-2.5 py-1 rounded-full uppercase ${
+                               tx.type === "SALE" || tx.amount > 0
+                                 ? "bg-green-100 text-green-700 dark:bg-green-950/20 dark:text-green-400"
+                                 : "bg-red-100 text-red-600 dark:bg-red-950/20 dark:text-red-400"
+                             }`}
+                           >
+                             {tx.type === "SALE" || tx.amount > 0 ? "Venda/Crédito" : "Saque/Débito"}
+                           </span>
+                         </td>
+                         <td className="px-8 py-5">
+                           <p className="text-xs font-bold dark:text-white uppercase truncate max-w-sm">
+                             {tx.description || "Transação na CyberStore"}
+                           </p>
+                         </td>
+                         <td className="px-8 py-5">
+                           <span className="text-[10px] font-bold text-gray-400 uppercase">
+                             {new Date(tx.timestamp).toLocaleString("pt-BR")}
+                           </span>
+                         </td>
+                         <td className="px-8 py-5">
+                           <span
+                             className={`text-[9px] font-black uppercase ${
+                               tx.status === "COMPLETED"
+                                 ? "text-green-500"
+                                 : tx.status === "PENDING"
+                                 ? "text-yellow-500 animate-pulse"
+                                 : "text-red-500"
+                             }`}
+                           >
+                             {tx.status === "COMPLETED" ? "CONCLUÍDO" : tx.status === "PENDING" ? "PROCESSANDO" : "FALHOU"}
+                           </span>
+                         </td>
+                         <td className="px-8 py-5 text-right">
+                           <span
+                             className={`text-sm font-black font-mono ${
+                               tx.amount > 0 ? "text-green-600" : "text-red-500"
+                             }`}
+                           >
+                             {tx.amount > 0 ? "+" : ""}
+                             {formatCurrency(tx.amount)}
+                           </span>
+                         </td>
+                       </tr>
+                     ))}
+                   </tbody>
+                 </table>
+               )}
+             </div>
+           </div>
+
+           {/* Withdraw Request Modal */}
+           {isWithdrawModalOpen && (
+             <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-fade-in">
+               <div
+                 className="bg-white dark:bg-[#1a1a1a] w-full max-w-lg rounded-[2rem] border border-white/10 shadow-2xl relative flex flex-col max-h-[90vh] overflow-hidden"
+                 onClick={(e) => e.stopPropagation()}
+               >
+                 {/* Modal Header */}
+                 <div className="p-6 border-b dark:border-white/5 flex items-center justify-between bg-gray-50 dark:bg-white/5">
+                   <div>
+                     <h3 className="text-lg font-black dark:text-white uppercase tracking-tight">
+                       Solicitar Saque de Vendas
+                     </h3>
+                     <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-1">
+                       Transferência Bancária Internacional Directa
+                     </p>
+                   </div>
+                   <button
+                     onClick={() => {
+                       setIsWithdrawModalOpen(false);
+                       setWithdrawAmount("");
+                     }}
+                     className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full transition-all"
+                   >
+                     <XMarkIcon className="h-6 w-6" />
+                   </button>
+                 </div>
+
+                 {/* Modal Form */}
+                 <div className="p-6 overflow-y-auto space-y-6">
+                   <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-2xl border border-blue-100 dark:border-blue-900/20">
+                     <p className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">
+                       Extrato de Saldo
+                     </p>
+                     <p className="text-xl font-black dark:text-white font-mono">
+                       {formatCurrency(currentUser.balance || 0)}
+                     </p>
+                     <p className="text-[8px] font-bold text-gray-400 uppercase tracking-widest mt-1">
+                       Valor mínimo para saque: 5.000,00 KZ
+                     </p>
+                   </div>
+
+                   {/* Cashout Method */}
+                   <div className="space-y-2">
+                     <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                       Método de Recebimento
+                     </label>
+                     <div className="grid grid-cols-2 gap-4">
+                       <button
+                         type="button"
+                         onClick={() => setWithdrawMethod("bank")}
+                         className={`p-4 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                           withdrawMethod === "bank"
+                             ? "border-blue-500 bg-blue-500/10 text-blue-500"
+                             : "border-gray-200 dark:border-white/10 text-gray-400"
+                         }`}
+                       >
+                         Transferência IBAN
+                       </button>
+                       <button
+                         type="button"
+                         onClick={() => setWithdrawMethod("multicaixa")}
+                         className={`p-4 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${
+                           withdrawMethod === "multicaixa"
+                             ? "border-blue-500 bg-blue-500/10 text-blue-500"
+                             : "border-gray-200 dark:border-white/10 text-gray-400"
+                         }`}
+                       >
+                         Multicaixa Express
+                       </button>
+                     </div>
+                   </div>
+
+                   {/* Amount Input */}
+                   <div className="space-y-1">
+                     <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                       Valor do Saque (KZ)
+                     </label>
+                     <input
+                       type="number"
+                       value={withdrawAmount}
+                       onChange={(e) => setWithdrawAmount(e.target.value)}
+                       placeholder="Ex: 5000"
+                       className="w-full px-5 py-4 bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 rounded-2xl font-black text-sm dark:text-white placeholder-gray-400 focus:border-blue-500 outline-none transition-all"
+                     />
+                   </div>
+
+                   {withdrawMethod === "bank" ? (
+                     <>
+                       {/* Bank Name */}
+                       <div className="space-y-1">
+                         <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                           Nome do Banco (ex: BFA, BIC, BAI)
+                         </label>
+                         <input
+                           type="text"
+                           value={withdrawBankName}
+                           onChange={(e) => setWithdrawBankName(e.target.value)}
+                           placeholder="Qual o seu banco?"
+                           className="w-full px-5 py-4 bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 rounded-2xl font-bold text-xs dark:text-white"
+                         />
+                       </div>
+
+                       {/* IBAN */}
+                       <div className="space-y-1">
+                         <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                           IBAN da Conta Bancária
+                         </label>
+                         <input
+                           type="text"
+                           value={withdrawIban}
+                           onChange={(e) => setWithdrawIban(e.target.value)}
+                           placeholder="AO06.0000.0000..."
+                           className="w-full px-5 py-4 bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 rounded-2xl font-mono text-xs dark:text-white"
+                         />
+                       </div>
+                     </>
+                   ) : (
+                     /* Multicaixa details */
+                     <div className="space-y-1">
+                       <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                         Nº de Telefone Associado ao Multicaixa
+                       </label>
+                       <input
+                         type="text"
+                         value={withdrawIban}
+                         onChange={(e) => setWithdrawIban(e.target.value)}
+                         placeholder="9xx xxx xxx"
+                         className="w-full px-5 py-4 bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 rounded-2xl font-bold text-xs dark:text-white"
+                       />
+                     </div>
+                   )}
+
+                   {/* Beneficiary Name */}
+                   <div className="space-y-1">
+                     <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                       Titular / Beneficiário da Conta
+                     </label>
+                     <input
+                       type="text"
+                         value={withdrawBeneficiary}
+                         onChange={(e) => setWithdrawBeneficiary(e.target.value)}
+                         placeholder="Seu nome completo exatamente igual ao do banco"
+                         className="w-full px-5 py-4 bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 rounded-2xl font-bold text-xs dark:text-white"
+                     />
+                   </div>
+
+                   <button
+                     onClick={async () => {
+                       const amount = parseFloat(withdrawAmount);
+                       if (isNaN(amount) || amount < 5000) {
+                         showAlert("O valor mínimo registrado para saque é de 5.000,00 KZ.", { type: "error" });
+                         return;
+                       }
+                       if (amount > (currentUser.balance || 0)) {
+                         showAlert("Você não possui saldo disponível suficiente para este resgate.", { type: "error" });
+                         return;
+                       }
+                       if (!withdrawIban || (withdrawMethod === "bank" && !withdrawBankName) || !withdrawBeneficiary) {
+                         showAlert("Por favor, preencha todos os campos obrigatórios para o repasse.", { type: "error" });
+                         return;
+                       }
+
+                       try {
+                         showLoading("Processando solicitação bancária...");
+                         const detailsString = `${withdrawMethod.toUpperCase()} | Banco: ${withdrawBankName || "Multicaixa Express"} | Conta/IBAN: ${withdrawIban} | Beneficiário: ${withdrawBeneficiary}`;
+                         await requestWithdrawal(currentUser.id, amount, detailsString);
+                         showAlert(`Sua solicitação de saque de ${formatCurrency(amount)} foi enviada para o departamento financeiro internacional com sucesso! O processamento ocorre em até 3 dias úteis.`, { type: "success" });
+                         setIsWithdrawModalOpen(false);
+                         setWithdrawAmount("");
+                         refreshUser(); // Updates local user context / current state
+                         loadTransactions();
+                       } catch (err: any) {
+                         showAlert(err?.message || "Erro ao efetuar solicitação de saque.", { type: "error" });
+                       } finally {
+                         hideLoading();
+                       }
+                     }}
+                     className="w-full py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:shadow-indigo-600/20 hover:scale-[1.02] active:scale-95 transition-all outline-none"
+                   >
+                     Confirmar e Solicitar Transferência
+                   </button>
+                 </div>
+               </div>
+             </div>
+           )}
          </div>
        )}
 
