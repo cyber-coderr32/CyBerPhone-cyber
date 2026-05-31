@@ -319,16 +319,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               ) : isIframe ? (
                 <div className="space-y-4">
                   <a
-                    href={window.location.href}
+                    href={window.location.origin}
                     target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => {
-                      try {
-                        window.open(window.location.href, '_blank');
-                      } catch (err) {
-                        console.error("Erro ao abrir nova aba:", err);
-                      }
-                    }}
+                    rel="noopener noreferrer"
                     className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer text-center"
                   >
                     Abrir App em Nova Aba Completa
