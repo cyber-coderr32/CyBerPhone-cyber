@@ -322,7 +322,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                     href={window.location.href}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer"
+                    onClick={(e) => {
+                      try {
+                        window.open(window.location.href, '_blank');
+                      } catch (err) {
+                        console.error("Erro ao abrir nova aba:", err);
+                      }
+                    }}
+                    className="w-full py-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider shadow-lg active:scale-[0.98] transition-all flex items-center justify-center gap-3 cursor-pointer text-center"
                   >
                     Abrir App em Nova Aba Completa
                   </a>
@@ -338,6 +345,30 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                   </ul>
                 </div>
               )}
+
+              {/* Botão de Copiar Link (Sempre Seguro e Ativo) */}
+              <div className="pt-6 border-t border-gray-100 dark:border-white/10 space-y-4">
+                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Opção Alternativa (Altamente Recomendada)</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cleanUrl = window.location.origin;
+                    navigator.clipboard.writeText(cleanUrl)
+                      .then(() => {
+                        showAlert("✓ Código do link copiado perfeitamente! Abra o Google Chrome no seu celular Android (ou Safari no iPhone), cole o link lá e instale o app com alta estabilidade com 1 clique.", { type: 'success' });
+                      })
+                      .catch(() => {
+                        showAlert(`Link oficial de cópia: ${cleanUrl}`, { type: 'warning' });
+                      });
+                  }}
+                  className="w-full py-4 bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 rounded-2xl font-black text-[10px] uppercase tracking-wider shadow-md active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer border border-gray-200 dark:border-white/10"
+                >
+                  📋 Copiar link oficial do CyberPhone
+                </button>
+                <p className="text-[10px] text-gray-400 font-bold leading-normal text-center">
+                  <strong>Dica para Android:</strong> Navegadores embutidos (como os do WhatsApp, Instagram, ou o próprio preview do estúdio) <strong>bloqueiam</strong> a instalação de apps. Copie o link acima, abra o aplicativo do <strong>Google Chrome</strong> real, cole o link lá no topo e clique em "Adicionar à tela inicial" ou "Instalar"!
+                </p>
+              </div>
 
               {/* iOS Safari Guide Section - Crucial for stable execution on iPhones/iPads */}
               <div className="border-t border-gray-100 dark:border-white/10 pt-6 space-y-4">

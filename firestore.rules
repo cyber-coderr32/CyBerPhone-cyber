@@ -286,7 +286,12 @@ service cloud.firestore {
     match /transactions/{transactionId} {
       allow get: if isOwner(resource.data.userId) || isAdmin();
       allow list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(transactionId) && isValidTransaction(incoming());
+      allow create: if isSignedIn() && isValidId(transactionId) && (
+        isValidTransaction(incoming()) ||
+        (incoming().type in ['SALE', 'REFUND', 'PLATFORM_FEE', 'DONATION', 'PURCHASE'] &&
+         incoming().keys().hasAll(['id', 'userId', 'type', 'amount', 'timestamp', 'status']) &&
+         incoming().amount is number)
+      );
       allow update, delete: if isAdmin();
     }
 

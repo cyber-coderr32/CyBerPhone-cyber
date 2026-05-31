@@ -1574,7 +1574,7 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
 
                 <div className="mt-12 flex flex-wrap gap-4">
                   <button
-                    onClick={() => onNavigate("wallet")}
+                    onClick={() => setActiveTab("financial")}
                     className="px-8 py-4 bg-white text-blue-700 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:scale-105 active:scale-95 transition-all"
                   >
                     Sacar Saldo Disponivel
@@ -2856,11 +2856,11 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                  {formatCurrency(currentUser.balance || 0)}
                </h3>
                <button
-                 disabled={(currentUser.balance || 0) < 5000}
+                 disabled={(currentUser.balance || 0) < (settings?.minWithdrawal || 1)}
                  onClick={() => setIsWithdrawModalOpen(true)}
                  className="w-full py-4 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-green-600/20 active:scale-95 transition-all outline-none"
                >
-                 {(currentUser.balance || 0) < 5000 ? "Mínimo 5.000,00 KZ" : "Solicitar Saque Bancário"}
+                 {(currentUser.balance || 0) < (settings?.minWithdrawal || 1) ? `Mínimo ${formatCurrency(settings?.minWithdrawal || 1)}` : "Solicitar Saque Bancário"}
                </button>
              </div>
 
@@ -3157,8 +3157,8 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                    <button
                      onClick={async () => {
                        const amount = parseFloat(withdrawAmount);
-                       if (isNaN(amount) || amount < 5000) {
-                         showAlert("O valor mínimo registrado para saque é de 5.000,00 KZ.", { type: "error" });
+                       if (isNaN(amount) || amount < (settings?.minWithdrawal || 1)) {
+                         showAlert(`O valor mínimo registrado para saque é de ${formatCurrency(settings?.minWithdrawal || 1)}.`, { type: "error" });
                          return;
                        }
                        if (amount > (currentUser.balance || 0)) {

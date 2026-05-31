@@ -75,8 +75,14 @@ export const safeJsonStringify = (obj: any, indent = 2): string => {
         seen.add(processedValue);
 
         // Detect DOM elements and browser window objects
-        if (typeof window !== 'undefined' && (processedValue instanceof Node || processedValue instanceof Window || processedValue instanceof Event)) {
-          return `[Browser Object: ${processedValue.constructor?.name || 'DOM'}]`;
+        if (typeof window !== 'undefined') {
+          try {
+            if ((typeof Node !== 'undefined' && processedValue instanceof Node) || 
+                (typeof Window !== 'undefined' && processedValue instanceof Window) || 
+                (typeof Event !== 'undefined' && processedValue instanceof Event)) {
+              return `[Browser Object: ${processedValue.constructor?.name || 'DOM'}]`;
+            }
+          } catch (e) {}
         }
 
         // Detect Firebase / Firestore / Auth internal structures to prevent traversing circular/private states

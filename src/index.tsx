@@ -260,3 +260,20 @@ if ('serviceWorker' in navigator) {
       });
   });
 }
+
+// Intercepta o evento de instalação do PWA e expõe globalmente para a tela de configurações poder chamá-lo
+window.addEventListener('beforeinstallprompt', (e: any) => {
+  // Impede o Chrome de disparar o prompt automaticamente
+  e.preventDefault();
+  // Guarda o evento para disparar sob demanda
+  (window as any).deferredPrompt = e;
+  // Dispara evento customizado para notificar que o PWA está pronto para instalação
+  window.dispatchEvent(new CustomEvent('pwa-installable'));
+  console.log('[PWA] Evento beforeinstallprompt capturado e exposto.');
+});
+
+window.addEventListener('appinstalled', () => {
+  (window as any).deferredPrompt = null;
+  window.dispatchEvent(new CustomEvent('pwa-installed'));
+  console.log('[PWA] O aplicativo foi instalado com sucesso!');
+});
