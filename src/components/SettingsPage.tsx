@@ -105,6 +105,38 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // PWA state & hooks placed safely at the top-level
+  const isStandalone = React.useMemo(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const matchesMedia = typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches;
+        const navStandalone = typeof navigator !== 'undefined' && !!(navigator as any).standalone;
+        return !!(matchesMedia || navStandalone);
+      }
+    } catch (e) {
+      console.warn('[PWA] Error checking standalone mode:', e);
+    }
+    return false;
+  }, []);
+
+  const [installable, setInstallable] = useState(typeof window !== 'undefined' ? !!(window as any).deferredPrompt : false);
+  const [installed, setInstalled] = useState(isStandalone);
+
+  React.useEffect(() => {
+    const handleInstallable = () => setInstallable(true);
+    const handleInstalled = () => {
+      setInstallable(false);
+      setInstalled(true);
+    };
+    window.addEventListener('pwa-installable', handleInstallable);
+    window.addEventListener('pwa-installed', handleInstalled);
+    return () => {
+      window.removeEventListener('pwa-installable', handleInstallable);
+      window.removeEventListener('pwa-installed', handleInstalled);
+    };
+  }, []);
+
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -232,24 +264,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   if (view === 'pwa') {
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (navigator as any).standalone;
-    const [installable, setInstallable] = useState(!!(window as any).deferredPrompt);
-    const [installed, setInstalled] = useState(isStandalone);
-
-    React.useEffect(() => {
-      const handleInstallable = () => setInstallable(true);
-      const handleInstalled = () => {
-        setInstallable(false);
-        setInstalled(true);
-      };
-      window.addEventListener('pwa-installable', handleInstallable);
-      window.addEventListener('pwa-installed', handleInstalled);
-      return () => {
-        window.removeEventListener('pwa-installable', handleInstallable);
-        window.removeEventListener('pwa-installed', handleInstalled);
-      };
-    }, []);
-
     const handleInstallClick = async () => {
       const promptEvent = (window as any).deferredPrompt;
       if (!promptEvent) {
@@ -263,7 +277,12 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       setInstallable(false);
     };
 
-    const isIframe = window.self !== window.top;
+    let isIframe = false;
+    try {
+      isIframe = typeof window !== 'undefined' && window.self !== window.top;
+    } catch (e) {
+      isIframe = true;
+    }
 
     return (
       <div className="container mx-auto p-4 md:p-8 pt-24 pb-20 max-w-4xl animate-fade-in">
