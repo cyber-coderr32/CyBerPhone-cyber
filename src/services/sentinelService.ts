@@ -1,6 +1,17 @@
 
 import { safeJsonStringify } from "../lib/utils";
 
+// Robust JSON cleaner to strip markdown code blocks from LLM output
+const cleanJson = (str: string): string => {
+    if (!str) return str;
+    let cleaned = str.trim();
+    if (cleaned.startsWith('```')) {
+        cleaned = cleaned.replace(/^```(?:json)?\s*/i, '');
+        cleaned = cleaned.replace(/\s*```$/, '');
+    }
+    return cleaned.trim();
+};
+
 export interface SentinelResult {
     allowed: boolean;
     isSafe?: boolean; // Alias for backward compatibility
@@ -59,7 +70,7 @@ export const checkContentSecurity = async (
         if (!response.ok) throw new Error("Sentinel check failed");
 
         const data = await response.json();
-        const result = JSON.parse(data.text || '{"allowed": true}');
+        const result = JSON.parse(cleanJson(data.text || '{"allowed": true}'));
         return {
             ...result,
             isSafe: result.allowed,
@@ -116,7 +127,7 @@ export const checkImageSecurity = async (
         if (!response.ok) throw new Error("Sentinel image check failed");
 
         const data = await response.json();
-        return JSON.parse(data.text || '{"allowed": true}');
+        return JSON.parse(cleanJson(data.text || '{"allowed": true}'));
     } catch (error) {
         console.error("Erro no Sentinel Image Check:", safeJsonStringify(error));
         return { allowed: true };
@@ -202,7 +213,7 @@ export const verifyIdentityDocuments = async (
         if (!response.ok) throw new Error("ID verification failed");
 
         const data = await response.json();
-        const parsed = JSON.parse(data.text || '{"approved": false, "reason": "Erro ao processar resposta da IA", "confidence": 0}');
+        const parsed = JSON.parse(cleanJson(data.text || '{"approved": false, "reason": "Erro ao processar resposta da IA", "confidence": 0}'));
         
         if (typeof parsed.approved !== 'boolean') {
             return { approved: false, reason: "Resposta da IA inválida", confidence: 0 };
@@ -255,7 +266,7 @@ export const extractIdFromDocument = async (base64Image: string): Promise<string
         if (!response.ok) throw new Error("OCR extraction failed");
 
         const data = await response.json();
-        const result = JSON.parse(data.text || '{"documentId": null}');
+        const result = JSON.parse(cleanJson(data.text || '{"documentId": null}'));
         return result.documentId;
     } catch (error) {
         console.error("Erro ao extrair ID do documento:", safeJsonStringify(error));

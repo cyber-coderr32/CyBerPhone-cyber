@@ -194,16 +194,55 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
         }
     }, [step]);
 
-    // Handle standard files converted to base64
-    const processFileSelection = (file: File, target: 'front' | 'back' | 'selfie') => {
-        if (file.size > 10 * 1024 * 1024) {
-            showAlert("O tamanho da imagem excede o limite de 10MB.", { type: "error" });
-            return;
-        }
+    const compressImage = (file: File, maxDim = 1024, quality = 0.7): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    let width = img.width;
+                    let height = img.height;
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const base64 = e.target?.result as string;
+                    if (width > height) {
+                        if (width > maxDim) {
+                            height = Math.round((height * maxDim) / width);
+                            width = maxDim;
+                        }
+                    } else {
+                        if (height > maxDim) {
+                            width = Math.round((width * maxDim) / height);
+                            height = maxDim;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    if (!ctx) {
+                        resolve(e.target?.result as string);
+                        return;
+                    }
+
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+                    resolve(compressedBase64);
+                };
+                img.onerror = () => {
+                    resolve(e.target?.result as string);
+                };
+                img.src = e.target?.result as string;
+            };
+            reader.onerror = (err) => reject(err);
+            reader.readAsDataURL(file);
+        });
+    };
+
+    // Handle standard files converted to base64 with instant client-side resolution and size compression
+    const processFileSelection = async (file: File, target: 'front' | 'back' | 'selfie') => {
+        try {
+            // Compress image to JPEG of max 1024px dimension, giving extremely small payloads while preserving OCR readability
+            const base64 = await compressImage(file, 1024, 0.7);
             if (target === 'front') {
                 setDocFrontUrl(base64);
                 setDocFrontBase64(base64);
@@ -214,11 +253,10 @@ const IDVerification: React.FC<IDVerificationProps> = ({ user, onComplete, onLog
                 setSelfieUrl(base64);
                 setSelfieBase64(base64);
             }
-        };
-        reader.onerror = () => {
-            showAlert("Falha ao ler o arquivo selecionado.", { type: "error" });
-        };
-        reader.readAsDataURL(file);
+        } catch (err) {
+            console.error("Failed to compress image file:", err);
+            showAlert("Falha ao ler o arquivo selecionado ou processar compressão.", { type: "error" });
+        }
     };
 
     // Main validation logic (no simulation & checks duplicity!)

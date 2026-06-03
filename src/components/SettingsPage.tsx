@@ -358,25 +358,41 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
               )}
 
-              {/* Botão de Copiar Link (Sempre Seguro e Ativo) */}
+              {/* Botão de Copiar Link (Sempre Seguro e Ativo com Duplo Failsafe) */}
               <div className="pt-6 border-t border-gray-100 dark:border-white/10 space-y-4">
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Opção Alternativa (Altamente Recomendada)</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const cleanUrl = window.location.origin;
-                    navigator.clipboard.writeText(cleanUrl)
-                      .then(() => {
-                        showAlert("✓ Código do link copiado perfeitamente! Abra o Google Chrome no seu celular Android (ou Safari no iPhone), cole o link lá e instale o app com alta estabilidade com 1 clique.", { type: 'success' });
-                      })
-                      .catch(() => {
-                        showAlert(`Link oficial de cópia: ${cleanUrl}`, { type: 'warning' });
-                      });
-                  }}
-                  className="w-full py-4 bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 rounded-2xl font-black text-[10px] uppercase tracking-wider shadow-md active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer border border-gray-200 dark:border-white/10"
-                >
-                  📋 Copiar link oficial do CyberPhone
-                </button>
+                <div className="flex gap-2 items-center">
+                  <input 
+                    type="text" 
+                    readOnly 
+                    value={window.location.origin} 
+                    onClick={(e) => {
+                      (e.target as HTMLInputElement).select();
+                      try {
+                        document.execCommand('copy');
+                        showAlert("✓ Código do link copiado perfeitamente! Abra o Google Chrome no celular, cole o link lá e instale com 1 clique.", { type: 'success' });
+                      } catch (err) {}
+                    }}
+                    title="Clique para selecionar e copiar link"
+                    className="flex-1 p-3.5 bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/5 rounded-2xl dark:text-gray-300 outline-none font-mono text-[11px] text-center cursor-pointer hover:border-brand/40 transition-all select-all font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cleanUrl = window.location.origin;
+                      navigator.clipboard.writeText(cleanUrl)
+                        .then(() => {
+                          showAlert("✓ Link copiado! Abra o Google Chrome no celular, cole na barra de busca e instale de forma nativa.", { type: 'success' });
+                        })
+                        .catch(() => {
+                          showAlert("Para copiar, basta clicar no campo de endereço de texto ao lado e copiar manualmente.", { type: 'warning' });
+                        });
+                    }}
+                    className="py-3.5 px-5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-wider shadow-md transition-all active:scale-95 shrink-0 cursor-pointer"
+                  >
+                    Copiar
+                  </button>
+                </div>
                 <p className="text-[10px] text-gray-400 font-bold leading-normal text-center">
                   <strong>Dica para Android:</strong> Navegadores embutidos (como os do WhatsApp, Instagram, ou o próprio preview do estúdio) <strong>bloqueiam</strong> a instalação de apps. Copie o link acima, abra o aplicativo do <strong>Google Chrome</strong> real, cole o link lá no topo e clique em "Adicionar à tela inicial" ou "Instalar"!
                 </p>

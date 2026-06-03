@@ -129,8 +129,19 @@ export const mapUserData = (id: string, dbData: any, authUser?: any): User => {
     // Consideramos online apenas se o flag for true E houver atividade nos últimos 5 minutos
     const isActuallyOnline = isOnline && (Date.now() - lastSeen < 5 * 60 * 1000);
 
-    const idVerifiedMapped = isAdminEmail || !!dbData?.isVerified;
-    const statusMapped = isAdminEmail ? 'APPROVED' : (dbData?.idVerificationStatus || 'NOT_STARTED');
+    let localVerified = false;
+    let localStatus = 'NOT_STARTED';
+    if (id) {
+        try {
+            localVerified = localStorage.getItem(`cp_user_verified_${id}`) === 'true';
+            localStatus = localStorage.getItem(`cp_user_verification_status_${id}`) || 'NOT_STARTED';
+        } catch (err) {
+            console.warn("[STORAGE] Erro ao ler cache local de verificação:", err);
+        }
+    }
+
+    const idVerifiedMapped = isAdminEmail || !!dbData?.isVerified || localVerified;
+    const statusMapped = isAdminEmail ? 'APPROVED' : (dbData?.idVerificationStatus || (localStatus === 'APPROVED' ? 'APPROVED' : 'NOT_STARTED'));
 
     if (id && (idVerifiedMapped || statusMapped === 'APPROVED')) {
         try {

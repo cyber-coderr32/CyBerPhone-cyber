@@ -147,6 +147,7 @@ const CallManager: React.FC<CallManagerProps> = ({ currentUser }) => {
   return (
     <CallModal 
       currentUser={currentUser}
+      isCaller={!isIncoming}
       partner={{
         id: isIncoming ? activeCall.callerId : activeCall.receiverId,
         firstName: isIncoming ? activeCall.callerName?.split(' ')[0] : activeCall.receiverName?.split(' ')[0],

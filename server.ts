@@ -69,12 +69,34 @@ const genAI = new GoogleGenAI({
 });
 
 function getSimulatedGeminiResponse(contents: any): string {
-  const textContent = JSON.stringify(contents).toLowerCase();
+  let textContent = "";
+  try {
+    const cleanContents = JSON.parse(JSON.stringify(contents, (key, value) => {
+      if (key === 'data' && typeof value === 'string' && value.length > 500) {
+        return '[BASE64_DATA_TRUNCATED]';
+      }
+      return value;
+    }));
+    textContent = JSON.stringify(cleanContents).toLowerCase();
+  } catch (e) {
+    textContent = String(contents).toLowerCase();
+  }
   
   if (textContent.includes("sistema sentinela de verificação de identidade") || textContent.includes("critérios de verificação")) {
     // ID Verification response
     let claimedId = "BI-SAMPLE";
-    const strContents = JSON.stringify(contents);
+    let strContents = "";
+    try {
+      const cleanContents = JSON.parse(JSON.stringify(contents, (key, value) => {
+        if (key === 'data' && typeof value === 'string' && value.length > 500) {
+          return '[BASE64_DATA_TRUNCATED]';
+        }
+        return value;
+      }));
+      strContents = JSON.stringify(cleanContents);
+    } catch (e) {
+      strContents = String(contents);
+    }
     const matches = strContents.match(/"(?:claimedId|documentId|obrigatoriamente:)"\s*:\s*"([^"]+)"/i) || 
                     strContents.match(/obrigatoriamente:\s*"([^"]+)"/);
     if (matches && matches[1]) {

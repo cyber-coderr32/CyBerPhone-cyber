@@ -250,8 +250,7 @@ try {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     const swUrl = '/sw.js';
-    const isDev = import.meta.env.DEV;
-    navigator.serviceWorker.register(swUrl, { type: isDev ? 'module' : 'classic' })
+    navigator.serviceWorker.register(swUrl, { type: 'classic' })
       .then((reg) => {
         console.log('[PWA] Service Worker registrado com sucesso no escopo:', reg.scope);
       })

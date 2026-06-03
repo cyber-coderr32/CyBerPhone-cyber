@@ -426,9 +426,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
       const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
       if (user.isAdmin || isAdminEmail) return false;
       
+      let localVerified = false;
+      try {
+        localVerified = localStorage.getItem(`cp_user_verified_${user.id}`) === 'true' || 
+                        localStorage.getItem(`cp_user_verification_status_${user.id}`) === 'APPROVED';
+      } catch (e) {}
+
       const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
       const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
-      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || localVerified || (verificationStatus === 'APPROVED' && !isExpired);
       return !hasApprovedVerification;
     };
 
@@ -681,9 +687,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ currentUser, onNavigate, params, on
       const isAdminEmail = emailLower === 'alfaajmc@gmail.com' || emailLower === 'ac926815124@gmail.com';
       if (user.isAdmin || isAdminEmail) return false;
       
+      let localVerified = false;
+      try {
+        localVerified = localStorage.getItem(`cp_user_verified_${user.id}`) === 'true' || 
+                        localStorage.getItem(`cp_user_verification_status_${user.id}`) === 'APPROVED';
+      } catch (e) {}
+
       const verificationStatus = user.idVerificationStatus || 'NOT_STARTED';
       const isExpired = user.idVerificationDocs?.expiresAt && user.idVerificationDocs.expiresAt < Date.now();
-      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || (verificationStatus === 'APPROVED' && !isExpired);
+      const hasApprovedVerification = user.isVerified === true || String(user.isVerified) === 'true' || localVerified || (verificationStatus === 'APPROVED' && !isExpired);
       return !hasApprovedVerification;
     };
 

@@ -83,6 +83,170 @@ const CHAT_SIMULATOR_MESSAGES = [
   "Sempre assistindo do Benguela 🌊"
 ];
 
+const createSilentAudioTrack = () => {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const dst = ctx.createMediaStreamDestination();
+    const oscillator = ctx.createOscillator();
+    oscillator.frequency.value = 440;
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = 0; // Complete silence
+    oscillator.connect(gainNode);
+    gainNode.connect(dst);
+    oscillator.start();
+    return dst.stream.getAudioTracks()[0];
+  } catch (e) {
+    console.warn("[WebRTC] Silent audio track creation failed:", e);
+    return null;
+  }
+};
+
+const createSimulatedVideoStream = (userName: string, profilePicUrl: string) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 640;
+  canvas.height = 360;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Carregar imagem de perfil em memória
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.src = profilePicUrl;
+
+  let animId: number;
+  let tVal = 0;
+  const particles: Array<{ x: number; y: number; vy: number; size: number; alpha: number }> = [];
+  for (let i = 0; i < 30; i++) {
+    particles.push({
+      x: Math.random() * 640,
+      y: Math.random() * 360,
+      vy: 0.5 + Math.random() * 1.5,
+      size: 1 + Math.random() * 2,
+      alpha: 0.1 + Math.random() * 0.4
+    });
+  }
+
+  const render = () => {
+    if (!ctx) return;
+    
+    // Desenhar fundo
+    ctx.fillStyle = '#07070c';
+    ctx.fillRect(0, 0, 640, 360);
+
+    // Desenhar linhas da grade cibernética para estética avançada
+    ctx.strokeStyle = 'rgba(79, 70, 229, 0.15)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 12; i++) {
+      const y = (360 / 12) * i + Math.sin(tVal * 0.05 + i) * 2;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(640, y);
+      ctx.stroke();
+    }
+    for (let i = 0; i < 12; i++) {
+      const x = (640 / 12) * i;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, 360);
+      ctx.stroke();
+    }
+
+    // Partículas flutuantes de dados de rede
+    particles.forEach((p) => {
+      p.y -= p.vy;
+      if (p.y < 0) {
+        p.y = 360;
+        p.x = Math.random() * 640;
+      }
+      ctx.fillStyle = `rgba(168, 85, 247, ${p.alpha})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Ondas senoidais animadas representativas de áudio
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+    ctx.lineWidth = 1.5;
+    for (let x = 0; x < 640; x += 10) {
+      const y = 180 + Math.sin(x * 0.02 + tVal * 0.08) * 12 * Math.sin(tVal * 0.03);
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Desenhar avatar principal
+    ctx.save();
+    const centerX = 320;
+    const centerY = 180;
+    const radius = 50;
+
+    // Pulsação neon ao redor do avatar
+    const pulseRadius = radius + 4 + Math.sin(tVal * 0.08) * 6;
+    ctx.strokeStyle = 'rgba(99, 102, 241, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, pulseRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Recortar em círculo
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.clip();
+
+    try {
+      if (img.complete && img.naturalWidth !== 0) {
+        ctx.drawImage(img, centerX - radius, centerY - radius, radius * 2, radius * 2);
+      } else {
+        ctx.fillStyle = '#4f46e5';
+        ctx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(userName.substring(0, 2).toUpperCase(), centerX, centerY);
+      }
+    } catch (e) {
+      ctx.fillStyle = '#1e1b4b';
+      ctx.fillRect(centerX - radius, centerY - radius, radius * 2, radius * 2);
+    }
+    ctx.restore();
+
+    // Linha de contorno do avatar
+    ctx.strokeStyle = '#4f46e5';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Indicadores eletrônicos de texto HUD
+    ctx.fillStyle = '#10b981';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(`● VIRTUAL STREAMING`, 30, 45);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.fillText(`USER: ${userName.toUpperCase()}`, 30, 65);
+    ctx.fillText(`STATUS: BROADCASTING`, 30, 85);
+
+    tVal++;
+    animId = requestAnimationFrame(render);
+  };
+
+  render();
+
+  const canvasStream = (canvas as any).captureStream 
+    ? (canvas as any).captureStream(15) 
+    : (canvas as any).webkitCaptureStream 
+      ? (canvas as any).webkitCaptureStream(15) 
+      : null;
+
+  if (canvasStream) {
+    (canvasStream as any).stopSimulation = () => {
+      cancelAnimationFrame(animId);
+    };
+  }
+  return canvasStream;
+};
+
 const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   currentUser,
   postId,
@@ -211,12 +375,16 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const lastHeartCountRef = useRef<number>(0);
 
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [remoteGuestStream, setRemoteGuestStream] = useState<MediaStream | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const hostConnectionsRef = useRef<Record<string, RTCPeerConnection>>({});
   const viewerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const isViewerInitialized = useRef(false);
   const viewerCandidatesProcessed = useRef<Set<string>>(new Set());
   const hostCandidatesProcessed = useRef<Set<string>>(new Set());
+  const hostCandidatesQueuesRef = useRef<Record<string, string[]>>({});
+  const viewerCandidatesQueueRef = useRef<string[]>([]);
+  const processedReadyViewersRef = useRef<Record<string, boolean>>({});
   
   const computedLiveViewerCount = useMemo(() => {
     if (!post) return 0;
@@ -242,27 +410,136 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
   const isHost = post ? post.userId === currentUser.id : false;
 
+  const isJoinedGuest = useMemo(() => {
+    if (!post || !post.liveStream?.guests) return false;
+    return post.liveStream.guests.some(g => g.userId === currentUser.id && g.status === 'JOINED');
+  }, [post, currentUser.id]);
+
   // Callback refs para lidar com a montagem condicional das tags de vídeo graciosamente:
   const setVideoRef = useCallback((el: HTMLVideoElement | null) => {
     videoRef.current = el;
     if (el) {
-      if (isHost && streamRef.current) {
-        console.log("[LiveStream] Vinculando stream host local...");
-        el.srcObject = streamRef.current;
-      } else if (!isHost && remoteStream) {
-        console.log("[LiveStream] Vinculando remoteStream...", remoteStream.id);
-        el.srcObject = remoteStream;
-        el.play().catch(e => console.warn("Erro ao reproduzir vídeo remoto da live:", e));
+      const targetStream = isHost ? (localStream || streamRef.current) : remoteStream;
+      if (targetStream) {
+        if (el.srcObject !== targetStream) {
+          console.log("[LiveStream] Vinculando stream...");
+          el.srcObject = targetStream;
+          el.play().catch(e => console.warn("Erro ao reproduzir vídeo:", e));
+        }
       }
     }
-  }, [isHost, remoteStream]);
+  }, [isHost, remoteStream, localStream]);
 
   const setGuestVideoRef = useCallback((el: HTMLVideoElement | null) => {
     guestVideoRef.current = el;
     if (el && guestStreamRef.current) {
-      el.srcObject = guestStreamRef.current;
+      if (el.srcObject !== guestStreamRef.current) {
+        el.srcObject = guestStreamRef.current;
+        el.play().catch(e => console.warn("Erro ao reproduzir guestStream:", e));
+      }
     }
   }, []);
+
+  // Sincronizadores resilientes em segundo plano para manter as tags sincronizadas caso o React não recrie os refs
+  useEffect(() => {
+    const el = videoRef.current;
+    if (el) {
+      const targetStream = isHost ? (localStream || streamRef.current) : remoteStream;
+      if (targetStream) {
+        if (el.srcObject !== targetStream) {
+          console.log("[LiveStream] Sincronizando stream via useEffect...");
+          el.srcObject = targetStream;
+          el.play().catch(e => console.warn("Erro ao reproduzir stream via useEffect:", e));
+        }
+      } else {
+        if (el.srcObject) {
+          el.srcObject = null;
+        }
+      }
+    }
+  }, [isHost, localStream, remoteStream]);
+
+  useEffect(() => {
+    const el = guestVideoRef.current;
+    const stream = guestStreamRef.current;
+    if (el) {
+      if (stream) {
+        if (el.srcObject !== stream) {
+          console.log("[LiveStream] Sincronizando guestStream via useEffect...");
+          el.srcObject = stream;
+          el.play().catch(e => console.warn("Erro ao reproduzir guestStream via useEffect:", e));
+        }
+      } else {
+        if (el.srcObject) {
+          el.srcObject = null;
+        }
+      }
+    }
+  }, [isJoinedGuest, guestVideoActive]);
+
+  // Sincronizadores resilientes de renegociação
+  const isSelfGuest = useMemo(() => {
+    if (!post || !post.liveStream?.guests) return false;
+    return post.liveStream.guests.some((g: any) => g.userId === currentUser.id && g.status === 'JOINED');
+  }, [post, currentUser.id]);
+
+  const guestMediaStreamActive = !!(guestStreamRef.current || localStream);
+
+  // 1. Viewer side renegotiation
+  useEffect(() => {
+    if (isHost) return;
+    if (!postId || !db) return;
+
+    if (viewerConnectionRef.current) {
+      console.log("[WebRTC-Live-Viewer] Estado de Co-Host/Guest mudou (isSelfGuest:", isSelfGuest, "stream:", guestMediaStreamActive, "). Reiniciando conexão WebRTC...");
+      
+      try {
+        viewerConnectionRef.current.close();
+      } catch (e) {}
+      viewerConnectionRef.current = null;
+      
+      const docRef = doc(db, 'posts', postId);
+      updateDoc(docRef, {
+        [`liveStream.signaling.${currentUser.id}`]: {
+          status: 'ready',
+          viewerCandidates: [],
+          hostCandidates: []
+        }
+      }).catch(err => {
+        console.warn("[WebRTC-Live-Viewer] Erro ao sinalizar reinício de conexão:", err);
+      });
+    }
+  }, [isSelfGuest, guestMediaStreamActive, isHost, postId, db]);
+
+  // 2. Host side renegotiation upon local camera restart
+  const lastLocalStreamIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isHost || !localStream || !postId || !db) return;
+    
+    const streamId = localStream.id;
+    if (lastLocalStreamIdRef.current && lastLocalStreamIdRef.current !== streamId) {
+      console.log("[WebRTC-Live-Host] Novo fluxo de câmera local detectado. Reiniciando conexões de todos os viewers...");
+      const docRef = doc(db, 'posts', postId);
+      
+      Object.keys(hostConnectionsRef.current).forEach(viewerId => {
+        try {
+          hostConnectionsRef.current[viewerId].close();
+        } catch (e) {}
+        delete hostConnectionsRef.current[viewerId];
+        delete hostCandidatesQueuesRef.current[viewerId];
+        processedReadyViewersRef.current[viewerId] = false;
+        
+        updateDoc(docRef, {
+          [`liveStream.signaling.${viewerId}`]: {
+            status: 'ready',
+            viewerCandidates: [],
+            hostCandidates: []
+          }
+        }).catch(() => {});
+      });
+    }
+    lastLocalStreamIdRef.current = streamId;
+  }, [localStream, isHost, postId, db]);
 
   // WebRTC Live-streaming signaling
   useEffect(() => {
@@ -278,19 +555,46 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
         const entry = signaling[viewerId];
         if (!entry) return;
 
-        // If viewer wants to connect ('ready') and we don't have a peer connection yet
-        if (entry.status === 'ready' && !hostConnectionsRef.current[viewerId]) {
-          console.log("[WebRTC-Live-Host] Nova solicitação de stream do viewer:", viewerId);
-          
-          if (!localStream) {
-            console.log("[WebRTC-Live-Host] Câmera do host ainda não está pronta!");
+        // Reset the processed ref if status is no longer ready
+        if (entry.status !== 'ready') {
+          processedReadyViewersRef.current[viewerId] = false;
+        }
+
+        // If viewer wants to connect ('ready') and we don't have a peer connection yet, or connection needs restart
+        if (entry.status === 'ready') {
+          // If we already initiated connection setup for this ready cycle, skip to prevent infinite loop
+          if (processedReadyViewersRef.current[viewerId]) {
             return;
+          }
+
+          if (!localStream) {
+            console.log("[WebRTC-Live-Host] Câmera do host ainda não está pronta, aguardando...");
+            return;
+          }
+
+          processedReadyViewersRef.current[viewerId] = true;
+
+          if (hostConnectionsRef.current[viewerId]) {
+            console.log("[WebRTC-Live-Host] Fechando conexão anterior obsoleta para o viewer:", viewerId);
+            try { hostConnectionsRef.current[viewerId].close(); } catch (e) {}
+            delete hostConnectionsRef.current[viewerId];
+            delete hostCandidatesQueuesRef.current[viewerId];
+          }
+
+          console.log("[WebRTC-Live-Host] Nova solicitação de stream do viewer:", viewerId);
+
+          // Clear processed candidates for this viewerId before starting anew
+          for (const key of Array.from(viewerCandidatesProcessed.current)) {
+            if (key.startsWith(`${viewerId}-`)) {
+              viewerCandidatesProcessed.current.delete(key);
+            }
           }
 
           const pc = new RTCPeerConnection({
             iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' }
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' }
             ]
           });
           hostConnectionsRef.current[viewerId] = pc;
@@ -299,6 +603,18 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           localStream.getTracks().forEach(track => {
             pc.addTrack(track, localStream);
           });
+
+          // Also set up ontrack in case this viewer is a Co-Host / Guest sending their feed
+          pc.ontrack = (event) => {
+            console.log(`[WebRTC-Live-Host] Feed de track recebido do participante ${viewerId}:`, event.streams[0]);
+            let stream = event.streams && event.streams[0];
+            if (!stream && event.track) {
+              stream = new MediaStream([event.track]);
+            }
+            if (stream) {
+              setRemoteGuestStream(stream);
+            }
+          };
 
           // Handle local candidates
           pc.onicecandidate = (event) => {
@@ -316,7 +632,8 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             await pc.setLocalDescription(offer);
             await updateDoc(docRef, {
               [`liveStream.signaling.${viewerId}.offer`]: JSON.stringify(offer),
-              [`liveStream.signaling.${viewerId}.status`]: 'offered'
+              [`liveStream.signaling.${viewerId}.status`]: 'offered',
+              [`liveStream.signaling.${viewerId}.answer`]: ""
             });
             console.log("[WebRTC-Live-Host] Offer para", viewerId, "salvo.");
           } catch (e) {
@@ -332,22 +649,45 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             const sdp = new RTCSessionDescription(JSON.parse(entry.answer));
             await pc.setRemoteDescription(sdp);
             console.log("[WebRTC-Live-Host] Conectado e transmitindo para:", viewerId);
+
+            // Flush buffered candidates
+            const queue = hostCandidatesQueuesRef.current[viewerId] || [];
+            while (queue.length > 0) {
+              const candStr = queue.shift();
+              if (candStr) {
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candStr)));
+                } catch (e) {
+                  console.warn("[WebRTC-Live-Host] Erro ao carregar candidato do buffer:", e);
+                }
+              }
+            }
+            delete hostCandidatesQueuesRef.current[viewerId];
           } catch (e) {
             console.error("[WebRTC-Live-Host] Erro ao carregar resposta do viewer:", e);
           }
         }
 
-        // Apply viewer ICE Candidates if remote description is set
-        if (pc && pc.remoteDescription && entry.viewerCandidates && Array.isArray(entry.viewerCandidates)) {
+        // Apply viewer ICE Candidates if remote description is set, else queue
+        if (pc && entry.viewerCandidates && Array.isArray(entry.viewerCandidates)) {
+          const queue = hostCandidatesQueuesRef.current[viewerId] || [];
           for (const candStr of entry.viewerCandidates) {
             const key = `${viewerId}-${candStr}`;
             if (viewerCandidatesProcessed.current.has(key)) continue;
             viewerCandidatesProcessed.current.add(key);
-            try {
-              await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candStr)));
-            } catch (e) {
-              console.warn("Erro ao carregar viewer candidate no host:", e);
+
+            if (pc.remoteDescription) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candStr)));
+              } catch (e) {
+                console.warn("[WebRTC-Live-Host] Erro ao carregar viewer candidate no host:", e);
+              }
+            } else {
+              queue.push(candStr);
             }
+          }
+          if (queue.length > 0) {
+            hostCandidatesQueuesRef.current[viewerId] = queue;
           }
         }
       });
@@ -359,8 +699,9 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           console.log("[WebRTC-Live-Host] Limpando conexão inativa de:", viewerId);
           try {
             hostConnectionsRef.current[viewerId].close();
-          } catch(e) {}
+          } catch (e) {}
           delete hostConnectionsRef.current[viewerId];
+          delete hostCandidatesQueuesRef.current[viewerId];
         }
       });
 
@@ -387,19 +728,41 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       // Step 2: Receive Host's Offer
       if (mySignaling && mySignaling.status === 'offered' && mySignaling.offer && !viewerConnectionRef.current) {
         console.log("[WebRTC-Live-Viewer] Offer recebido do Host, inicializando peer connection...");
+        
+        // Clear processed candidates lists for the new connection
+        hostCandidatesProcessed.current.clear();
+        viewerCandidatesQueueRef.current = [];
+
         const pc = new RTCPeerConnection({
           iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' }
           ]
         });
         viewerConnectionRef.current = pc;
 
         pc.ontrack = (event) => {
           console.log("[WebRTC-Live-Viewer] Feed de vídeo remota do host recebido!", event.streams[0]);
-          setRemoteStream(event.streams[0]);
-          setIsSimulatingCamera(false); // Desativar simulação para mostrar o feed real
+          let stream = event.streams && event.streams[0];
+          if (!stream && event.track) {
+            stream = new MediaStream([event.track]);
+          }
+          if (stream) {
+            setRemoteStream(stream);
+            setIsSimulatingCamera(false); // Desativar simulação para mostrar o feed real
+          }
         };
+
+        // If we are a joined guest (Co-Host), let's attach our local camera/mic stream tracks so the host can see/hear us!
+        const isSelfGuest = post.liveStream?.guests?.some((g: any) => g.userId === currentUser.id && g.status === 'JOINED');
+        const activeLocalGuestStream = guestStreamRef.current || localStream;
+        if (isSelfGuest && activeLocalGuestStream) {
+          console.log("[WebRTC-Live-Viewer] Convidado anexando stream local de câmera/áudio real para transmitir ao host...");
+          activeLocalGuestStream.getTracks().forEach(track => {
+            pc.addTrack(track, activeLocalGuestStream);
+          });
+        }
 
         pc.onicecandidate = (event) => {
           if (event.candidate) {
@@ -424,6 +787,18 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
               [`liveStream.signaling.${currentUser.id}.status`]: 'answered'
             });
             console.log("[WebRTC-Live-Viewer] Answer enviado com sucesso para o Host.");
+
+            // Flush buffered candidates
+            while (viewerCandidatesQueueRef.current.length > 0) {
+              const candStr = viewerCandidatesQueueRef.current.shift();
+              if (candStr) {
+                try {
+                  await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candStr)));
+                } catch (e) {
+                  console.warn("[WebRTC-Live-Viewer] Erro ao carregar candidato pós-handshake:", e);
+                }
+              }
+            }
           } catch (e) {
             console.error("[WebRTC-Live-Viewer] Erro no handshake:", e);
           }
@@ -433,13 +808,18 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
 
       // Step 3: Apply host's ICE candidates
       const pc = viewerConnectionRef.current;
-      if (pc && pc.remoteDescription && mySignaling && mySignaling.hostCandidates && Array.isArray(mySignaling.hostCandidates)) {
+      if (pc && mySignaling && mySignaling.hostCandidates && Array.isArray(mySignaling.hostCandidates)) {
         mySignaling.hostCandidates.forEach((candStr: string) => {
           if (hostCandidatesProcessed.current.has(candStr)) return;
           hostCandidatesProcessed.current.add(candStr);
-          pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candStr))).catch(err => {
-            console.warn("Erro ao carregar host candidate no viewer:", err);
-          });
+          
+          if (pc.remoteDescription) {
+            pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candStr))).catch(err => {
+              console.warn("Erro ao carregar host candidate no viewer:", err);
+            });
+          } else {
+            viewerCandidatesQueueRef.current.push(candStr);
+          }
         });
       }
     }
@@ -546,11 +926,6 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   }, [isHost, videoActive]);
 
   // 3b. Autoinicialização do fluxo de câmera/vídeo para o Co-Host/Convidado
-  const isJoinedGuest = useMemo(() => {
-    if (!post || !post.liveStream?.guests) return false;
-    return post.liveStream.guests.some(g => g.userId === currentUser.id && g.status === 'JOINED');
-  }, [post, currentUser.id]);
-
   useEffect(() => {
     if (isJoinedGuest && guestVideoActive) {
       startGuestCamera();
@@ -588,9 +963,15 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           });
         }
       }
+      if (guestStreamRef.current && (guestStreamRef.current as any).stopSimulation) {
+        (guestStreamRef.current as any).stopSimulation();
+      }
       guestStreamRef.current = stream;
       if (guestVideoRef.current) {
-        guestVideoRef.current.srcObject = stream;
+        if (guestVideoRef.current.srcObject !== stream) {
+          guestVideoRef.current.srcObject = stream;
+          guestVideoRef.current.play().catch(e => console.warn("Erro autoplay guest:", e));
+        }
       }
       setIsSimulatingGuestCamera(false);
       setGuestCameraError(null);
@@ -598,12 +979,38 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       console.warn("Guest camera access failed completely, fallback to animation mode", e);
       setIsSimulatingGuestCamera(true);
       setGuestCameraError(e?.message || String(e));
+
+      if (guestStreamRef.current && (guestStreamRef.current as any).stopSimulation) {
+        (guestStreamRef.current as any).stopSimulation();
+      }
+
+      // GERAR STREAM VIRTUAL PARA ENVIAR VIA WebRTC
+      const simulatedStream = createSimulatedVideoStream(
+        `${currentUser.firstName} ${currentUser.lastName}`,
+        currentUser.profilePicture || DEFAULT_PROFILE_PIC
+      );
+      if (simulatedStream) {
+        const silentAudio = createSilentAudioTrack();
+        if (silentAudio) {
+          simulatedStream.addTrack(silentAudio);
+        }
+        guestStreamRef.current = simulatedStream;
+        if (guestVideoRef.current) {
+          if (guestVideoRef.current.srcObject !== simulatedStream) {
+            guestVideoRef.current.srcObject = simulatedStream;
+            guestVideoRef.current.play().catch(e => console.warn("Erro autoplay guest fallback:", e));
+          }
+        }
+      }
     }
   };
 
   const stopGuestCamera = () => {
     if (guestStreamRef.current) {
       guestStreamRef.current.getTracks().forEach((track) => track.stop());
+      if ((guestStreamRef.current as any).stopSimulation) {
+        (guestStreamRef.current as any).stopSimulation();
+      }
       guestStreamRef.current = null;
     }
     setIsSimulatingGuestCamera(false);
@@ -1046,10 +1453,17 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
           });
         }
       }
+      // Se já houver um simulador ativo rodando, paramos antes de começar o novo real
+      if (streamRef.current && (streamRef.current as any).stopSimulation) {
+        (streamRef.current as any).stopSimulation();
+      }
       streamRef.current = stream;
       setLocalStream(stream);
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        if (videoRef.current.srcObject !== stream) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(e => console.warn("Erro autoplay host:", e));
+        }
       }
       setIsSimulatingCamera(false);
       setCameraError(null);
@@ -1057,6 +1471,31 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       console.warn("Camera access failed completely, falling back to simulated cyber stream", e);
       setIsSimulatingCamera(true);
       setCameraError(e?.message || String(e));
+
+      // Parar simulação anterior se houver
+      if (streamRef.current && (streamRef.current as any).stopSimulation) {
+        (streamRef.current as any).stopSimulation();
+      }
+
+      // GERAR STREAM DE MULTIMÍDIA VIRTUAL TOTALMENTE CAPAZ DE TRANSMISSÃO WebRTC
+      const simulatedStream = createSimulatedVideoStream(
+        `${currentUser.firstName} ${currentUser.lastName}`,
+        currentUser.profilePicture || DEFAULT_PROFILE_PIC
+      );
+      if (simulatedStream) {
+        const silentAudio = createSilentAudioTrack();
+        if (silentAudio) {
+          simulatedStream.addTrack(silentAudio);
+        }
+        streamRef.current = simulatedStream;
+        setLocalStream(simulatedStream);
+        if (videoRef.current) {
+          if (videoRef.current.srcObject !== simulatedStream) {
+            videoRef.current.srcObject = simulatedStream;
+            videoRef.current.play().catch(e => console.warn("Erro autoplay fallback:", e));
+          }
+        }
+      }
     }
   };
 
@@ -1064,6 +1503,9 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   const stopCamera = () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
+      if ((streamRef.current as any).stopSimulation) {
+        (streamRef.current as any).stopSimulation();
+      }
       streamRef.current = null;
     }
     setLocalStream(null);
@@ -1477,10 +1919,19 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                   )
                 ) : (
                   <div className="w-full h-full relative">
-                    <canvas 
-                      ref={canvasRef} 
-                      className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
-                    />
+                    {remoteStream ? (
+                      <video 
+                        ref={setVideoRef} 
+                        autoPlay 
+                        playsInline 
+                        className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                      />
+                    ) : (
+                      <canvas 
+                        ref={canvasRef} 
+                        className={`w-full h-full object-cover ${LIVE_FILTERS.find(f => f.id === currentFilter)?.class || ''}`}
+                      />
+                    )}
                   </div>
                 )}
 
@@ -1604,31 +2055,48 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
                         </div>
                       )
                     ) : (
-                      /* Stream simulada com altissíma fidelidade para os outros */
-                      <div className="w-full h-full bg-gradient-to-br from-[#08080f] via-[#10101d] to-[#08080f] flex flex-col items-center justify-center p-3 relative">
-                        {/* Círculo com foto de perfil e ondas de pulso neon */}
-                        <div className="relative mb-1.5">
-                          <div className="absolute inset-0 w-11 h-11 rounded-full bg-emerald-500/15 border border-emerald-400 animate-pulse opacity-50"></div>
-                          <img 
-                            src={g.profilePic || DEFAULT_PROFILE_PIC} 
-                            alt={g.userName} 
-                            className="w-11 h-11 rounded-full object-cover relative z-10 border border-emerald-500/40 shadow-lg" 
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
+                      isHost && remoteGuestStream ? (
+                        <video 
+                          ref={(el) => {
+                            if (el) {
+                              if (el.srcObject !== remoteGuestStream) {
+                                console.log("[LiveStream-Guest] Vinculando feed real do participante convidado...");
+                                el.srcObject = remoteGuestStream;
+                                el.play().catch(e => console.warn("Erro ao reproduzir feed real do convidado:", e));
+                              }
+                            }
+                          }}
+                          autoPlay 
+                          playsInline 
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        /* Stream simulada com altissíma fidelidade para os outros */
+                        <div className="w-full h-full bg-gradient-to-br from-[#08080f] via-[#10101d] to-[#08080f] flex flex-col items-center justify-center p-3 relative">
+                          {/* Círculo com foto de perfil e ondas de pulso neon */}
+                          <div className="relative mb-1.5">
+                            <div className="absolute inset-0 w-11 h-11 rounded-full bg-emerald-500/15 border border-emerald-400 animate-pulse opacity-50"></div>
+                            <img 
+                              src={g.profilePic || DEFAULT_PROFILE_PIC} 
+                              alt={g.userName} 
+                              className="w-11 h-11 rounded-full object-cover relative z-10 border border-emerald-500/40 shadow-lg" 
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
 
-                        {/* Ondas Sonoras Equalizadoras Animadas */}
-                        <div className="flex items-end gap-[2px] h-3.5 mb-1.5">
-                          <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-1"></span>
-                          <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-2"></span>
-                          <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-3"></span>
-                          <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-4"></span>
-                        </div>
+                          {/* Ondas Sonoras Equalizadoras Animadas */}
+                          <div className="flex items-end gap-[2px] h-3.5 mb-1.5">
+                            <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-1"></span>
+                            <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-2"></span>
+                            <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-3"></span>
+                            <span className="w-[1.5px] bg-emerald-400 rounded-full animate-voice-bar-4"></span>
+                          </div>
 
-                        <span className="text-[6.5px] tracking-widest leading-none font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase">
-                          Co-Host
-                        </span>
-                      </div>
+                          <span className="text-[6.5px] tracking-widest leading-none font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/20 px-2 py-0.5 rounded-full uppercase">
+                            Co-Host
+                          </span>
+                        </div>
+                      )
                     )}
 
                     {/* HUD Label do Convidado com design compacto super elegante */}
