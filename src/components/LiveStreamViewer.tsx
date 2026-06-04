@@ -2,6 +2,17 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next';
 import { Post, User, Page } from '../types';
 import { 
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip as RechartsTooltip,
+  CartesianGrid,
+  BarChart,
+  Bar
+} from 'recharts';
+import { 
   subscribeToLivePost, 
   sendLiveMessage, 
   manageLiveViewers, 
@@ -368,6 +379,16 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
   
   const [hearts, setHearts] = useState<FloatingHeart[]>([]);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(true);
+  const [activeRightTab, setActiveRightTab] = useState<'chat' | 'analytics'>('chat');
+  
+  interface AnalyticsDataPoint {
+    time: string;
+    viewers: number;
+    hearts: number;
+    heartSpike: number;
+  }
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsDataPoint[]>([]);
+  const lastRecordedHeartCount = useRef<number>(0);
   const [isSimulatingCamera, setIsSimulatingCamera] = useState<boolean>(false);
   const [isSimulatingGuestCamera, setIsSimulatingGuestCamera] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -901,6 +922,72 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
     
     return () => clearInterval(interval);
   }, [postId, currentUser?.id]);
+
+  // 1c. Analytics metrics trend data population
+  useEffect(() => {
+    if (!post) return;
+
+    const generateInitialPoints = (currentViewers: number, currentHearts: number) => {
+      const points: AnalyticsDataPoint[] = [];
+      const now = Date.now();
+      for (let i = 12; i >= 1; i--) {
+        const timeOffset = i * 4000;
+        const d = new Date(now - timeOffset);
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        
+        const factor = Math.sin((12 - i) * 0.5) * 0.15;
+        const simulatedViewers = Math.max(1, Math.round(currentViewers * (0.85 + factor + Math.random() * 0.1)));
+        const simulatedHearts = Math.max(0, Math.round(currentHearts * (0.6 + factor * 2)));
+        const simulatedSpike = Math.max(0, Math.round(Math.random() * 6 + (factor > 0 ? factor * 10 : 0)));
+        
+        points.push({
+          time: timeStr,
+          viewers: simulatedViewers,
+          hearts: simulatedHearts,
+          heartSpike: simulatedSpike
+        });
+      }
+      return points;
+    };
+
+    if (analyticsData.length === 0) {
+      const currentViewers = computedLiveViewerCount || 0;
+      const currentHearts = post.liveHeartCount || 0;
+      lastRecordedHeartCount.current = currentHearts;
+      setAnalyticsData(generateInitialPoints(currentViewers, currentHearts));
+    }
+  }, [post, computedLiveViewerCount]);
+
+  useEffect(() => {
+    if (!post) return;
+    
+    const interval = setInterval(() => {
+      const currentViewers = computedLiveViewerCount || 0;
+      const currentHearts = post.liveHeartCount || 0;
+      
+      const prevHearts = lastRecordedHeartCount.current;
+      const spike = Math.max(0, currentHearts - prevHearts);
+      lastRecordedHeartCount.current = currentHearts;
+      
+      const d = new Date();
+      const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      
+      setAnalyticsData(prev => {
+        const next = [...prev, {
+          time: timeStr,
+          viewers: currentViewers,
+          hearts: currentHearts,
+          heartSpike: spike
+        }];
+        if (next.length > 20) {
+          next.shift();
+        }
+        return next;
+      });
+    }, 4000);
+    
+    return () => clearInterval(interval);
+  }, [post, computedLiveViewerCount]);
 
   // 2. Carregar perfil do Host
   useEffect(() => {
@@ -2419,20 +2506,32 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
       {/* 2. CHAT AO VIVO EM TEMPO REAL (Direita) */}
       {isChatOpen && (
         <div className="flex-1 min-h-0 md:h-full md:w-[350px] lg:w-[400px] flex flex-col border-t md:border-t-0 md:border-l border-white/5 bg-[#09090c] shrink-0 relative overflow-hidden animate-fade-in">
-          {/* Cabecalho de chat */}
-          <div className="p-4 border-b border-white/5 flex items-center justify-between bg-black/20">
-            <div className="flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-emerald-400" />
-              <h2 className="text-[10px] tracking-widest font-black uppercase text-neutral-300">Live Chat ao Vivo</h2>
+          {/* Cabecalho de chat com Abas */}
+          <div className="p-3 border-b border-white/5 flex items-center justify-between bg-black/25">
+            <div className="flex items-center gap-1 bg-neutral-900/60 p-0.5 rounded-lg border border-white/5">
+              <button 
+                onClick={() => setActiveRightTab('chat')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer ${activeRightTab === 'chat' ? 'bg-[#4f46e5]/20 text-indigo-400 border border-indigo-500/20 shadow-md' : 'text-neutral-400 hover:text-neutral-200 border border-transparent'}`}
+              >
+                <MessageSquare className="w-2.5 h-2.5" />
+                Chat
+              </button>
+              <button 
+                onClick={() => setActiveRightTab('analytics')}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer ${activeRightTab === 'analytics' ? 'bg-[#10b981]/20 text-emerald-400 border border-emerald-500/20 shadow-md animate-pulse' : 'text-neutral-400 hover:text-neutral-200 border border-transparent'}`}
+              >
+                <Zap className="w-2.5 h-2.5 text-amber-400 fill-amber-400" />
+                Trends
+              </button>
             </div>
             
             <div className="flex items-center gap-2 font-sans">
-              <div className="flex items-center gap-1.5 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-lg text-[8px] font-bold text-indigo-400 uppercase tracking-wider">
-                Sincronizado
+              <div className="flex items-center gap-1 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded text-[7px] font-black text-rose-400 uppercase tracking-widest leading-none">
+                METRICS
               </div>
               <button 
                 onClick={() => setIsChatOpen(false)}
-                className="p-1.5 bg-white/5 hover:bg-red-500/15 text-neutral-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
+                className="p-1.5 bg-white/5 hover:bg-red-500/20 text-neutral-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
                 title="Fechar Comentários"
               >
                 <X className="w-3.5 h-3.5" />
@@ -2440,7 +2539,130 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             </div>
           </div>
 
-          {/* PRATELEIRA DE SUPER CHATS EM DESTAQUE */}
+          {activeRightTab === 'analytics' ? (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-neutral-800 scrollbar-track-transparent animate-fade-in">
+              {/* Resumo executivo em pequenas tags */}
+              <div className="grid grid-cols-3 gap-2 shrink-0">
+                <div className="bg-[#0b0c10] border border-white/5 p-2 rounded-xl text-center shadow-lg">
+                  <p className="text-[7.5px] uppercase font-black tracking-widest text-[#6c6c8c]">Audiência</p>
+                  <div className="flex items-center justify-center gap-1 mt-1 text-emerald-400 font-extrabold text-[13px] font-mono">
+                    <Eye className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                    {computedLiveViewerCount}
+                  </div>
+                  <span className="text-[6.5px] font-mono text-gray-500 font-bold block mt-0.5">audiência ao vivo</span>
+                </div>
+                
+                <div className="bg-[#0b0c10] border border-white/5 p-2 rounded-xl text-center shadow-lg">
+                  <p className="text-[7.5px] uppercase font-black tracking-widest text-[#6c6c8c]">Corações</p>
+                  <div className="flex items-center justify-center gap-1 mt-1 text-rose-500 font-extrabold text-[13px] font-mono">
+                    <Heart className="w-3.5 h-3.5 text-rose-500 fill-rose-500 shrink-0" />
+                    {post.liveHeartCount || 0}
+                  </div>
+                  <span className="text-[6.5px] font-mono text-gray-500 font-bold block mt-0.5">acumulados</span>
+                </div>
+
+                <div className="bg-[#0b0c10] border border-white/5 p-2 rounded-xl text-center shadow-lg">
+                  <p className="text-[7.5px] uppercase font-black tracking-widest text-[#6c6c8c]">Picos (4s)</p>
+                  <div className="flex items-center justify-center gap-1 mt-1 text-amber-500 font-extrabold text-[13px] font-mono">
+                    <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0" />
+                    {analyticsData[analyticsData.length - 1]?.heartSpike || 0}
+                  </div>
+                  <span className="text-[6.5px] font-mono text-gray-500 font-bold block mt-0.5 font-sans">pico de reações</span>
+                </div>
+              </div>
+
+              {/* GRÁFICO 1: TENDÊNCIA DE AUDIÊNCIA AO VIVO */}
+              <div className="bg-[#0b0b11] border border-white/5 p-3 rounded-xl shadow-xl flex flex-col gap-2 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-[#6366f1] rounded-full"></span>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-[#ececf1] font-mono">Curva de Audiência</p>
+                  </div>
+                  <span className="text-[7px] font-bold text-[#10b981] font-mono bg-[#10b981]/15 px-1.5 py-0.5 rounded uppercase tracking-wider">Ao Vivo</span>
+                </div>
+                
+                <div className="h-[140px] w-full mt-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={analyticsData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorViewers" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.35}/>
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
+                      <XAxis dataKey="time" stroke="#475569" fontSize={7} tickLine={false} axisLine={false} />
+                      <YAxis stroke="#475569" fontSize={7} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <RechartsTooltip 
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            return (
+                              <div className="bg-[#090a0f]/95 backdrop-blur-md border border-white/10 p-2 rounded-xl text-[8.5px] font-mono">
+                                <p className="text-gray-400 mb-0.5">Hora: {payload[0].payload.time}</p>
+                                <p className="text-indigo-400 font-bold">👁 Audiência: {payload[0].value}</p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }} 
+                      />
+                      <Area type="monotone" dataKey="viewers" stroke="#6366f1" strokeWidth={2} fillOpacity={1} fill="url(#colorViewers)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* GRÁFICO 2: PICOS DE REAÇÃO DE CORAÇÃO */}
+              <div className="bg-[#0b0b11] border border-white/5 p-3 rounded-xl shadow-xl flex flex-col gap-2 relative overflow-hidden">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 bg-[#f43f5e] rounded-full"></span>
+                    <p className="text-[8px] font-black uppercase tracking-widest text-[#ececf1] font-mono">Picos de Corações (Heart Spikes)</p>
+                  </div>
+                  <span className="text-[7px] font-bold text-rose-400 font-mono bg-rose-500/10 px-1.5 py-0.5 rounded uppercase tracking-wider">Dinâmico</span>
+                </div>
+                
+                <div className="h-[140px] w-full mt-1">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={analyticsData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorHeartsCol" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4}/>
+                          <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.05}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
+                      <XAxis dataKey="time" stroke="#475569" fontSize={7} tickLine={false} axisLine={false} />
+                      <YAxis stroke="#475569" fontSize={7} tickLine={false} axisLine={false} allowDecimals={false} />
+                      <RechartsTooltip 
+                        content={({ active, payload }) => {
+                          if (active && payload && payload.length) {
+                            return (
+                              <div className="bg-[#090a0f]/95 backdrop-blur-md border border-white/10 p-2 rounded-xl text-[8.5px] font-mono">
+                                <p className="text-gray-400 mb-0.5">Hora: {payload[0].payload.time}</p>
+                                <p className="text-rose-400 font-bold">💖 Intensidade: {payload[0].value} reações/4s</p>
+                              </div>
+                            );
+                          }
+                          return null;
+                        }} 
+                      />
+                      <Bar dataKey="heartSpike" radius={[3, 3, 0, 0]} fill="url(#colorHeartsCol)" stroke="#f43f5e" strokeWidth={1} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Informação explicativa para aumentar interação */}
+              <div className="p-3 bg-indigo-505/5 border border-indigo-400/15 rounded-xl text-center mt-2">
+                <p className="text-[8px] font-bold text-indigo-300 leading-relaxed uppercase tracking-wide">
+                  💡 Os gráficos atualizam a cada 4 segundos. Estimule a sua audiência a dar likes ❤️ para disparar picos fantásticos nas métricas em tempo real!
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* PRATELEIRA DE SUPER CHATS EM DESTAQUE */}
           {activeSuperChats.length > 0 && (
             <div className="px-3.5 py-2.5 bg-[#09090c] border-b border-white/10 flex gap-2 overflow-x-auto scrollbar-thin scrollbar-thumb-neutral-850 scrollbar-track-transparent items-center select-none shrink-0 animate-fade-in">
               <span className="text-[7.5px] font-black text-red-500 uppercase tracking-widest shrink-0 bg-red-500/10 px-1.5 py-1.5 rounded border border-red-500/20 mr-1 animate-pulse flex items-center gap-1">
@@ -2641,7 +2863,9 @@ const LiveStreamViewer: React.FC<LiveStreamViewerProps> = ({
             <Send className="w-3.5 h-3.5" />
           </button>
         </form>
-      </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* 3. MODAL DE DOAÇÃO DE INCENTIVOS / GORJETAS (Viewers) */}
