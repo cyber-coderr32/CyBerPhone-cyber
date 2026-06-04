@@ -60,6 +60,7 @@ import ProductDetailPage from './components/ProductDetailPage';
 import { ExclamationTriangleIcon, WifiIcon } from '@heroicons/react/24/solid';
 import { motion, AnimatePresence } from 'motion/react';
 import { DialogProvider, useDialog } from './services/DialogContext';
+import { OnboardingOverlay } from './components/OnboardingOverlay';
 
 console.log("[BOOT] App.tsx Iniciado");
 
@@ -600,14 +601,21 @@ const App: React.FC = () => {
     function renderPage() {
         // PERMITIR PÁGINAS PÚBLICAS MESMO SEM USUÁRIO
         if (currentPage === 'terms') return <LegalPage type="terms" onBack={() => {
-            if (previousPage && previousPage !== 'terms' && previousPage !== 'privacy') {
+            if (previousPage && previousPage !== 'terms' && previousPage !== 'privacy' && previousPage !== 'refund') {
                 handleNavigate(previousPage);
             } else {
                 handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any));
             }
         }} />;
         if (currentPage === 'privacy') return <LegalPage type="privacy" onBack={() => {
-            if (previousPage && previousPage !== 'terms' && previousPage !== 'privacy') {
+            if (previousPage && previousPage !== 'terms' && previousPage !== 'privacy' && previousPage !== 'refund') {
+                handleNavigate(previousPage);
+            } else {
+                handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any));
+            }
+        }} />;
+        if (currentPage === 'refund') return <LegalPage type="refund" onBack={() => {
+            if (previousPage && previousPage !== 'terms' && previousPage !== 'privacy' && previousPage !== 'refund') {
                 handleNavigate(previousPage);
             } else {
                 handleNavigate(currentUser ? 'settings' : (guestView === 'auth' ? 'auth' : 'landing' as any));
@@ -875,6 +883,10 @@ const App: React.FC = () => {
                 </div>
                 {currentUser && (
                   <>
+                    <OnboardingOverlay 
+                        currentUser={currentUser} 
+                        onNavigate={handleNavigate} 
+                    />
                     <CartModal 
                         isOpen={isCartModalOpen} 
                         onClose={() => setIsCartModalOpen(false)} 

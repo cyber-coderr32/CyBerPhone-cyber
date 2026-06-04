@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, Page, Transaction, AffiliateSale, OrderStatus, Product } from '../types';
-import { getTransactions, getAffiliateSales, getProduct, addProductRating, cancelOrder, confirmProductReceipt, deleteOrder, getGlobalSettings } from '../services/storageService';
+import { getTransactions, getAffiliateSales, getProduct, addProductRating, cancelOrder, confirmProductReceipt, deleteOrder, getGlobalSettings, requestProductReturn } from '../services/storageService';
 import { 
   ShoppingBagIcon, 
   ClockIcon, 
@@ -32,6 +32,108 @@ interface PurchasesPageProps {
   onNavigate: (page: Page, params?: Record<string, string>) => void;
   refreshUser: () => void;
 }
+
+const ReturnModal = ({ order, product, onClose, onSuccess }: { order: AffiliateSale, product: Product, onClose: () => void, onSuccess: () => void }) => {
+    const [reason, setReason] = useState('Qualidade ruim / Defeito');
+    const [details, setDetails] = useState('');
+    const [loading, setLoading] = useState(false);
+    const { showAlert } = useDialog();
+
+    const handleSubmit = async () => {
+        if (!details.trim()) {
+            showAlert("Por favor, descreva em detalhe o motivo da devolução.", { type: 'error' });
+            return;
+        }
+        setLoading(true);
+        try {
+            const success = await requestProductReturn(order.id, reason, details);
+            if (success) {
+                showAlert("Solicitação de devolução e reembolso enviada com sucesso ao vendedor!", { type: 'success' });
+                onSuccess();
+            } else {
+                showAlert("Erro ao processar devolução.", { type: 'error' });
+            }
+        } catch (err) {
+            showAlert("Erro ao processar solicitação.", { type: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div 
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                className="w-full max-w-md bg-white dark:bg-[#0a0c10] rounded-[3rem] overflow-hidden border border-gray-100 dark:border-white/10 shadow-2xl"
+            >
+                <div className="p-8 pb-0 flex justify-between items-start">
+                    <h3 className="text-xl font-black uppercase tracking-tighter text-gray-900 dark:text-white">Devolução & Reembolso</h3>
+                    <button onClick={onClose} className="p-3 bg-gray-50 dark:bg-white/5 rounded-2xl hover:bg-red-500/10 hover:text-red-500 transition-all">
+                        <XMarkIcon className="w-6 h-6" />
+                    </button>
+                </div>
+
+                <div className="p-8 space-y-6">
+                    <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-white/[0.02] rounded-2xl border border-gray-100 dark:border-white/5">
+                        <img src={product.imageUrls[0]} className="w-16 h-16 rounded-xl object-cover" />
+                        <div>
+                            <p className="text-sm font-black uppercase dark:text-white leading-none mb-1">{product.name}</p>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Pedido #{order.id.slice(-8).toUpperCase()}</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-3 block">Motivo da Devolução</label>
+                        <select 
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 p-5 rounded-2xl focus:ring-4 focus:ring-blue-600/10 outline-none transition-all text-xs font-bold text-gray-700 dark:text-gray-200"
+                        >
+                            <option value="Qualidade ruim / Defeito">Qualidade ruim / Defeito de fabricação</option>
+                            <option value="Diferente do anunciado">O produto é diferente da descrição/fotos</option>
+                            <option value="Danificado no transporte">Danificado ou partido durante a entrega</option>
+                            <option value="Tamanho incorreto">Tamanho ou cor incorreta</option>
+                            <option value="Arrependimento de compra">Arrependimento / Não gostei</option>
+                            <option value="Outro motivo">Outro motivo (especificar abaixo)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-3 block">Detalhes e Explicação</label>
+                        <textarea 
+                            value={details}
+                            onChange={(e) => setDetails(e.target.value)}
+                            className="w-full bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 p-5 rounded-3xl min-h-[100px] focus:ring-4 focus:ring-blue-600/10 outline-none transition-all text-xs font-medium dark:text-gray-100"
+                            placeholder="Descreva de forma detalhada o problema com o seu produto e por que necessitasse do reembolso..."
+                        />
+                    </div>
+
+                    <div className="flex gap-4">
+                        <button 
+                            type="button" 
+                            onClick={onClose} 
+                            className="flex-1 py-5 bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300 rounded-[1.6rem] font-bold text-[10px] uppercase tracking-wider hover:bg-gray-200 active:scale-95 transition-all text-center"
+                        >
+                            Cancelar
+                        </button>
+                        <button 
+                            onClick={handleSubmit}
+                            disabled={loading}
+                            className="flex-1 py-5 bg-red-600 shadow-xl shadow-red-600/20 text-white rounded-[1.6rem] font-bold text-[10px] uppercase tracking-wider hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center disabled:opacity-50"
+                        >
+                            {loading ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                "Solicitar Devolução"
+                            )}
+                        </button>
+                    </div>
+                </div>
+            </motion.div>
+        </div>
+    );
+};
 
 const ReviewModal = ({ order, product, onClose, onSuccess }: { order: AffiliateSale, product: Product, onClose: () => void, onSuccess: () => void }) => {
     const { t } = useTranslation();
@@ -136,6 +238,7 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate, 
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const [ratingOrder, setRatingOrder] = useState<AffiliateSale | null>(null);
+  const [returnOrder, setReturnOrder] = useState<AffiliateSale | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -229,7 +332,19 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate, 
     loadData();
   }, [currentUser.id]);
 
-  const StatusBadge = ({ status }: { status: OrderStatus }) => {
+  const StatusBadge = ({ order }: { order: AffiliateSale }) => {
+    if (order.returnRequested) {
+      switch (order.returnStatus) {
+        case 'APPROVED':
+          return <span className="bg-emerald-500/10 text-emerald-600 px-3 py-1 rounded-full text-[9px] font-black uppercase flex items-center gap-1"><CheckCircleIcon className="w-3 h-3" /> DEVOLUÇÃO ACEITA</span>;
+        case 'REJECTED':
+          return <span className="bg-red-500/10 text-red-600 px-3 py-1 rounded-full text-[9px] font-black uppercase flex items-center gap-1"><XMarkIcon className="w-3 h-3" /> DEVOLUÇÃO RECUSADA</span>;
+        case 'PENDING':
+        default:
+          return <span className="bg-amber-500/10 text-amber-600 px-3 py-1 rounded-full text-[9px] font-black uppercase flex items-center gap-1 animate-pulse"><ClockIcon className="w-3 h-3" /> DEVOLUÇÃO PENDENTE</span>;
+      }
+    }
+    const status = order.status;
     switch (status) {
       case OrderStatus.COMPLETED:
       case OrderStatus.DELIVERED:
@@ -338,7 +453,7 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate, 
                       
                       <div className="flex-grow text-center md:text-left">
                         <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mb-2">
-                          <StatusBadge status={order.status} />
+                          <StatusBadge order={order} />
                           <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{new Date(order.timestamp).toLocaleDateString()}</span>
                         </div>
                         <h3 className="text-xl font-black text-gray-900 dark:text-white uppercase tracking-tighter mb-1 line-clamp-1">
@@ -403,10 +518,50 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate, 
                             </div>
                           </div>
 
-                          <div className="mt-8 flex justify-end gap-3 px-2">
+                          {order.returnRequested && (
+                            <div className="mt-6 p-6 bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 rounded-[2rem] space-y-3">
+                              <p className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 tracking-wider flex items-center gap-2">
+                                <ArrowPathIcon className="w-4 h-4 animate-spin-slow" /> Solicitação de Devolução & Reembolso
+                              </p>
+                              <div>
+                                <span className="font-bold uppercase text-[9px] text-gray-400 tracking-wider block mb-0.5">Motivo:</span>
+                                <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{order.returnReason}</p>
+                              </div>
+                              {order.returnDetails && (
+                                <div>
+                                  <span className="font-bold uppercase text-[9px] text-gray-400 tracking-wider block mb-0.5">Explicação do Cliente:</span>
+                                  <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{order.returnDetails}</p>
+                                </div>
+                              )}
+                              {order.returnStatus === 'REJECTED' && order.sellerExplanation && (
+                                <div className="mt-3 p-4 bg-red-500/5 dark:bg-red-500/10 border border-red-500/10 rounded-2xl">
+                                  <p className="text-[9px] font-black uppercase text-red-500 tracking-wider mb-1">Motivo do Indeferimento pelo Vendedor:</p>
+                                  <p className="text-xs font-semibold text-red-700 dark:text-red-400">{order.sellerExplanation}</p>
+                                </div>
+                              )}
+                              {order.returnStatus === 'APPROVED' && (
+                                <div className="mt-3 p-4 bg-emerald-500/5 dark:bg-emerald-500/10 border border-emerald-500/10 rounded-2xl">
+                                  <p className="text-[9px] font-black uppercase text-emerald-500 tracking-wider mb-1">Reembolso Efetuado:</p>
+                                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                                    O valor total de {formatCurrency(order.saleAmount)} foi creditado de volta à sua carteira digital.
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="mt-8 flex flex-wrap justify-end gap-3 px-2">
                             <button className="flex items-center gap-2 px-6 py-4 bg-gray-100 dark:bg-white/5 text-gray-500 hover:text-blue-600 rounded-2xl transition-all font-black uppercase text-[9px] tracking-widest">
                               <ChatBubbleLeftEllipsisIcon className="w-5 h-5" /> {t('support')}
                             </button>
+                            {!order.returnRequested && (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.COMPLETED) && (
+                                <button 
+                                    onClick={() => setReturnOrder(order)}
+                                    className="flex items-center gap-2 px-6 py-4 bg-orange-500/10 text-orange-600 hover:bg-orange-500 hover:text-white rounded-2xl transition-all font-black uppercase text-[9px] tracking-widest active:scale-95"
+                                >
+                                    <ArrowUturnLeftIcon className="w-5 h-5" /> Devolução / Reembolso
+                                </button>
+                            )}
                             {!order.isRated && (order.status === OrderStatus.DELIVERED || order.status === OrderStatus.COMPLETED) && (
                                 <button 
                                     onClick={() => setRatingOrder(order)}
@@ -506,6 +661,17 @@ const PurchasesPage: React.FC<PurchasesPageProps> = ({ currentUser, onNavigate, 
                 onClose={() => setRatingOrder(null)}
                 onSuccess={() => {
                     setRatingOrder(null);
+                    loadData();
+                }}
+              />
+          )}
+          {returnOrder && productsCache[returnOrder.productId] && (
+              <ReturnModal 
+                order={returnOrder} 
+                product={productsCache[returnOrder.productId]!} 
+                onClose={() => setReturnOrder(null)}
+                onSuccess={() => {
+                    setReturnOrder(null);
                     loadData();
                 }}
               />

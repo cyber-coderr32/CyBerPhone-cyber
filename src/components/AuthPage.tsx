@@ -623,9 +623,10 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLoginSuccess, onNavigate }) => {
                 {isRegister ? t('already_have_account') : t('new_here')}
               </button>
 
-              <div className="flex items-center justify-center gap-6 pt-4 border-t border-gray-100 dark:border-white/5">
+              <div className="flex items-center justify-center gap-4 flex-wrap pt-4 border-t border-gray-100 dark:border-white/5">
                 <button onClick={() => onNavigate('terms')} className="text-[10px] font-black text-gray-400 hover:text-brand underline underline-offset-4 uppercase tracking-wider transition-all">{t('terms_of_use')}</button>
                 <button onClick={() => onNavigate('privacy')} className="text-[10px] font-black text-gray-400 hover:text-brand underline underline-offset-4 uppercase tracking-wider transition-all">{t('privacy_policy')}</button>
+                <button onClick={() => onNavigate('refund')} className="text-[10px] font-black text-gray-400 hover:text-brand underline underline-offset-4 uppercase tracking-wider transition-all">{t('landing_refund') || 'Reembolso'}</button>
                 <button onClick={() => onNavigate('support')} className="text-[10px] font-black text-gray-400 hover:text-brand underline underline-offset-4 uppercase tracking-wider transition-all">{t('support')}</button>
               </div>
             </div>

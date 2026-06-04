@@ -292,12 +292,25 @@ const SupportPage: React.FC<SupportPageProps> = ({ currentUser, onNavigate }) =>
         )}
       </div>
 
-      <div className="mt-12 text-center p-8 bg-gray-50 dark:bg-white/5 rounded-[40px]">
-        <h4 className="text-sm font-black uppercase text-gray-900 dark:text-white mb-2">Precisa de ajuda imediata?</h4>
-        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest leading-loose">
-            Nosso horário de atendimento é de Segunda a Sexta, das 09h às 18h.<br/>
-            E-mail direto: <span className="text-blue-600">suporte@cyberphone.com</span>
-        </p>
+      <div className="mt-12 text-center p-8 bg-gray-50 dark:bg-white/5 rounded-[40px] flex flex-col items-center justify-center gap-4">
+        <div>
+          <h4 className="text-sm font-black uppercase text-gray-900 dark:text-white mb-2">Precisa de ajuda imediata?</h4>
+          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest leading-loose">
+              Nosso horário de atendimento é de Segunda a Sexta, das 09h às 18h.<br/>
+              Suporte oficial via WhatsApp: <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">+244 926815124</span>
+          </p>
+        </div>
+        <a 
+          href="https://wa.me/244926815124" 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-2xl font-black uppercase text-[9px] tracking-wider transition-all shadow-lg shadow-emerald-600/20 active:scale-95 cursor-pointer hover:-translate-y-0.5"
+        >
+          <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+            <path d="M12.004 2a9.991 9.991 0 0 0-9.99 9.99c0 1.8.47 3.49 1.3 4.96l-1.38 5.05 5.17-1.35a9.96 9.96 0 0 0 4.9 1.28l.01.01h.01c5.51 0 9.99-4.48 9.99-9.99S17.514 2 12.004 2zm5.78 12.98c-.24.68-1.22 1.24-1.68 1.29-.44.05-.15.49-2.54-.46-2.52-1.01-4.11-3.61-4.23-3.77-.12-.17-.99-1.32-.99-2.52 0-1.2.62-1.79.84-2.03.24-.24.62-.3.9-.3.12 0 .22.01.3.01.24.01.55-.09.76.43.21.52.88 2.14.96 2.3.08.16.03.42-.08.57-.12.16-.24.27-.36.41-.1.12-.21.25-.09.46.21.36.93 1.54 2.01 2.5.95.84 1.74 1.1 1.98 1.22.24.12.38.09.52-.07.14-.16.6-.7.76-.94.16-.24.32-.2.54-.12.23.08 1.45.69 1.7.81.25.12.42.18.48.28.06.11.06.63-.18 1.31z" />
+          </svg>
+          Chamar no WhatsApp (+244 926815124)
+        </a>
       </div>
     </div>
   );

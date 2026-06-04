@@ -1,5 +1,5 @@
 
-export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'cart' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'saved' | 'blocked-users' | 'premium' | 'landing' | 'creator-center' | 'explore' | 'cyber-assistant' | 'product-detail' | 'post-detail' | 'id-verification';
+export type Page = 'auth' | 'feed' | 'profile' | 'chat' | 'ads' | 'live' | 'store' | 'manage-store' | 'reels-page' | 'search-results' | 'notifications' | 'settings' | 'admin' | 'events' | 'purchases' | 'cart' | 'affiliates' | 'create-group' | 'support' | 'monetization' | 'terms' | 'privacy' | 'refund' | 'saved' | 'blocked-users' | 'premium' | 'landing' | 'creator-center' | 'explore' | 'cyber-assistant' | 'product-detail' | 'post-detail' | 'id-verification';
 
 export type MonetizationStatus = 'INELIGIBLE' | 'ELIGIBLE' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
@@ -444,6 +444,15 @@ export interface AffiliateSale {
   sellerEarnings?: number;
   affiliateEarnings?: number;
   fundsReleased?: boolean;
+  returnRequested?: boolean;
+  returnStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  returnReason?: string;
+  returnDetails?: string;
+  returnTimestamp?: number;
+  refundStatus?: 'PENDING' | 'REFUNDED' | 'DENIED';
+  refundAmount?: number;
+  refundTimestamp?: number;
+  sellerExplanation?: string;
 }
 
 export interface ShippingAddress {

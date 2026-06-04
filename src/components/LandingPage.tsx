@@ -626,6 +626,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ currentUser, onGoToAuth, onNa
                 <ul className="space-y-4">
                    {[
                      { label: t('landing_terms'), key: 'terms' }, 
+                     { label: t('landing_refund'), key: 'refund' }, 
                      { label: t('landing_privacy'), key: 'privacy' }, 
                      { label: t('landing_cookies'), key: 'cookies' }, 
                      { label: t('landing_support'), key: 'support' }

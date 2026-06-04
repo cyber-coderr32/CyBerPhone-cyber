@@ -411,6 +411,7 @@ const resources = {
       "landing_cyber_wallet": "CyBer Wallet",
       "landing_terms": "Termos de Uso",
       "landing_privacy": "Privacidade",
+      "landing_refund": "Reembolso e Devolução",
       "landing_cookies": "Cookies",
       "landing_support": "Suporte",
       "jan": "Janeiro", "feb": "Fevereiro", "mar": "Março", "apr": "Abril", "may": "Maio", "jun": "Junho",
@@ -637,7 +638,21 @@ const resources = {
       "legal_privacy_s5_title": "5. Compartilhamento com Terceiros",
       "legal_privacy_s5_text": "Não vendemos bases de dados. Dados são compartilhados exclusivamente com processadores de pagamento certificados e infraestrutura cloud (Firebase/Google Cloud) sob rigorosos acordos de confidencialidade e segurança.",
       "legal_privacy_s6_title": "6. Conformidade Global (LGPD/GDPR)",
-      "legal_privacy_s6_text": "Operamos em conformidade com as melhores práticas internacionais de proteção de dados. Quaisquer incidentes de segurança serão reportados imediatamente aos utilizadores afectados em até 48 horas."
+      "legal_privacy_s6_text": "Operamos em conformidade com as melhores práticas internacionais de proteção de dados. Quaisquer incidentes de segurança serão reportados imediatamente aos utilizadores afectados em até 48 horas.",
+      "refund_policy_title": "Política de Reembolso e Devolução CyBerPhone",
+      "refund_policy_content": "A nossa Política de Reembolso e Devolução foi concebida para salvaguardar a vossa segurança e confiança mútua em todas as transacções financeiras. O CyBerPhone Digital Network assegura um ecossistema seguro e transparente, operando rigorosamente em conformidade com a Lei de Defesa do Consumidor de Angola e as melhores práticas internacionais para comércio electrónico e carteiras financeiras digitais.",
+      "legal_refund_s1_title": "1. Proteção de Compras no Marketplace (Escrow)",
+      "legal_refund_s1_text": "Todas as compras físicas ou digitais efetuadas no nosso Marketplace estão protegidas por uma retenção de fundos em garantia (Escrow) de até 7 dias corridos após a recepção do produto. Durante este período, o seu saldo fica salvaguardado pelo sistema até que confirme que o produto foi entregue em perfeitas condições.",
+      "legal_refund_s2_title": "2. Cancelamento e Direito de Livre Resolução",
+      "legal_refund_s2_text": "De acordo com as leis de protecção do consumidor, os utilizadores têm o direito de rescindir a compra em até 7 dias corridos. Para produtos físicos, estes devem ser devolvidos sem marcas de uso, na embalagem original e completos. O reembolso total será efetuado directamente para o seu saldo de carteira digital assim que a devolução for validada pela loja.",
+      "legal_refund_s3_title": "3. Reembolso de Serviços e Doações Digitais",
+      "legal_refund_s3_text": "Incentivos Directos, Apoios ao Criador (Super Chats/Agradecimentos) e Subscrições Digitais de Conteúdo não são reembolsáveis no âmbito da lei digital angolana, visto consistirem na cedência de doações livres e consumo imediato de material digital dinâmico.",
+      "legal_refund_s4_title": "4. Carteira Digital e Depósitos de Saldo",
+      "legal_refund_s4_text": "As recargas diretas e depósitos manuais convertidos em saldo CyBerPhone não podem ser revertidas uma vez creditados e utilizados no ecossistema. Todavia, qualquer erro técnico ou transacional será corrigido após abertura de ticket ou contacto com o suporte no WhatsApp.",
+      "legal_refund_s5_title": "5. Levantamentos de Saldo (Sacar Fundos)",
+      "legal_refund_s5_text": "O utilizador poderá, a qualquer momento, requerer o levantamento de saldos legítimos e disponíveis da sua carteira para a conta bancária indicada (via IBAN e Multicaixa) sem tarifas administrativas ocultas. O tempo médio de processamento e compensação é de 24 a 48 horas úteis.",
+      "legal_refund_s6_title": "6. Resolução de Litígios e Suporte Técnico",
+      "legal_refund_s6_text": "Em caso de desentendimento ou fraude suspeita da loja, o CyBerPhone intervirá judicialmente para arbitrar a disputa. Basta contactar o nosso suporte central no WhatsApp +244 926815124, fornecendo recibos e capturas de ecrã para resolvermos a transacção em até 3 dias úteis."
     }
   },
   en: {
@@ -1054,6 +1069,7 @@ const resources = {
       "landing_cyber_wallet": "CyBer Wallet",
       "landing_terms": "Terms of Use",
       "landing_privacy": "Privacy",
+      "landing_refund": "Refund & Returns",
       "landing_cookies": "Cookies",
       "landing_support": "Support",
       "jan": "January", "feb": "February", "mar": "March", "apr": "April", "may": "May", "jun": "June",
@@ -1280,7 +1296,21 @@ const resources = {
       "legal_privacy_s5_title": "5. Third-Party Sharing",
       "legal_privacy_s5_text": "We do not sell databases. Data is shared exclusively with certified payment processors and cloud infrastructure (Firebase/Google Cloud) under strict confidentiality and security agreements.",
       "legal_privacy_s6_title": "6. Global Compliance (GDPR/LGPD)",
-      "legal_privacy_s6_text": "We operate in compliance with international data protection best practices. Any security incidents will be reported immediately to affected users within 48 hours."
+      "legal_privacy_s6_text": "We operate in compliance with international data protection best practices. Any security incidents will be reported immediately to affected users within 48 hours.",
+      "refund_policy_title": "CyBerPhone Refund and Return Policy",
+      "refund_policy_content": "Our Refund and Return Policy is designed to safeguard your safety and mutual trust in all financial transactions. The CyBerPhone Digital Network ensures a secure and transparent ecosystem, strictly operating in compliance with Angolan Consumer Protection Laws and international best practices for electronic commerce and digital financial wallets.",
+      "legal_refund_s1_title": "1. Marketplace Purchasing Protection (Escrow)",
+      "legal_refund_s1_text": "All physical or digital purchases in our Marketplace are protected by a secure escrow holding system of up to 7 calendar days after product receipt. During this period, your funds are safely reserved by the system until you confirm that the product was delivered in perfect condition.",
+      "legal_refund_s2_title": "2. Cancellation and Right of Rescission",
+      "legal_refund_s2_text": "According to consumer protection laws, users have the right to cancel their purchase within 7 calendar days. For physical products, they must be returned unused, in original packaging, and complete. A full refund will be processed directly to your digital wallet balance once the returns are validated by the vendor.",
+      "legal_refund_s3_title": "3. Refund of Digital Support and Tips",
+      "legal_refund_s3_text": "Direct Incentives, Creator Tips (Super Chats/Cheers), and Digital Subscriptions are entirely non-refundable under digital consumer guidelines, as they represent voluntary donations and immediate consumption of dynamic digital entertainment.",
+      "legal_refund_s4_title": "4. Digital Wallet & Balance Deposits",
+      "legal_refund_s4_text": "Manual deposits and balance top-ups credited in your CyBerPhone digital wallet cannot be directly chargebacked once utilized inside the network. However, our administration is fully committed to resolving any transactional bugs or human errors upon ticket submission.",
+      "legal_refund_s5_title": "5. Balance Withdrawals (Cash-out)",
+      "legal_refund_s5_text": "Any user can request a legal cash-out of their verified wallet ledger balance directly to their registered local IBAN or debit card at any time without any hidden administrative fees. The standard processing window is 24 to 48 business hours.",
+      "legal_refund_s6_title": "6. Dispute Resolution and Support Channels",
+      "legal_refund_s6_text": "In case of vendor dispute, delivery failures, or questionable transactions, CyBerPhone's arbitration board will step in. Submit a report via WhatsApp at +244 926815124, and our legal desk will resolve the claim within 3 business days."
     }
   },
   es: {

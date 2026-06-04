@@ -3620,6 +3620,165 @@ export const cancelPurchaseAndRefund = async (saleId: string) => {
     }
 };
 
+export const requestProductReturn = async (saleId: string, reason: string, details: string) => {
+    if (!db) return false;
+    try {
+        const saleRef = doc(db, 'sales', saleId);
+        await updateDoc(saleRef, {
+            returnRequested: true,
+            returnStatus: 'PENDING',
+            returnReason: reason,
+            returnDetails: details,
+            returnTimestamp: Date.now(),
+            refundStatus: 'PENDING',
+            updatedAt: Date.now()
+        });
+        
+        // Log system activity
+        await addSystemLog({
+            action: 'RETURN_REQUESTED',
+            details: `Retorno de produto solicitado na venda ${saleId}. Motivo: ${reason}`,
+            adminId: auth?.currentUser?.uid || 'system'
+        });
+        return true;
+    } catch (error) {
+        handleFirestoreError(error, OperationType.UPDATE, 'sales/' + saleId);
+        return false;
+    }
+};
+
+export const processProductReturnDecision = async (saleId: string, decision: 'APPROVED' | 'REJECTED', sellerExplanation?: string) => {
+    if (!db) return false;
+    try {
+        const saleRef = doc(db, 'sales', saleId);
+        const saleDoc = await getDoc(saleRef);
+        if (!saleDoc.exists()) throw new Error("Venda não encontrada");
+        const sale = saleDoc.data() as any;
+
+        const batch = writeBatch(db);
+
+        if (decision === 'APPROVED') {
+            const saleAmount = Number(sale.saleAmount) || 0;
+            const sellerEarnings = Number(sale.sellerEarnings) || 0;
+            const affiliateEarnings = Number(sale.affiliateEarnings) || 0;
+
+            // 1. Reembolsar o comprador
+            const buyerRef = doc(db, 'profiles', sale.buyerId);
+            const publicBuyerRef = doc(db, 'public_profiles', sale.buyerId);
+            
+            batch.update(buyerRef, { balance: increment(saleAmount) });
+            batch.update(publicBuyerRef, { balance: increment(saleAmount) });
+
+            // Criar Transação de Reembolso para o comprador
+            const refundTransId = generateUUID();
+            batch.set(doc(db, 'transactions', refundTransId), {
+                id: refundTransId,
+                userId: sale.buyerId,
+                type: TransactionType.REFUND,
+                amount: saleAmount,
+                description: `Reembolso de devolução aceita: Pedido #${sale.id.slice(-8).toUpperCase()}`,
+                timestamp: Date.now(),
+                status: 'COMPLETED'
+            });
+
+            // 2. Estornar ganhos do vendedor e afiliado
+            if (sale.fundsReleased) {
+                // Se já foi liberado, deduz do saldo principal (balance) e totalEarnings
+                if (sellerEarnings > 0) {
+                    const sellerRef = doc(db, 'profiles', sale.sellerId);
+                    const publicSellerRef = doc(db, 'public_profiles', sale.sellerId);
+                    batch.update(sellerRef, {
+                        balance: increment(-sellerEarnings),
+                        totalEarnings: increment(-sellerEarnings)
+                    });
+                    batch.update(publicSellerRef, {
+                        balance: increment(-sellerEarnings)
+                    });
+                    
+                    // Transação de estorno negativo para o vendedor
+                    const chargebackTransId = generateUUID();
+                    batch.set(doc(db, 'transactions', chargebackTransId), {
+                        id: chargebackTransId,
+                        userId: sale.sellerId,
+                        type: TransactionType.WITHDRAWAL,
+                        amount: sellerEarnings,
+                        description: `Debito de reembolso aprovado (devolução): Pedido #${sale.id.slice(-8).toUpperCase()}`,
+                        timestamp: Date.now(),
+                        status: 'COMPLETED'
+                    });
+                }
+
+                if (sale.affiliateUserId && affiliateEarnings > 0) {
+                    const affiliateRef = doc(db, 'profiles', sale.affiliateUserId);
+                    const publicAffiliateRef = doc(db, 'public_profiles', sale.affiliateUserId);
+                    batch.update(affiliateRef, {
+                        balance: increment(-affiliateEarnings),
+                        totalEarnings: increment(-affiliateEarnings)
+                    });
+                    batch.update(publicAffiliateRef, {
+                        balance: increment(-affiliateEarnings)
+                    });
+                }
+            } else {
+                // Se ainda pendente, deduz do saldo pendente (pendingBalance) e totalEarnings
+                if (sellerEarnings > 0) {
+                    const sellerRef = doc(db, 'profiles', sale.sellerId);
+                    batch.update(sellerRef, {
+                        pendingBalance: increment(-sellerEarnings),
+                        totalEarnings: increment(-sellerEarnings)
+                    });
+                }
+
+                if (sale.affiliateUserId && affiliateEarnings > 0) {
+                    const affiliateRef = doc(db, 'profiles', sale.affiliateUserId);
+                    batch.update(affiliateRef, {
+                        pendingBalance: increment(-affiliateEarnings),
+                        totalEarnings: increment(-affiliateEarnings)
+                    });
+                }
+            }
+
+            // 3. Atualizar status do pedido
+            batch.update(saleRef, {
+                status: OrderStatus.CANCELED,
+                returnStatus: 'APPROVED',
+                refundStatus: 'REFUNDED',
+                refundAmount: saleAmount,
+                refundTimestamp: Date.now(),
+                sellerExplanation: sellerExplanation || '',
+                updatedAt: Date.now()
+            });
+
+            await addSystemLog({
+                action: 'RETURN_APPROVED',
+                details: `Devolução aprovada e reembolsada para a venda ${saleId}.`,
+                adminId: auth?.currentUser?.uid || 'system'
+            });
+
+        } else {
+            // Se foi REJEITADA
+            batch.update(saleRef, {
+                returnStatus: 'REJECTED',
+                refundStatus: 'DENIED',
+                sellerExplanation: sellerExplanation || '',
+                updatedAt: Date.now()
+            });
+
+            await addSystemLog({
+                action: 'RETURN_REJECTED',
+                details: `Devolução rejeitada pelo vendedor para a venda ${saleId}. Explicação: ${sellerExplanation || 'Nenhuma'}`,
+                adminId: auth?.currentUser?.uid || 'system'
+            });
+        }
+
+        await batch.commit();
+        return true;
+    } catch (error) {
+        console.error("Erro ao processar decisão de devolução/reembolso:", error);
+        return false;
+    }
+};
+
 export const updateUserBalance = async (uid: string, amt: number) => {
     if (!db) return;
     const u = await findUserById(uid);
@@ -4129,30 +4288,42 @@ export const createGroup = async (name: string, members: string[], adminId: stri
 };
 
 export const getSupportTickets = async (uid: string) => {
-    if (!db) return [];
-    return (await getDocs(query(collection(db, 'tickets'), where('userId', '==', uid)))).docs.map(d => ({ ...d.data(), id: d.id } as SupportTicket));
+    if (!db || !uid || uid === 'public' || uid === 'anonymous') return [];
+    try {
+        return (await getDocs(query(collection(db, 'tickets'), where('userId', '==', uid)))).docs.map(d => ({ ...d.data(), id: d.id } as SupportTicket));
+    } catch (err: any) {
+        handleFirestoreError(err, OperationType.LIST, 'tickets');
+        return [];
+    }
 };
 
-export const createSupportTicket = async (data: any, desc: string, url?: string, type?: string) => {
-    if (!db) return;
+export const createSupportTicket = async (userId: string, subject: string, details: string, category: 'TECHNICAL' | 'BILLING' | 'ABUSE' | 'OTHER' = 'TECHNICAL') => {
+    if (!db || !userId || userId === 'public' || userId === 'anonymous') return;
 
     // Sentinela AI Check
-    const security = await checkContentSecurity(desc, 'support ticket');
+    const security = await checkContentSecurity(details, 'support ticket');
     if (!security.allowed) {
         throw new Error(`SENTINEL_BLOCK: ${security.reason}`);
     }
 
     const id = generateUUID();
-    const msg: SupportMessage = { id: generateUUID(), senderId: data.userId, text: desc, attachmentUrl: url, attachmentType: type as any, timestamp: Date.now() };
-    await setDoc(doc(db, 'tickets', id), {
-        ...data,
-        id,
-        status: 'OPEN',
-        assignedAdminId: '',
-        messages: [msg],
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-    });
+    const msg: SupportMessage = { id: generateUUID(), senderId: userId, text: details, timestamp: Date.now() };
+    
+    try {
+        await setDoc(doc(db, 'tickets', id), {
+            id,
+            userId,
+            subject,
+            category,
+            status: 'OPEN',
+            assignedAdminId: '',
+            messages: [msg],
+            createdAt: Date.now(),
+            updatedAt: Date.now()
+        });
+    } catch (err: any) {
+        handleFirestoreError(err, OperationType.WRITE, 'tickets/' + id);
+    }
 };
 
 export const addSupportMessage = async (tid: string, msg: any) => {
@@ -4224,7 +4395,7 @@ export const getAdminSupportTickets = async (adminId?: string) => {
 };
 
 export const subscribeToSupportTickets = (userId: string, callback: (tickets: SupportTicket[]) => void) => {
-    if (!db) return () => {};
+    if (!db || !userId || userId === 'public' || userId === 'anonymous') return () => {};
     const q = query(collection(db, 'tickets'), where('userId', '==', userId));
     return onSnapshot(q, (snap) => {
         callback(snap.docs.map(d => ({ ...d.data(), id: d.id } as SupportTicket)));

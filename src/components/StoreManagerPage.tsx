@@ -31,6 +31,7 @@ import {
   getTransactions,
   requestWithdrawal,
   releaseFundsToSeller,
+  processProductReturnDecision,
 } from "../services/storageService";
 import {
   PlusIcon,
@@ -74,6 +75,7 @@ import {
   ChevronRightIcon,
   ShoppingBagIcon,
   HashtagIcon,
+  ArrowUturnLeftIcon,
 } from "@heroicons/react/24/outline";
 import { useDialog } from "../services/DialogContext";
 import { formatCurrency, safeJsonStringify } from "../lib/utils";
@@ -2386,98 +2388,212 @@ const StoreManagerPage: React.FC<StoreManagerPageProps> = ({
                       </div>
 
                       <div className="flex flex-col gap-3 shrink-0 w-full lg:w-auto min-w-[240px]">
-                        {sale.status === OrderStatus.WAITLIST && (
-                          <button
-                            onClick={async () => {
-                              await updateSaleStatus(
-                                sale.id,
-                                OrderStatus.PROCESSING,
-                              );
-                              loadData();
-                              showAlert(
-                                "Status atualizado para: EM PROCESSAMENTO",
-                                { type: "success" },
-                              );
-                            }}
-                            className="bg-purple-600 shadow-purple-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-purple-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
-                          >
-                            <ArrowPathIcon className="h-5 w-5" /> Iniciar
-                            Processamento
-                          </button>
-                        )}
-
-                        {sale.status === OrderStatus.PROCESSING && (
-                          <button
-                            onClick={() =>
-                              setTrackingModal({ saleId: sale.id })
-                            }
-                            className="bg-blue-600 shadow-blue-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-blue-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
-                          >
-                            <TruckIcon className="h-5 w-5" />{" "}
-                            {sale.trackingCode
-                              ? "Atualizar Rastreio"
-                              : "Marcar como Enviado"}
-                          </button>
-                        )}
-
-                        {sale.status === OrderStatus.SHIPPING && (
-                          <button
-                            onClick={async () => {
-                              await updateSaleStatus(
-                                sale.id,
-                                OrderStatus.DELIVERED,
-                              );
-                              loadData();
-                              showAlert(
-                                "Status atualizado: PRODUTO NO DESTINO",
-                                { type: "success" },
-                              );
-                            }}
-                            className="bg-emerald-600 shadow-emerald-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-emerald-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
-                          >
-                            <CheckBadgeIcon className="h-5 w-5" /> Chegou ao
-                            Destino
-                          </button>
-                        )}
-
-                        {sale.status === OrderStatus.DELIVERED && (
-                          <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-500/20 p-5 rounded-[1.8rem] text-center">
-                            <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">
-                              Aguardando Cliente Confirmar Recebimento
+                        {sale.returnRequested && (
+                          <div className="bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/20 p-6 rounded-[2rem] space-y-4 w-full mb-3 text-left">
+                            <p className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 tracking-wider flex items-center gap-2">
+                              <ArrowUturnLeftIcon className="h-4 w-4 animate-pulse" /> Solicitada Devolução / Reembolso
                             </p>
+                            
+                            <div className="space-y-2">
+                              <div>
+                                <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold block">Motivo:</span>
+                                <p className="text-xs font-black text-gray-800 dark:text-gray-100">{sale.returnReason}</p>
+                              </div>
+                              {sale.returnDetails && (
+                                <div>
+                                  <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold block">Explicação do Cliente:</span>
+                                  <p className="text-xs font-medium text-gray-600 dark:text-gray-300 leading-relaxed">{sale.returnDetails}</p>
+                                </div>
+                              )}
+                            </div>
+
+                            {sale.returnStatus === 'PENDING' ? (
+                              <div className="pt-4 border-t border-amber-500/15 space-y-4">
+                                <div>
+                                  <label className="text-[10px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Escrever Justificativa (Opcional):</label>
+                                  <textarea
+                                    id={`explanation-${sale.id}`}
+                                    placeholder="Escreva os detalhes ou termos acordados..."
+                                    className="w-full bg-white dark:bg-white/5 border border-gray-100 dark:border-white/10 p-4 rounded-2xl text-xs font-medium focus:ring-4 focus:ring-blue-600/10 outline-none"
+                                  />
+                                </div>
+
+                                <div className="flex gap-3">
+                                  <button
+                                    onClick={async () => {
+                                      const el = document.getElementById(`explanation-${sale.id}`) as HTMLTextAreaElement;
+                                      const exp = el?.value || '';
+                                      const confirm = await showConfirm(
+                                        "Deseja rejeitar esta devolução/reembolso? Se fizer isso, a venda continuará ativa em seu histórico e o cliente será notificado.",
+                                        { title: "Recusar Devolução", confirmText: "Recusar Devolução", cancelText: "Voltar" }
+                                      );
+                                      if (confirm) {
+                                        try {
+                                          showLoading("Atualizando status...");
+                                          const ok = await processProductReturnDecision(sale.id, 'REJECTED', exp);
+                                          if (ok) {
+                                            showAlert("Devolução recusada com sucesso.", { type: 'success' });
+                                            loadData();
+                                          } else {
+                                            showAlert("Erro ao processar recusão.", { type: 'error' });
+                                          }
+                                        } finally {
+                                          hideLoading();
+                                        }
+                                      }
+                                    }}
+                                    className="flex-1 py-4 bg-red-600/10 text-red-500 hover:bg-red-600 hover:text-white rounded-2xl transition-all font-black uppercase text-[10px] tracking-wider active:scale-95 text-center cursor-pointer"
+                                  >
+                                    Recusar
+                                  </button>
+                                  
+                                  <button
+                                    onClick={async () => {
+                                      const el = document.getElementById(`explanation-${sale.id}`) as HTMLTextAreaElement;
+                                      const exp = el?.value || '';
+                                      const confirm = await showConfirm(
+                                        `Tem certeza que deseja aceitar a devolução e reembolsar esta compra? O valor total da compra (${formatCurrency(sale.saleAmount)}) será deduzido do seu saldo e estornado de volta ao comprador. Esta ação é irreversível.`,
+                                        { title: "Aprovar Devolução & Reembolso", confirmText: "Aprovar e Estornar", cancelText: "Voltar", type: "warning" }
+                                      );
+                                      if (confirm) {
+                                        try {
+                                          showLoading("Estornando fundos...");
+                                          const ok = await processProductReturnDecision(sale.id, 'APPROVED', exp);
+                                          if (ok) {
+                                            showAlert("Devolução e Reembolso aprovados! Os fundos foram devolvidos ao cliente.", { type: 'success' });
+                                            loadData();
+                                          } else {
+                                            showAlert("Erro ao aprovar devolução. Verifique o saldo.", { type: 'error' });
+                                          }
+                                        } catch (err: any) {
+                                          showError(err.message || "Erro ao aprovar devolução.");
+                                        } finally {
+                                          hideLoading();
+                                        }
+                                      }
+                                    }}
+                                    className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 font-bold text-white rounded-2xl transition-all uppercase text-[10px] tracking-wider active:scale-95 text-center shadow-lg shadow-emerald-500/10 cursor-pointer"
+                                  >
+                                    Aprovar & Estornar
+                                  </button>
+                                </div>
+                              </div>
+                            ) : sale.returnStatus === 'APPROVED' ? (
+                              <div className="p-4 bg-emerald-500/10 border border-emerald-500/10 rounded-[1.4rem]">
+                                <p className="text-[10px] font-black uppercase text-emerald-600 dark:text-emerald-400 tracking-wider">Devolução Aprovada e Reembolsada</p>
+                                <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1 leading-snug">O estorno total de {formatCurrency(sale.saleAmount)} foi realizado para o cliente.</p>
+                                {sale.sellerExplanation && (
+                                  <p className="text-[11px] text-gray-400 font-semibold mt-2 border-t border-emerald-500/10 pt-2 selection:bg-emerald-500/10">Sua Justificativa: <span className="font-medium text-gray-600 dark:text-gray-300">{sale.sellerExplanation}</span></p>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="p-4 bg-red-500/10 border border-red-500/10 rounded-[1.4rem]">
+                                <p className="text-[10px] font-black uppercase text-red-500 tracking-wider">Devolução Recusada</p>
+                                <p className="text-xs text-red-700 dark:text-red-400 mt-1 leading-snug">Você recusou esta solicitação de devolução.</p>
+                                {sale.sellerExplanation && (
+                                  <p className="text-[11px] text-gray-400 font-semibold mt-2 border-t border-red-500/10 pt-2">Sua Justificativa: <span className="font-medium text-gray-650 dark:text-gray-300">{sale.sellerExplanation}</span></p>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )}
 
-                        {!sale.fundsReleased && sale.status !== OrderStatus.CANCELED && (
-                          <button
-                            onClick={async () => {
-                              const confirm = await showConfirm(
-                                `Deseja liberar manualmente os fundos (KZ ${Number(sale.sellerEarnings || 0).toLocaleString()}) desta venda agora? Isso creditará o saldo diretamente em sua carteira.`,
-                                {
-                                  title: "Liberar Saldo da Venda",
-                                  confirmText: "Sim, Liberar Saldo",
-                                  cancelText: "Cancelar",
-                                  type: "warning"
-                                }
-                              );
-                              if (confirm) {
-                                try {
-                                  showLoading("Liberando fundos...");
-                                  await releaseFundsToSeller(sale.id);
-                                  await updateSaleStatus(sale.id, OrderStatus.COMPLETED);
+                        {(!sale.returnRequested || sale.returnStatus === 'REJECTED') && (
+                          <>
+                            {sale.status === OrderStatus.WAITLIST && (
+                              <button
+                                onClick={async () => {
+                                  await updateSaleStatus(
+                                    sale.id,
+                                    OrderStatus.PROCESSING,
+                                  );
                                   loadData();
-                                  showAlert("Saldo creditado com sucesso em sua carteira!", { type: "success" });
-                                } catch (err: any) {
-                                  showError(err.message || "Erro ao liberar saldo.");
-                                } finally {
-                                  hideLoading();
+                                  showAlert(
+                                    "Status atualizado para: EM PROCESSAMENTO",
+                                    { type: "success" },
+                                  );
+                                }}
+                                className="bg-purple-600 shadow-purple-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-purple-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
+                              >
+                                <ArrowPathIcon className="h-5 w-5" /> Iniciar
+                                Processamento
+                              </button>
+                            )}
+
+                            {sale.status === OrderStatus.PROCESSING && (
+                              <button
+                                onClick={() =>
+                                  setTrackingModal({ saleId: sale.id })
                                 }
-                              }
-                            }}
-                            className="bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-[1.8rem] font-bold text-[11px] uppercase tracking-wider flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all w-full mt-3 shadow-lg shadow-green-600/20"
-                          >
-                            <CheckBadgeIcon className="h-4 w-4" /> Liberar Saldo da Venda
-                          </button>
+                                className="bg-blue-600 shadow-blue-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-blue-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
+                              >
+                                <TruckIcon className="h-5 w-5" />{" "}
+                                {sale.trackingCode
+                                  ? "Atualizar Rastreio"
+                                  : "Marcar como Enviado"}
+                              </button>
+                            )}
+
+                            {sale.status === OrderStatus.SHIPPING && (
+                              <button
+                                onClick={async () => {
+                                  await updateSaleStatus(
+                                    sale.id,
+                                    OrderStatus.DELIVERED,
+                                  );
+                                  loadData();
+                                  showAlert(
+                                    "Status atualizado: PRODUTO NO DESTINO",
+                                    { type: "success" },
+                                  );
+                                }}
+                                className="bg-emerald-600 shadow-emerald-600/30 text-white px-8 py-5 rounded-[1.8rem] font-black text-[11px] uppercase shadow-2xl flex items-center justify-center gap-3 hover:bg-emerald-700 hover:scale-[1.02] active:scale-95 transition-all w-full"
+                              >
+                                <CheckBadgeIcon className="h-5 w-5" /> Chegou ao
+                                Destino
+                              </button>
+                            )}
+
+                            {sale.status === OrderStatus.DELIVERED && (
+                              <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-500/20 p-5 rounded-[1.8rem] text-center">
+                                <p className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">
+                                  Aguardando Cliente Confirmar Recebimento
+                                </p>
+                              </div>
+                            )}
+
+                            {!sale.fundsReleased && sale.status !== OrderStatus.CANCELED && (
+                              <button
+                                onClick={async () => {
+                                  const confirm = await showConfirm(
+                                    `Deseja liberar manualmente os fundos (KZ ${Number(sale.sellerEarnings || 0).toLocaleString()}) desta venda agora? Isso creditará o saldo diretamente em sua carteira.`,
+                                    {
+                                      title: "Liberar Saldo da Venda",
+                                      confirmText: "Sim, Liberar Saldo",
+                                      cancelText: "Cancelar",
+                                      type: "warning"
+                                    }
+                                  );
+                                  if (confirm) {
+                                    try {
+                                      showLoading("Liberando fundos...");
+                                      await releaseFundsToSeller(sale.id);
+                                      await updateSaleStatus(sale.id, OrderStatus.COMPLETED);
+                                      loadData();
+                                      showAlert("Saldo creditado com sucesso em sua carteira!", { type: "success" });
+                                    } catch (err: any) {
+                                      showError(err.message || "Erro ao liberar saldo.");
+                                    } finally {
+                                      hideLoading();
+                                    }
+                                  }
+                                }}
+                                className="bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-[1.8rem] font-bold text-[11px] uppercase tracking-wider flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all w-full mt-3 shadow-lg shadow-green-600/20"
+                              >
+                                <CheckBadgeIcon className="h-4 w-4" /> Liberar Saldo da Venda
+                              </button>
+                            )}
+                          </>
                         )}
 
                         {(sale.status === OrderStatus.CANCELED ||
